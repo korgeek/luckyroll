@@ -202,3 +202,4 @@ dist
 vite.config.js
 vite.config.d.ts
 .superpowers/
+.worktrees/
