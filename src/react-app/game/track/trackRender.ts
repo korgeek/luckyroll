@@ -16,21 +16,27 @@ const edgeVertex = (geometry: TrackGeometry, sampleIndex: number, column: number
 
 const createRimLines = (geometry: TrackGeometry): THREE.LineSegments => {
   const positions: number[] = [];
+  const colors: number[] = [];
   const lastColumn = geometry.profileSegments;
+  const deepRim = new THREE.Color("#18334a");
+  const softRim = new THREE.Color("#2c5b67");
 
   for (let index = 1; index < geometry.samples.length; index += 1) {
     for (const column of [0, lastColumn]) {
       const previous = edgeVertex(geometry, index - 1, column);
       const current = edgeVertex(geometry, index, column);
       positions.push(previous.x, previous.y, previous.z, current.x, current.y, current.z);
+      const color = Math.floor(index / 5) % 2 === 0 ? deepRim : softRim;
+      colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
     }
   }
 
   const rimGeometry = new THREE.BufferGeometry();
   rimGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  rimGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   const rims = new THREE.LineSegments(
     rimGeometry,
-    new THREE.LineBasicMaterial({ color: "#18334a", transparent: true, opacity: 0.95 }),
+    new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 }),
   );
   rims.name = "u-channel-dark-rims";
   return rims;
@@ -75,6 +81,67 @@ const createDividerMesh = (geometry: TrackGeometry): THREE.Mesh | undefined => {
 
 const addSegment = (positions: number[], start: Vec3, end: Vec3): void => {
   positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+};
+
+const createCheckpointHelpers = (samples: readonly TrackSample[]): THREE.Group => {
+  const checkpoints = ["A", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+  const markers = new THREE.Group();
+  markers.name = "track-debug-checkpoint-markers";
+  const labels = new THREE.Group();
+  labels.name = "track-debug-checkpoint-labels";
+  checkpoints.forEach((checkpoint, index) => {
+    const sample = samples[Math.round(index * (samples.length - 1) / (checkpoints.length - 1))];
+    if (!sample) return;
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), new THREE.MeshBasicMaterial({ color: "#ff5f9b" }));
+    marker.position.set(sample.position.x, sample.position.y + 1.2, sample.position.z);
+    marker.name = `track-debug-checkpoint-${checkpoint}`;
+    marker.userData.checkpoint = checkpoint;
+    markers.add(marker);
+    const labelMaterial = new THREE.SpriteMaterial({ color: "#ffffff", depthTest: false, depthWrite: false });
+    if (!navigator.userAgent.includes("jsdom")) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 160; canvas.height = 72;
+      const context = canvas.getContext("2d");
+      if (context) {
+        context.fillStyle = "#153c4a"; context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#ffffff"; context.font = "bold 46px system-ui"; context.textAlign = "center"; context.textBaseline = "middle";
+        context.fillText(checkpoint, canvas.width / 2, canvas.height / 2);
+        labelMaterial.map = new THREE.CanvasTexture(canvas);
+      }
+    }
+    const label = new THREE.Sprite(labelMaterial);
+    label.position.set(sample.position.x, sample.position.y + 2.15, sample.position.z);
+    label.scale.set(2.1, 0.95, 1);
+    label.name = `track-debug-checkpoint-label-${checkpoint}`;
+    label.userData.label = checkpoint;
+    labels.add(label);
+  });
+  const group = new THREE.Group();
+  group.add(markers, labels);
+  return group;
+};
+
+const createSplitterClearanceHelper = (samples: readonly TrackSample[]): THREE.LineSegments => {
+  const positions: number[] = [];
+  const splitter = samples.filter((sample) => sample.zone === "splitter");
+  const focus = splitter[Math.floor(splitter.length / 2)];
+  if (focus) {
+    addSegment(positions, {
+      x: focus.position.x - focus.side.x * focus.width / 2,
+      y: focus.position.y - focus.side.y * focus.width / 2 + 0.25,
+      z: focus.position.z - focus.side.z * focus.width / 2,
+    }, {
+      x: focus.position.x + focus.side.x * focus.width / 2,
+      y: focus.position.y + focus.side.y * focus.width / 2 + 0.25,
+      z: focus.position.z + focus.side.z * focus.width / 2,
+    });
+  }
+  const helper = new THREE.LineSegments(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)),
+    new THREE.LineBasicMaterial({ color: "#8f6bff", depthTest: false }),
+  );
+  helper.name = "track-debug-splitter-clearance";
+  return helper;
 };
 
 export const createTrackDebugGroup = (samples: readonly TrackSample[]): THREE.Group => {
@@ -124,7 +191,7 @@ export const createTrackDebugGroup = (samples: readonly TrackSample[]): THREE.Gr
     new THREE.LineBasicMaterial({ color: "#ff5f9b" }),
   );
   zones.name = "track-debug-zones";
-  group.add(frames, zones);
+  group.add(frames, zones, createCheckpointHelpers(samples), createSplitterClearanceHelper(samples));
   return group;
 };
 
@@ -159,7 +226,10 @@ export const disposeTrackRenderGroup = (group: THREE.Object3D): void => {
     if ("geometry" in renderObject && renderObject.geometry instanceof THREE.BufferGeometry) geometries.add(renderObject.geometry);
     if ("material" in renderObject) {
       const value = renderObject.material;
-      (Array.isArray(value) ? value : [value]).forEach((material) => materials.add(material));
+      (Array.isArray(value) ? value : [value]).forEach((material) => {
+        materials.add(material);
+        (material as THREE.Material & { map?: THREE.Texture }).map?.dispose();
+      });
     }
   });
   geometries.forEach((item) => item.dispose());

@@ -24,6 +24,14 @@ describe("track renderer", () => {
     expect(group.children.filter((child) => child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh))).toHaveLength(1);
   });
 
+  it("renders readable striped dark rim accents without adding another track mesh", () => {
+    const group = createTrackRenderGroup(buildValidatedTrack().geometry);
+    const rims = group.getObjectByName("u-channel-dark-rims") as THREE.LineSegments;
+
+    expect(rims.geometry.getAttribute("color")).toBeDefined();
+    expect(rims.geometry.getAttribute("color").count).toBeGreaterThan(2);
+  });
+
   it("renders the rounded divider from the exact validated feature buffers", () => {
     const built = buildValidatedTrack({ features: true });
     const group = createTrackRenderGroup(built.geometry);
@@ -39,5 +47,15 @@ describe("track renderer", () => {
     const group = createTrackRenderGroup(buildValidatedTrack().geometry);
 
     expect(group.getObjectByName("track-debug")).toBeUndefined();
+  });
+
+  it("adds named centerline, checkpoint, splitter, and frame helpers only when debug is enabled", () => {
+    const group = createTrackRenderGroup(buildValidatedTrack({ features: true }).geometry, { debug: true });
+
+    expect(group.getObjectByName("track-debug-centerline")).toBeDefined();
+    expect(group.getObjectByName("track-debug-frames")).toBeDefined();
+    expect(group.getObjectByName("track-debug-checkpoint-markers")).toBeDefined();
+    expect(group.getObjectByName("track-debug-checkpoint-labels")).toBeDefined();
+    expect(group.getObjectByName("track-debug-splitter-clearance")).toBeDefined();
   });
 });

@@ -21,9 +21,20 @@ Open `http://127.0.0.1:5173`.
 ## Checks
 
 ```bash
+npm test -- --run src/react-app/game/track
 npm test -- --run
 npm run build
 ```
+
+## Track debug views
+
+Run the development server, then open the deterministic local debug controls:
+
+```text
+http://127.0.0.1:5173/?trackDebug=1
+```
+
+The **Top**, **Side**, and **Profile** buttons pause the race and hold their named camera view. **Resume** restores the production camera and physics. The debug-only overlay reports FPS, draw calls, triangles, active/finished marbles, and the current shot for mobile-viewport capture.
 
 ## Sound
 

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { attachSceneTrackCollider, createSceneStartLifecycle, createSceneTrackResources, evaluateRaceBody, initializeScenePhysics, hasFinishedTrack, projectRaceBody } from "./MarbleRaceScene";
+import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverlay, createSceneStartLifecycle, createSceneTrackResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, projectRaceBody } from "./MarbleRaceScene";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -13,6 +13,40 @@ const deferred = <Value,>() => {
 };
 
 describe("continuous-track scene seams", () => {
+
+  it("parses only the explicit track-debug query flag", () => {
+    expect(isTrackDebugEnabled("?trackDebug=1")).toBe(true);
+    expect(isTrackDebugEnabled("?trackDebug=0")).toBe(false);
+    expect(isTrackDebugEnabled("?debug=1")).toBe(false);
+  });
+
+  it("holds a selected fixed debug view until Resume returns production camera updates", () => {
+    const debug = createDebugCameraState(true);
+
+    debug.select("side");
+    expect(debug.activeShot()).toBe("side");
+    expect(debug.isPaused()).toBe(true);
+    debug.resume();
+    expect(debug.isPaused()).toBe(false);
+  });
+
+  it("renders deterministic English debug buttons and throttles overlay DOM updates", () => {
+    const mount = document.createElement("div");
+    const debug = createDebugCameraState(true);
+    const overlay = createSceneDebugOverlay(mount, debug);
+
+    expect(Array.from(mount.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Top", "Side", "Profile", "Resume"]);
+    expect(overlay.update({ fps: 31, drawCalls: 5, triangles: 1_024, active: 100, finished: 0, shot: "overview" }, 1_000)).toBe(true);
+    expect(overlay.update({ fps: 30, drawCalls: 6, triangles: 1_024, active: 99, finished: 1, shot: "leader" }, 1_100)).toBe(false);
+    expect(mount.textContent).toContain("FPS 31");
+    overlay.dispose();
+    expect(mount.childElementCount).toBe(0);
+  });
+
+  it("does not count time spent holding a debug view before the first resume", () => {
+    expect(getRaceElapsedMs(5_000, 1_000, 0, 1_000, true)).toBe(0);
+    expect(getRaceElapsedMs(5_000, 1_000, 4_000, 0, false)).toBe(0);
+  });
   it("shares the canonical geometry with the browser render group", () => {
     const resources = createSceneTrackResources();
     const mesh = resources.renderGroup.getObjectByName("continuous-u-channel") as THREE.Mesh;
