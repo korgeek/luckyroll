@@ -61,6 +61,7 @@ export type TrackValidationFailure = Readonly<{
     | "winding"
     | "disconnected"
     | "non-finite"
+    | "invalid-level"
     | "clearance"
     | "rail-gap"
     | "finish-entry";

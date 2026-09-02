@@ -237,6 +237,30 @@ const insertNonFiniteGeometrySample = (fixture: TrackFixture): TrackFixture => {
   return broken;
 };
 
+const insertNonFiniteNodeLevel = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.spec = {
+    ...broken.spec,
+    nodes: broken.spec.nodes.map((node, index) =>
+      index === 1 ? { ...node, level: Number.NaN as unknown as 1 } : node,
+    ),
+  };
+  void fixture;
+  return broken;
+};
+
+const insertOutOfDomainNodeLevel = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.spec = {
+    ...broken.spec,
+    nodes: broken.spec.nodes.map((node, index) =>
+      index === 1 ? { ...node, level: 4 as unknown as 1 } : node,
+    ),
+  };
+  void fixture;
+  return broken;
+};
+
 const moveEarlierApproachIntoFinish = (fixture: TrackFixture): TrackFixture => {
   const broken = buildTrackFixture();
   const finish = broken.spec.nodes[broken.spec.nodes.length - 1].position;
@@ -318,10 +342,18 @@ describe("static track validation", () => {
     ["a sample coordinate", insertNonFiniteSample],
     ["a geometry position", insertNonFiniteGeometryPosition],
     ["geometry sample metadata", insertNonFiniteGeometrySample],
+    ["a defined node level", insertNonFiniteNodeLevel],
   ])("reports non-finite for %s", (_description, mutate) => {
     const broken = mutate(valid);
     expect(validateTrack(broken.spec, broken.samples, broken.geometry)).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "non-finite" })]),
+    );
+  });
+
+  it("reports invalid-level for an out-of-domain node level", () => {
+    const broken = insertOutOfDomainNodeLevel(valid);
+    expect(validateTrack(broken.spec, broken.samples, broken.geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "invalid-level" })]),
     );
   });
 

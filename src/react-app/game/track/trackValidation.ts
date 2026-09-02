@@ -83,7 +83,8 @@ const validateFiniteData = (
         !isFiniteVector(node.position) ||
         !Number.isFinite(node.width) ||
         !Number.isFinite(node.channelDepth) ||
-        !Number.isFinite(node.bankRadians),
+        !Number.isFinite(node.bankRadians) ||
+        (node.level !== undefined && !Number.isFinite(node.level)),
     )
   ) {
     return [failure("non-finite", "Track specification contains a non-finite numeric value.")];
@@ -133,6 +134,18 @@ const validateFiniteData = (
   }
 
   return [];
+};
+
+const validateLevelDomains = (spec: TrackSpec): readonly TrackValidationFailure[] => {
+  const invalidNodeIndex = spec.nodes.findIndex(
+    (node) =>
+      node.level !== undefined &&
+      (!Number.isInteger(node.level) || node.level < 1 || node.level > 3),
+  );
+
+  return invalidNodeIndex === -1
+    ? []
+    : [failure("invalid-level", "Defined track levels must be integer tiers 1, 2, or 3.")];
 };
 
 const validateGeometryStructure = (
@@ -403,6 +416,11 @@ export const validateTrack = (
   const finiteFailures = validateFiniteData(spec, samples, geometry);
   if (finiteFailures.length > 0) {
     return finiteFailures;
+  }
+
+  const levelFailures = validateLevelDomains(spec);
+  if (levelFailures.length > 0) {
+    return levelFailures;
   }
 
   const structureFailures = validateGeometryStructure(spec, samples, geometry);
