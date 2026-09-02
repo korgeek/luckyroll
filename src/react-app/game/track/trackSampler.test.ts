@@ -27,6 +27,10 @@ describe("track centerline sampler", () => {
     expect(maxHeadingDelta(samples)).toBeLessThan(0.16);
   });
 
+  it("orients each local up vector toward the world sky", () => {
+    expect(samples.every((sample) => sample.up.y > 0)).toBe(true);
+  });
+
   it("projects A and 12 to opposite progress endpoints", () => {
     expect(projectToTrack(samples[0].position, samples).progress).toBe(0);
     expect(projectToTrack(samples[samples.length - 1].position, samples).progress).toBe(1);

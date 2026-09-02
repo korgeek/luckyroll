@@ -161,7 +161,7 @@ export const sampleTrack = (spec: TrackSpec): readonly TrackSample[] => {
       position: Object.freeze(position),
       tangent: Object.freeze(tangent),
       side: Object.freeze(bankedSide),
-      up: Object.freeze(normalize(cross(tangent, bankedSide))),
+      up: Object.freeze(normalize(cross(bankedSide, tangent))),
       width: interpolate(spec.nodes[nodeIndex].width, spec.nodes[nodeIndex + 1].width, amount),
       channelDepth: interpolate(spec.nodes[nodeIndex].channelDepth, spec.nodes[nodeIndex + 1].channelDepth, amount),
       bankRadians,
