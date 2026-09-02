@@ -496,6 +496,61 @@ describe("static track validation", () => {
     ]));
   });
 
+  it("fails closed without throwing when splitter samples are nonconsecutive", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const samples = featured.samples.map((sample, index) => ({
+      ...sample,
+      zone: (index === 554 || index === 556 ? "splitter" : "run") as typeof sample.zone,
+    }));
+
+    expect(() => validateTrack(featured.spec, samples, featured.geometry)).not.toThrow();
+    expect(validateTrack(featured.spec, samples, featured.geometry)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "feature-geometry",
+        sampleIndex: 554,
+        message: expect.stringMatching(/consecutive|strip|prerequisite/i),
+      }),
+    ]));
+  });
+
+  it("uses the indexed outer-strip diagonal for the divider's faceted surface", () => {
+    const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, dividerOffset: 5 };
+    const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
+    const samples = sampleTrack(spec);
+    const geometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
+    const indices = new Uint32Array(geometry.indices);
+    const strip = 571;
+    const rowSize = geometry.profileSegments + 1;
+    for (let column = 0; column < geometry.profileSegments; column += 1) {
+      const current = strip * rowSize + column;
+      const next = current + rowSize;
+      const indexOffset = (strip * geometry.profileSegments + column) * 6;
+      indices.set([current, current + 1, next + 1, current, next + 1, next], indexOffset);
+    }
+
+    const canonical = validateTrack(spec, samples, geometry);
+    const diagonalFlipped = validateTrack(spec, samples, { ...geometry, indices });
+
+    expect(canonical).toEqual([expect.objectContaining({
+      code: "feature-geometry",
+      sampleIndex: 571,
+      vertexIndex: 13,
+      message: expect.stringMatching(/1\.200649/),
+    })]);
+    expect(diagonalFlipped).toEqual([expect.objectContaining({
+      code: "feature-geometry",
+      sampleIndex: 571,
+      vertexIndex: 13,
+      message: expect.stringMatching(/1\.241484/),
+    })]);
+  });
+
+  it("maps a canonical divider endpoint through its adjoining splitter strip", () => {
+    const featured = buildValidatedTrack({ features: true });
+
+    expect(validateTrack(featured.spec, featured.samples, featured.geometry)).toEqual([]);
+  });
+
   it("accepts a divider footprint raised just above the faceted U surface", () => {
     const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, dividerOffset: 0 };
     const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
