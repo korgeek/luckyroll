@@ -2,7 +2,7 @@ import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import { buildValidatedTrack } from "./trackBuild";
 import { createLaunchSlots } from "./trackSpec";
 import { projectToTrack } from "./trackSampler";
-import type { LaunchSlot, PhysicalLaunchPosition, TrackGeometry, TrackSample, Vec3 } from "./trackTypes";
+import type { LaunchSlot, PhysicalLaunchPosition, TrackFeatureLayout, TrackGeometry, TrackSample, Vec3 } from "./trackTypes";
 
 const GRAVITY = { x: 0, y: -16, z: 0 };
 const TIMESTEP_SECONDS = 1 / 60;
@@ -22,12 +22,20 @@ const FINISH_PROGRESS = 0.995;
 type RapierModule = typeof RAPIER_TYPE;
 type RapierWorld = InstanceType<RapierModule["World"]>;
 type RapierBody = ReturnType<RapierWorld["createRigidBody"]>;
+type RapierCollider = ReturnType<RapierWorld["createCollider"]>;
+
+export type TrackColliderResources = Readonly<{
+  body: RapierBody;
+  outer: RapierCollider;
+  divider?: RapierCollider;
+}>;
 
 export type MarbleFailure = Readonly<{
   seed: number;
   marbleId: number;
   elapsedMs: number;
   position: Vec3;
+  velocity: Vec3;
   nearestSampleIndex: number;
   category: "escape" | "stall";
 }>;
@@ -44,7 +52,11 @@ export type ValidationRaceOptions = Readonly<{
   seed: number;
   marbleCount: number;
   durationSeconds: number;
+  features?: boolean;
+  featureLayout?: TrackFeatureLayout;
 }>;
+
+export const FIXED_VALIDATION_SEEDS = Object.freeze([11, 23, 37, 41, 53, 67, 71, 83, 97, 101]);
 
 let rapier: RapierModule | undefined;
 let initialized: Promise<RapierModule> | undefined;
@@ -91,13 +103,18 @@ export const insideFinishVolume = (position: Vec3, finish: TrackSample): boolean
 export const createTrackCollider = (
   world: RapierWorld,
   geometry: TrackGeometry,
-): ReturnType<RapierWorld["createCollider"]> => {
+): TrackColliderResources => {
   const module = getRapier();
   const body = world.createRigidBody(module.RigidBodyDesc.fixed());
-  const collider = module.ColliderDesc.trimesh(geometry.positions, geometry.indices)
+  const outer = world.createCollider(module.ColliderDesc.trimesh(geometry.positions, geometry.indices)
     .setFriction(MARBLE_FRICTION)
-    .setRestitution(MARBLE_RESTITUTION);
-  return world.createCollider(collider, body);
+    .setRestitution(MARBLE_RESTITUTION), body);
+  const divider = geometry.featureIndices.length === 0
+    ? undefined
+    : world.createCollider(module.ColliderDesc.trimesh(geometry.featurePositions, geometry.featureIndices)
+      .setFriction(MARBLE_FRICTION)
+      .setRestitution(MARBLE_RESTITUTION), body);
+  return Object.freeze({ body, outer, ...(divider === undefined ? {} : { divider }) });
 };
 
 export const createMarbleBodies = (
@@ -212,7 +229,7 @@ export const runValidationRace = async (
   options: ValidationRaceOptions,
 ): Promise<ValidationRaceResult> => {
   await initializeTrackPhysics();
-  const built = buildValidatedTrack();
+  const built = buildValidatedTrack({ features: options.features ?? false, featureLayout: options.featureLayout });
   const world = createTrackPhysicsWorld();
   world.timestep = TIMESTEP_SECONDS;
   createTrackCollider(world, built.geometry);
@@ -250,6 +267,7 @@ export const runValidationRace = async (
           marbleId,
           elapsedMs,
           position,
+          velocity: toVec3(body.linvel()),
           nearestSampleIndex: projection.sampleIndex,
           category: "escape",
         });
@@ -266,6 +284,7 @@ export const runValidationRace = async (
           marbleId,
           elapsedMs,
           position,
+          velocity: toVec3(body.linvel()),
           nearestSampleIndex: projection.sampleIndex,
           category: "stall",
         });
@@ -294,4 +313,19 @@ export const runValidationRace = async (
     escapes: Object.freeze(escapes),
     stalls: Object.freeze(stalls),
   });
+};
+
+export const runValidationSuite = async (
+  options: Readonly<{ features?: boolean }> = {},
+): Promise<readonly ValidationRaceResult[]> => {
+  const results: ValidationRaceResult[] = [];
+  for (const seed of FIXED_VALIDATION_SEEDS) {
+    results.push(await runValidationRace({
+      seed,
+      marbleCount: 100,
+      durationSeconds: 60,
+      features: options.features ?? false,
+    }));
+  }
+  return Object.freeze(results);
 };

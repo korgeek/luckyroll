@@ -1,7 +1,7 @@
 import { generateTrackGeometry } from "./trackGeometry";
 import { sampleTrack } from "./trackSampler";
-import { createLuckyRollTrackSpec } from "./trackSpec";
-import type { TrackGeometry, TrackSample, TrackSpec } from "./trackTypes";
+import { createLuckyRollTrackSpec, DEFAULT_TRACK_FEATURE_LAYOUT } from "./trackSpec";
+import type { TrackFeatureLayout, TrackGeometry, TrackSample, TrackSpec } from "./trackTypes";
 import { assertValidTrack } from "./trackValidation";
 
 export type BuiltTrack = Readonly<{
@@ -10,10 +10,11 @@ export type BuiltTrack = Readonly<{
   geometry: TrackGeometry;
 }>;
 
-export const buildValidatedTrack = (options: { features?: boolean } = {}): BuiltTrack => {
+export const buildValidatedTrack = (options: { features?: boolean; featureLayout?: TrackFeatureLayout } = {}): BuiltTrack => {
   const spec = createLuckyRollTrackSpec(options);
   const samples = sampleTrack(spec);
-  const geometry = generateTrackGeometry(samples, spec.profileSegments);
+  const featureLayout = options.features ? options.featureLayout ?? DEFAULT_TRACK_FEATURE_LAYOUT : undefined;
+  const geometry: TrackGeometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
   assertValidTrack(spec, samples, geometry);
 
   return Object.freeze({ spec, samples, geometry });

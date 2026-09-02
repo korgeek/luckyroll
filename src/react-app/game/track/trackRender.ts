@@ -58,6 +58,21 @@ const createSupports = (samples: readonly TrackSample[]): THREE.InstancedMesh =>
   return supports;
 };
 
+const createDividerMesh = (geometry: TrackGeometry): THREE.Mesh | undefined => {
+  if (geometry.featureIndices.length === 0) return undefined;
+  const dividerGeometry = new THREE.BufferGeometry();
+  dividerGeometry.setAttribute("position", new THREE.BufferAttribute(geometry.featurePositions, 3));
+  dividerGeometry.setAttribute("normal", new THREE.BufferAttribute(geometry.featureNormals, 3));
+  dividerGeometry.setIndex(new THREE.BufferAttribute(geometry.featureIndices, 1));
+  dividerGeometry.computeBoundingSphere();
+  const divider = new THREE.Mesh(
+    dividerGeometry,
+    new THREE.MeshStandardMaterial({ color: "#f6c24d", roughness: 0.42, metalness: 0.08, side: THREE.DoubleSide }),
+  );
+  divider.name = "rounded-mixing-divider";
+  return divider;
+};
+
 const addSegment = (positions: number[], start: Vec3, end: Vec3): void => {
   positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
 };
@@ -129,7 +144,9 @@ export const createTrackRenderGroup = (
     new THREE.MeshStandardMaterial({ color: "#45d8ca", roughness: 0.48, metalness: 0.06, side: THREE.DoubleSide }),
   );
   surface.name = "continuous-u-channel";
+  const divider = createDividerMesh(geometry);
   group.add(surface, createRimLines(geometry), createSupports(geometry.samples));
+  if (divider !== undefined) group.add(divider);
   if (options.debug === true) group.add(createTrackDebugGroup(geometry.samples));
   return group;
 };

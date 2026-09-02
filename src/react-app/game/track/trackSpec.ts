@@ -1,9 +1,22 @@
-import type { LaunchSlot, TrackNode, TrackSpec, TrackZone } from "./trackTypes";
+import type { LaunchSlot, TrackFeatureLayout, TrackNode, TrackSpec, TrackZone } from "./trackTypes";
 
 const HORIZONTAL_SCALE = 0.5;
 const WIDTH_SCALE = 0.5;
 const DOWNHILL_GRADE = 0.245;
 const INITIAL_A_HEIGHT = 28;
+export const DEFAULT_TRACK_FEATURE_LAYOUT: TrackFeatureLayout = Object.freeze({
+  hallWidth: 18,
+  dividerRadius: 0.45,
+  dividerLength: 2,
+  dividerHeight: 2.1,
+  dividerOffset: 0,
+  featureGrade: 0.28,
+  edgeLift: 0.5,
+  edgeLiftStartSample: 575,
+  edgeLiftEndSample: 610,
+  edgeLiftTaperSamples: 8,
+  edgeLiftSide: "right",
+});
 type RawNode = Readonly<{
   id: string;
   checkpoint: TrackNode["checkpoint"];
@@ -18,7 +31,7 @@ type RawNode = Readonly<{
 const rawNode = (id: string, checkpoint: TrackNode["checkpoint"], level: TrackNode["level"], x: number, z: number, width: number, channelDepth: number, zone: TrackZone): RawNode =>
   Object.freeze({ id, checkpoint, level, x, z, width, channelDepth, zone });
 
-const buildNodes = (source: readonly RawNode[]): readonly TrackNode[] => {
+const buildNodes = (source: readonly RawNode[], downhillGrade = DOWNHILL_GRADE): readonly TrackNode[] => {
   let previous: { x: number; y: number; z: number } | undefined;
 
   return Object.freeze(source.map((entry) => {
@@ -26,7 +39,7 @@ const buildNodes = (source: readonly RawNode[]): readonly TrackNode[] => {
     const z = entry.z * HORIZONTAL_SCALE;
     const y = previous === undefined
       ? INITIAL_A_HEIGHT
-      : previous.y - Math.hypot(x - previous.x, z - previous.z) * DOWNHILL_GRADE;
+      : previous.y - Math.hypot(x - previous.x, z - previous.z) * downhillGrade;
     previous = { x, y, z };
 
     return Object.freeze({
@@ -43,7 +56,7 @@ const buildNodes = (source: readonly RawNode[]): readonly TrackNode[] => {
 };
 
 // Guide nodes round hairpins without adding checkpoints.
-const nodes: readonly TrackNode[] = buildNodes([
+const rawNodes: readonly RawNode[] = [
   rawNode("A", "A", 3, 0, 72, 18, 2.8, "launch"), rawNode("1", "1", 3, -30, 72, 16, 2.6, "launch"),
   rawNode("2", "2", 3, -34, 34, 12, 2.3, "run"), rawNode("3", "3", 3, 30, 26, 12, 2.3, "run"),
   rawNode("4", "4", 3, 31, -34, 12, 2.4, "run"), rawNode("4-bend-entry", undefined, undefined, 42, -39, 12, 2.5, "run"),
@@ -62,13 +75,29 @@ const nodes: readonly TrackNode[] = buildNodes([
   rawNode("10-return-apex", undefined, undefined, 54, 10, 12, 2.4, "run"), rawNode("10-return-sweep", undefined, undefined, 46, -5, 12, 2.4, "run"),
   rawNode("10-return-exit", undefined, undefined, 30, -12, 12, 2.4, "run"), rawNode("10-return", undefined, undefined, 16, -7, 12, 2.4, "run"),
   rawNode("11", "11", 1, 5, 48, 12, 2.4, "run"), rawNode("12", "12", 1, -4, 64, 14, 2.6, "finish"),
-]);
+];
+const nodes: readonly TrackNode[] = buildNodes(rawNodes);
 
 const cloneNode = (source: TrackNode): TrackNode => Object.freeze({ ...source, position: Object.freeze({ ...source.position }) });
 
-export const createLuckyRollTrackSpec = (options: { features?: boolean } = {}): TrackSpec => {
-  const features = options.features ?? false; void features;
-  return Object.freeze({ nodes: Object.freeze(nodes.map(cloneNode)), sampleSpacing: 0.5, profileSegments: 8 });
+export const createLuckyRollTrackSpec = (options: { features?: boolean; featureLayout?: TrackFeatureLayout } = {}): TrackSpec => {
+  const features = options.features ?? false;
+  const layout = options.featureLayout ?? DEFAULT_TRACK_FEATURE_LAYOUT;
+  const sourceNodes = features && layout.featureGrade !== undefined
+    ? buildNodes(rawNodes, layout.featureGrade)
+    : nodes;
+  const featureHallIds = new Set(["9-return-final-sweep", "10", "10-exit", "10-sweep"]);
+  const featureNodes = sourceNodes.map((node) => {
+    const cloned = cloneNode(node);
+    if (!features || !featureHallIds.has(cloned.id)) return cloned;
+    return Object.freeze({
+      ...cloned,
+      width: layout.hallWidth,
+      channelDepth: Math.max(cloned.channelDepth, 4),
+      zone: cloned.id === "10" || cloned.id === "10-exit" ? "splitter" as const : "mixing-hall" as const,
+    });
+  });
+  return Object.freeze({ nodes: Object.freeze(featureNodes), sampleSpacing: 0.5, profileSegments: 8 });
 };
 
 export const createLaunchSlots = (count = 100): readonly LaunchSlot[] => {

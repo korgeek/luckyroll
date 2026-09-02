@@ -400,4 +400,41 @@ describe("static track validation", () => {
     expect(built.geometry.samples).toBe(built.samples);
   });
 
+  it.each([
+    ["a non-finite divider vertex", (geometry: TrackGeometry) => {
+      const featurePositions = new Float32Array(geometry.featurePositions);
+      featurePositions[0] = Number.NaN;
+      return { ...geometry, featurePositions };
+    }],
+    ["a mismatched divider normal buffer", (geometry: TrackGeometry) => ({
+      ...geometry,
+      featureNormals: new Float32Array(geometry.featureNormals.length - 3),
+    })],
+    ["an empty divider index buffer", (geometry: TrackGeometry) => ({
+      ...geometry,
+      featureIndices: new Uint32Array(),
+    })],
+    ["an out-of-range divider index", (geometry: TrackGeometry) => {
+      const featureIndices = new Uint32Array(geometry.featureIndices);
+      featureIndices[0] = geometry.featurePositions.length / 3;
+      return { ...geometry, featureIndices };
+    }],
+    ["a degenerate divider triangle", (geometry: TrackGeometry) => {
+      const featureIndices = new Uint32Array(geometry.featureIndices);
+      featureIndices[1] = featureIndices[0];
+      return { ...geometry, featureIndices };
+    }],
+    ["an open divider edge", (geometry: TrackGeometry) => ({
+      ...geometry,
+      featureIndices: geometry.featureIndices.slice(0, -3),
+    })],
+  ])("fails closed for %s", (_description, mutate) => {
+    const featured = buildValidatedTrack({ features: true });
+    const broken = mutate(featured.geometry);
+
+    expect(validateTrack(featured.spec, featured.samples, broken)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "feature-geometry" })]),
+    );
+  });
+
 });

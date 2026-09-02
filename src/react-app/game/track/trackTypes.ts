@@ -31,6 +31,20 @@ export type TrackSpec = Readonly<{
   profileSegments: number;
 }>;
 
+export type TrackFeatureLayout = Readonly<{
+  hallWidth: number;
+  dividerRadius: number;
+  dividerLength: number;
+  dividerHeight: number;
+  dividerOffset: number;
+  featureGrade?: number;
+  edgeLift?: number;
+  edgeLiftStartSample?: number;
+  edgeLiftEndSample?: number;
+  edgeLiftTaperSamples?: number;
+  edgeLiftSide?: "both" | "right";
+}>;
+
 export type TrackSample = Readonly<{
   index: number;
   distance: number;
@@ -48,6 +62,9 @@ export type TrackGeometry = Readonly<{
   positions: Float32Array;
   normals: Float32Array;
   indices: Uint32Array;
+  featurePositions: Float32Array;
+  featureNormals: Float32Array;
+  featureIndices: Uint32Array;
   samples: readonly TrackSample[];
   profileSegments: number;
   triangleCount: number;
@@ -61,6 +78,7 @@ export type TrackValidationFailure = Readonly<{
     | "tight-turn"
     | "degenerate-triangle"
     | "geometry-structure"
+    | "feature-geometry"
     | "winding"
     | "disconnected"
     | "non-finite"

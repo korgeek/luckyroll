@@ -36,6 +36,25 @@ describe("continuous-track scene seams", () => {
     expect(received).toBe(resources.built.geometry);
   });
 
+  it("enables the validated divider in production scene resources and collider creation", async () => {
+    await initializeScenePhysics();
+    const resources = createSceneTrackResources();
+    const world = createTrackPhysicsWorld();
+
+    try {
+      const colliders = attachSceneTrackCollider(world, resources) as unknown as {
+        outer: { parent: () => unknown };
+        divider: { parent: () => unknown } | undefined;
+      };
+      expect(resources.built.geometry.featureIndices.length).toBeGreaterThan(0);
+      expect(resources.renderGroup.getObjectByName("rounded-mixing-divider")).toBeDefined();
+      expect(colliders.divider).toBeDefined();
+      expect(colliders.divider!.parent()).toBe(colliders.outer.parent());
+    } finally {
+      world.free();
+    }
+  });
+
   it("initializes the shared physics module before the scene creates its collider and marbles", async () => {
     await initializeScenePhysics();
     const resources = createSceneTrackResources();

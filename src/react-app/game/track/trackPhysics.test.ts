@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMarbleBodies, createTrackCollider, launchPositionsFor, runValidationRace } from "./trackPhysics";
+import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, initializeTrackPhysics, launchPositionsFor, runValidationRace, runValidationSuite } from "./trackPhysics";
 import { buildValidatedTrack } from "./trackBuild";
 import { exactLaunchMeshDistance } from "./trackPhysics.mesh.testSupport";
 import { createLaunchSlots } from "./trackSpec";
@@ -55,6 +55,27 @@ describe.sequential("headless track physics", () => {
     world.free();
   });
 
+  it("attaches a real divider collider to the same fixed body as the outer U-channel", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const featured = buildValidatedTrack({ features: true });
+    const colliders = createTrackCollider(world, featured.geometry) as unknown as {
+      outer: { parent: () => unknown };
+      divider: { parent: () => unknown } | undefined;
+    };
+
+    try {
+      expect(colliders.divider).toBeDefined();
+      expect(colliders.divider!.parent()).toBe(colliders.outer.parent());
+    } finally {
+      world.free();
+    }
+  });
+
+  it("exposes the ten-fixed-seed feature validation suite", () => {
+    expect(runValidationSuite).toBeTypeOf("function");
+  });
+
   it("rolls one marble from A through 12 using gravity only", async () => {
     const result = await runValidationRace({ seed: 1, marbleCount: 1, durationSeconds: 60 });
 
@@ -65,6 +86,16 @@ describe.sequential("headless track physics", () => {
     expect(result.finishTimesMs[0]).toBeLessThanOrEqual(60_000);
   });
 
+  it("rolls one marble through the production splitter in the 45–60 second feature window", async () => {
+    const result = await runValidationRace({ seed: 11, marbleCount: 1, durationSeconds: 60, features: true });
+
+    expect(result.escapes).toEqual([]);
+    expect(result.stalls).toEqual([]);
+    expect(result.finishOrder).toEqual([1]);
+    expect(result.finishTimesMs[0]).toBeGreaterThanOrEqual(45_000);
+    expect(result.finishTimesMs[0]).toBeLessThanOrEqual(60_000);
+  });
+
   it("finishes seeds 11 and 23 twice without recovery", () =>
-    validateSeedsTwice([11, 23]), 180_000);
+    validateSeedsTwice([11, 23], true), 180_000);
 });

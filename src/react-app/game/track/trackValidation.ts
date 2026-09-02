@@ -338,6 +338,82 @@ const validateGeometry = (geometry: TrackGeometry): readonly TrackValidationFail
   return failures;
 };
 
+const validateFeatureGeometry = (geometry: TrackGeometry): readonly TrackValidationFailure[] => {
+  const { featurePositions, featureNormals, featureIndices } = geometry;
+  const anyFeatureBuffer = featurePositions.length > 0 || featureNormals.length > 0 || featureIndices.length > 0;
+  if (!anyFeatureBuffer) return [];
+  const invalid = (message: string): readonly TrackValidationFailure[] => [failure("feature-geometry", message)];
+  const vertexCount = featurePositions.length / 3;
+  if (
+    featurePositions.length === 0 ||
+    featurePositions.length % 3 !== 0 ||
+    featureNormals.length !== featurePositions.length ||
+    featureIndices.length === 0 ||
+    featureIndices.length % 3 !== 0 ||
+    Array.from(featurePositions).some((value) => !Number.isFinite(value)) ||
+    Array.from(featureNormals).some((value) => !Number.isFinite(value)) ||
+    Array.from(featureIndices).some((index) => index >= vertexCount)
+  ) {
+    return invalid("Divider buffers must be finite, exact-sized, non-empty triangles with in-range indices.");
+  }
+  if (geometry.triangleCount + featureIndices.length / 3 >= 150_000) {
+    return invalid("Outer channel and divider triangles must remain below the mobile triangle budget.");
+  }
+
+  const edgeDirections = new Map<string, Array<readonly [number, number]>>();
+  const adjacency = new Map<number, Set<number>>();
+  const referenced = new Set<number>();
+  const connect = (first: number, second: number): void => {
+    (adjacency.get(first) ?? new Set<number>()).add(second);
+    (adjacency.get(second) ?? new Set<number>()).add(first);
+    if (!adjacency.has(first)) adjacency.set(first, new Set([second]));
+    if (!adjacency.has(second)) adjacency.set(second, new Set([first]));
+  };
+  const addEdge = (first: number, second: number): void => {
+    const key = first < second ? `${first}:${second}` : `${second}:${first}`;
+    const directions = edgeDirections.get(key) ?? [];
+    directions.push([first, second]);
+    edgeDirections.set(key, directions);
+  };
+  const position = (vertex: number): Vec3 => {
+    const offset = vertex * 3;
+    return { x: featurePositions[offset], y: featurePositions[offset + 1], z: featurePositions[offset + 2] };
+  };
+
+  for (let offset = 0; offset < featureIndices.length; offset += 3) {
+    const first = featureIndices[offset];
+    const second = featureIndices[offset + 1];
+    const third = featureIndices[offset + 2];
+    if (triangleArea(position(first), position(second), position(third)) <= MIN_TRIANGLE_AREA) {
+      return invalid("Divider triangles must be non-degenerate.");
+    }
+    referenced.add(first); referenced.add(second); referenced.add(third);
+    connect(first, second); connect(second, third); connect(third, first);
+    addEdge(first, second); addEdge(second, third); addEdge(third, first);
+  }
+
+  for (const directions of edgeDirections.values()) {
+    if (directions.length !== 2 || directions[0][0] !== directions[1][1] || directions[0][1] !== directions[1][0]) {
+      return invalid("Divider must be one closed component with consistently wound triangles.");
+    }
+  }
+  const firstVertex = referenced.values().next().value as number | undefined;
+  if (firstVertex === undefined) return invalid("Divider requires referenced closed geometry.");
+  const visited = new Set<number>([firstVertex]);
+  const pending = [firstVertex];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) continue;
+    for (const neighbor of adjacency.get(current) ?? []) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+  }
+  return visited.size === referenced.size ? [] : invalid("Divider indices must form one connected obstacle component.");
+};
+
 const validateClearance = (samples: readonly TrackSample[]): readonly TrackValidationFailure[] => {
   for (let firstIndex = 0; firstIndex < samples.length; firstIndex += 1) {
     const first = samples[firstIndex];
@@ -429,6 +505,7 @@ export const validateTrack = (
     ...validateSamples(spec, samples),
     ...structureFailures,
     ...(structureFailures.length === 0 ? validateGeometry(geometry) : []),
+    ...validateFeatureGeometry(geometry),
     ...validateClearance(samples),
     ...validateFinish(spec, samples),
   ];

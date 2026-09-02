@@ -33,7 +33,7 @@ type SceneStartLifecycleOptions<Request> = Readonly<{
 type SceneStartLifecycleStatus = "initializing" | "ready" | "failed";
 
 export const createSceneTrackResources = (): SceneTrackResources => {
-  const built = buildValidatedTrack();
+  const built = buildValidatedTrack({ features: true });
   return Object.freeze({ built, renderGroup: createTrackRenderGroup(built.geometry, { debug: false }) });
 };
 

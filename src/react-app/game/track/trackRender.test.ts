@@ -24,6 +24,17 @@ describe("track renderer", () => {
     expect(group.children.filter((child) => child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh))).toHaveLength(1);
   });
 
+  it("renders the rounded divider from the exact validated feature buffers", () => {
+    const built = buildValidatedTrack({ features: true });
+    const group = createTrackRenderGroup(built.geometry);
+    const divider = group.getObjectByName("rounded-mixing-divider") as THREE.Mesh;
+
+    expect(divider).toBeDefined();
+    expect(divider.geometry.getAttribute("position").array).toBe(built.geometry.featurePositions);
+    expect(divider.geometry.getAttribute("normal").array).toBe(built.geometry.featureNormals);
+    expect(divider.geometry.index!.array).toBe(built.geometry.featureIndices);
+  });
+
   it("keeps debug helpers disabled by default", () => {
     const group = createTrackRenderGroup(buildValidatedTrack().geometry);
 

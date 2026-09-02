@@ -74,13 +74,21 @@ describe("Lucky Roll track specification", () => {
     expect(slots.every((slot) => Math.abs(slot.crossOffset) <= 8.1)).toBe(true);
   });
 
-  it("keeps every non-launch channel proportional to the rescaled route", () => {
-    const normalWidths = createLuckyRollTrackSpec().nodes
-      .filter((node) => node.zone !== "launch")
-      .map((node) => node.width);
+  it("widens the checkpoint-10 hall continuously to sixteen world units", () => {
+    const spec = createLuckyRollTrackSpec({ features: true });
+    const hall = spec.nodes.filter((node) =>
+      node.id === "9-return-final-sweep" ||
+      node.id === "10" ||
+      node.id === "10-exit" ||
+      node.id === "10-sweep",
+    );
 
-    expect(Math.max(...normalWidths)).toBeLessThanOrEqual(8);
+    expect(hall).toHaveLength(4);
+    expect(hall.every((node) => node.width >= 16)).toBe(true);
+    expect(hall.filter((node) => node.zone === "splitter").map((node) => node.id)).toEqual(["10", "10-exit"]);
+    expect(createLuckyRollTrackSpec().nodes.filter((node) => node.zone === "splitter")).toEqual([]);
   });
+
 
   it("keeps ten launch columns separated inside the widened entry bay", () => {
     const spec = createLuckyRollTrackSpec();
