@@ -47,12 +47,13 @@ export type ValidationRaceOptions = Readonly<{
 }>;
 
 let rapier: RapierModule | undefined;
-let initialized: Promise<void> | undefined;
+let initialized: Promise<RapierModule> | undefined;
 
-const initializeRapier = (): Promise<void> => {
+export const initializeTrackPhysics = (): Promise<RapierModule> => {
   initialized ??= import("@dimforge/rapier3d-compat/rapier.es.js").then(async ({ default: loaded }) => {
     await loaded.init();
     rapier = loaded;
+    return loaded;
   });
   return initialized;
 };
@@ -63,6 +64,9 @@ const getRapier = (): RapierModule => {
   }
   return rapier;
 };
+
+export const createTrackPhysicsWorld = (gravity: Vec3 = GRAVITY): RapierWorld =>
+  new (getRapier()).World(gravity);
 
 const toVec3 = (value: { x: number; y: number; z: number }): Vec3 => ({
   x: value.x,
@@ -207,10 +211,9 @@ export const launchPositionsFor = (
 export const runValidationRace = async (
   options: ValidationRaceOptions,
 ): Promise<ValidationRaceResult> => {
-  await initializeRapier();
+  await initializeTrackPhysics();
   const built = buildValidatedTrack();
-  const module = getRapier();
-  const world = new module.World(GRAVITY);
+  const world = createTrackPhysicsWorld();
   world.timestep = TIMESTEP_SECONDS;
   createTrackCollider(world, built.geometry);
   const bodies = createMarbleBodies(

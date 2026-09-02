@@ -28,13 +28,24 @@ COMPLETE. The `feat: render and collide one continuous U-channel` commit is loca
 
 After the migration, `rg -n "trackLayout|addContinuousDeck|addTrackSegment|renderContinuousCourse|createRailOffsets|createSafetyRail|getDownhillGuide" src` returned no matches. `trackLayout.ts` and `trackLayout.test.ts` were then deleted.
 
+## Sol review fixes
+
+The browser previously initialized a local Rapier binding while the Task 5 collider/body helpers read a separate private binding in `trackPhysics.ts`. A fresh browser start could therefore reach `getRapier()` before that private state was set.
+
+- `initializeTrackPhysics()` and `createTrackPhysicsWorld()` are now exported by `trackPhysics.ts`; the headless harness and browser scene both use them. The browser no longer imports or initializes a separate Rapier module.
+- The scene’s real-physics regression calls `initializeScenePhysics()`, then creates a shared world, trimesh collider, and physical marble body. It passes without relying on the headless harness having run first.
+- `createSceneStartLifecycle()` owns queued starts. Reset and dispose clear a queued request; initialization failure is caught, reported through `console.error`, and leaves no pending request.
+- `evaluateRaceBody()` computes the projection once and reuses it for progress and finish detection. Its regression injects a counting projector and observes exactly one call.
+
+The review regressions were written first. RED observed missing scene initializer/lifecycle exports (four failures), followed by GREEN with all real-initialization and lifecycle tests passing. The one-projection regression then failed at zero injected projector calls before its GREEN implementation.
+
 ## Verification
 
 | Command | Result |
 | --- | --- |
-| `npm test -- --run src/react-app/game/MarbleRaceScene.test.ts src/react-app/game/track/trackRender.test.ts` | PASS — 2 files, 7 tests. |
-| `npm test -- --run src/react-app/game/track` | Completed during migration; the interactive capture cut off during the long physics stage. The final full suite below includes every track test. |
-| `npm test -- --run --reporter=dot` | PASS — 19 files, 78 tests in 114.26 s. |
+| `npm test -- --run src/react-app/game/MarbleRaceScene.test.ts src/react-app/game/track/trackRender.test.ts` | PASS — 2 files, 12 tests. |
+| `npm test -- --run src/react-app/game/track --reporter=dot` | PASS — 12 files, 65 tests in 106.92 s. |
+| `npm test -- --run --reporter=dot` | PASS — 19 files, 83 tests in 116.14 s. |
 | `npm run build` | PASS — TypeScript and production Vite build. Vite retained its pre-existing large-chunk advisory. |
 
 The physics tests continue to emit Rapier's pre-existing deprecated-initialization stderr, with no test failures.

@@ -1,4 +1,3 @@
-import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyZoom, initialCameraControls } from "./cameraControls";
@@ -7,7 +6,7 @@ import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
 import { buildValidatedTrack, type BuiltTrack } from "./track/trackBuild";
-import { createMarbleBodies, createTrackCollider, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
+import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, initializeTrackPhysics, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { createTrackRenderGroup, disposeTrackRenderGroup } from "./track/trackRender";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -21,11 +20,17 @@ export type RaceScene = { start: (marbles: Marble[], seed: number) => void; rest
 type Ball = { marble: Marble; body: any; done: boolean; progress: number; mesh: THREE.InstancedMesh; renderIndex: number };
 type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 
-const GRAVITY = { x: 0, y: -16, z: 0 };
 const FINISH_PROGRESS = 0.995;
 
 export type SceneTrackResources = Readonly<{ built: BuiltTrack; renderGroup: THREE.Group }>;
 type SceneTrackColliderCreator = (world: any, geometry: BuiltTrack["geometry"]) => unknown;
+type SceneStartLifecycleOptions<Request> = Readonly<{
+  initialize: () => Promise<void>;
+  onReady: () => void;
+  onStart: (request: Request) => void;
+  onError: (error: unknown) => void;
+}>;
+type SceneStartLifecycleStatus = "initializing" | "ready" | "failed";
 
 export const createSceneTrackResources = (): SceneTrackResources => {
   const built = buildValidatedTrack();
@@ -38,12 +43,66 @@ export const attachSceneTrackCollider = (
   createCollider: SceneTrackColliderCreator = createTrackCollider,
 ): unknown => createCollider(world, resources.built.geometry);
 
+export const initializeScenePhysics = (): Promise<void> => initializeTrackPhysics().then(() => undefined);
+
+export const createSceneStartLifecycle = <Request,>(options: SceneStartLifecycleOptions<Request>) => {
+  let status: SceneStartLifecycleStatus = "initializing";
+  let requested: Request | undefined;
+  let disposed = false;
+  let initializationError: unknown;
+  const ready = options.initialize().then(() => {
+    if (disposed) return;
+    status = "ready";
+    options.onReady();
+    const next = requested;
+    requested = undefined;
+    if (next !== undefined) options.onStart(next);
+  }).catch((error: unknown) => {
+    requested = undefined;
+    if (disposed) return;
+    status = "failed";
+    initializationError = error;
+    options.onError(error);
+  });
+
+  return Object.freeze({
+    ready,
+    requestStart: (request: Request) => {
+      if (disposed) return;
+      if (status === "ready") {
+        options.onStart(request);
+      } else if (status === "initializing") {
+        requested = request;
+      } else {
+        options.onError(initializationError);
+      }
+    },
+    reset: () => { requested = undefined; },
+    dispose: () => { disposed = true; requested = undefined; },
+    status: () => status,
+  });
+};
+
 export const projectRaceBody = (body: TranslatingBody, samples: readonly TrackSample[]) =>
   projectToTrack(body.translation(), samples);
 
 export const hasFinishedTrack = (position: Vec3, samples: readonly TrackSample[]): boolean => {
   const projection = projectToTrack(position, samples);
   return projection.progress >= FINISH_PROGRESS && insideFinishVolume(position, samples[samples.length - 1]);
+};
+
+export const evaluateRaceBody = (
+  body: TranslatingBody,
+  samples: readonly TrackSample[],
+  project: typeof projectToTrack = projectToTrack,
+) => {
+  const position = body.translation();
+  const projection = project(position, samples);
+  return Object.freeze({
+    position,
+    projection,
+    finished: projection.progress >= FINISH_PROGRESS && insideFinishVolume(position, samples[samples.length - 1]),
+  });
 };
 
 export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void): RaceScene {
@@ -69,9 +128,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const track = sceneTrack.renderGroup;
   const marbleGroup = new THREE.Group();
   scene.add(track, marbleGroup);
-  let rapier: typeof RAPIER_TYPE; let world: any; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
+  let world: any; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
   let running = false; let timedOut = false; let startedAt = 0; let last = performance.now(); let disposed = false;
-  let requested: { marbles: Marble[]; seed: number } | undefined;
   let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
   const dummy = new THREE.Object3D();
   const resize = () => { const width = canvas.clientWidth || window.innerWidth; const height = canvas.clientHeight || window.innerHeight; renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); };
@@ -82,12 +140,11 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const onWheel = (event: WheelEvent) => { event.preventDefault(); controls = applyZoom(controls, event.deltaY); };
   canvas.addEventListener("pointerdown", onPointerDown); canvas.addEventListener("pointermove", onPointerMove); canvas.addEventListener("pointerup", onPointerUp); canvas.addEventListener("pointercancel", onPointerUp); canvas.addEventListener("wheel", onWheel, { passive: false });
   const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
-  const createWorld = () => new rapier.World(GRAVITY);
 
   const begin = (marbles: Marble[], seed: number) => {
     if (!world) return;
     world.free();
-    world = createWorld();
+    world = createTrackPhysicsWorld();
     attachSceneTrackCollider(world, sceneTrack);
     track.visible = true;
     clearMarbles();
@@ -118,9 +175,9 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (running && world && renderMeshes.length) {
       world.timestep = delta / 1000; world.step(); const active = balls.filter((ball) => !ball.done); const elapsedMs = now - startedAt;
       active.forEach((ball) => {
-        const position = ball.body.translation();
-        ball.progress = projectRaceBody(ball.body, sceneTrack.built.samples).progress;
-        if (hasFinishedTrack(position, sceneTrack.built.samples)) {
+        const raceState = evaluateRaceBody(ball.body, sceneTrack.built.samples);
+        ball.progress = raceState.projection.progress;
+        if (raceState.finished) {
           ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble });
         }
       });
@@ -134,14 +191,19 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     renderer.render(scene, camera);
   };
 
-  void import("@dimforge/rapier3d-compat").then(({ default: loaded }) => loaded.init().then(() => { rapier = loaded; if (disposed) return; world = createWorld(); if (requested) { begin(requested.marbles, requested.seed); requested = undefined; } }));
+  const starts = createSceneStartLifecycle({
+    initialize: initializeScenePhysics,
+    onReady: () => { world = createTrackPhysicsWorld(); },
+    onStart: ({ marbles, seed }: { marbles: Marble[]; seed: number }) => begin(marbles, seed),
+    onError: (error) => { console.error("Lucky Roll physics initialization failed.", error); },
+  });
   requestAnimationFrame(loop);
   return {
-    start: (marbles, seed) => world ? begin(marbles, seed) : (requested = { marbles, seed }),
-    restartRemaining: (marbles) => begin(marbles, Date.now()),
-    reset: () => { running = false; balls = []; renderMeshes = []; clearMarbles(); track.visible = false; },
+    start: (marbles, seed) => starts.requestStart({ marbles, seed }),
+    restartRemaining: (marbles) => starts.requestStart({ marbles, seed: Date.now() }),
+    reset: () => { starts.reset(); running = false; balls = []; renderMeshes = []; clearMarbles(); track.visible = false; },
     dispose: () => {
-      disposed = true; running = false; world?.free(); disposeTrackRenderGroup(track); clearMarbles(); renderer.dispose();
+      disposed = true; starts.dispose(); running = false; world?.free(); disposeTrackRenderGroup(track); clearMarbles(); renderer.dispose();
       window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);
     },
   };
