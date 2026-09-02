@@ -2,7 +2,7 @@
 
 ## Status
 
-REVIEW FIX COMPLETE, pending commit. The validated U-channel passes gravity-only Rapier validation with a fixed `1/60` timestep, gravity `{ x: 0, y: -16, z: 0 }`, radius `0.34` marbles, and one fixed trimesh generated directly from the canonical geometry buffers. The harness applies no force, impulse, teleport, respawn, guide rail body, scripted velocity, or recovery behavior.
+IMPLEMENTED AND REVIEW-FIXED. The validated U-channel passes gravity-only Rapier validation with a fixed `1/60` timestep, gravity `{ x: 0, y: -16, z: 0 }`, radius `0.34` marbles, and one fixed trimesh generated directly from the canonical geometry buffers. The harness applies no force, impulse, teleport, respawn, guide rail body, scripted velocity, or recovery behavior.
 
 ## TDD evidence
 
@@ -13,7 +13,7 @@ REVIEW FIX COMPLETE, pending commit. The validated U-channel passes gravity-only
 5. Authorized X/Z and ordinary-width proportional rescaling produced a `382.704`-unit horizontal centerline and approximately `393.586` units of actual XYZ centerline length. The 3D 350–450 regression is now authoritative; it also locks `sampleSpacing: 0.5`, non-launch proportional widths, and physical launch-slot non-overlap.
 6. RED (throughput): with the initial bounded grade, seed 11 completed 45/100 by 60 seconds, although it had zero escapes and stalls. The physical-launch regression exposed an implementation defect: row placement was only `0.48` units apart. Corrected placement advances each row one world unit along the launch centerline and keeps every initial pair at least one marble diameter apart.
 7. RED (Sol review): analytic U-profile launch lifts placed every sphere only `0.219519` units from the actual faceted mesh; a selected-face-normal prototype was not conservative at creases and reached `0.165931`. Seed rotation changed IDs only, not physical coordinates; `sampleSpacing` was unauthorized at `0.4`; and the public two-argument body factory accepted raw logical slots.
-8. GREEN (Sol review): physical starts are built from the exact generated 8-segment mesh facet at their real launch row, offset with a conservative clearance and regression-checked at `>= 0.345` for every sphere. The exported two-argument `createMarbleBodies(world, physicalPositions)` only consumes branded physical positions; deterministic lateral launch jitter gives repeatable same-seed positions and distinct coordinate sets for different seeds. The pure node builder removes module-scoped height state. A bounded continuous `0.245` downhill guide grade preserves every static threshold, makes the single marble finish in the required time, and passes all 20 independent seed runs below.
+8. GREEN (Sol review): physical starts are built from the exact generated 8-segment mesh facet at their real launch row, offset with a conservative clearance and regression-checked at `>= 0.345` for every sphere across all ten fixed seeds. The exported two-argument `createMarbleBodies(world, physicalPositions)` only consumes branded physical positions; deterministic lateral launch jitter gives repeatable same-seed positions and distinct coordinate sets for different seeds. The pure node builder uses a separately named initial-A height and raw nodes with no ignored Y fields. A bounded continuous `0.245` downhill guide grade preserves every static threshold, makes the single marble finish in the required time, and passes all 20 independent seed runs below.
 
 ## Final physics metrics
 
@@ -65,7 +65,7 @@ The 20 scenarios are split across six sequential test files so each file stays b
 | --- | --- |
 | `npm test -- --run src/react-app/game/track/trackPhysics.test.ts` (twice) | PASS — 6 tests both times; launch regressions, 49.417s single marble, seeds 11/23 twice. |
 | `npm test -- --run src/react-app/game/track` | PASS — all track tests, including 20 independent seed simulations. |
-| `npm test -- --run` | PASS — 17 files, 67 tests, ordinary full-suite invocation. |
+| `npm test -- --run` | PASS — 18 files, 77 tests, including the all-ten-seed launch invariant matrix. |
 | `npm run build` | PASS — TypeScript and production Vite build. |
 | `git diff --check` | PASS — no whitespace errors. |
 
