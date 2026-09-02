@@ -13,9 +13,8 @@ export type SceneEvent =
 	| { type: "finish"; marble: Marble }
 	| { type: "timeout"; remaining: Marble[] };
 export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; reset: () => void; dispose: () => void };
-type Ball = { marble: Marble; body: any; stalled: number; done: boolean; mesh: THREE.InstancedMesh; renderIndex: number };
+type Ball = { marble: Marble; body: any; stalled: number; done: boolean; progress: number; mesh: THREE.InstancedMesh; renderIndex: number };
 
-const FINISH_Z = -64;
 const GRAVITY = { x: 0, y: -16, z: 0 };
 
 const vector = (point: TrackPoint) => new THREE.Vector3(point.x, point.y, point.z);
@@ -29,18 +28,18 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 	renderer.toneMapping = THREE.NoToneMapping;
 	const scene = new THREE.Scene();
 	scene.background = new THREE.Color("#05071a");
-	scene.fog = new THREE.Fog("#05071a", 70, 165);
+	scene.fog = new THREE.Fog("#05071a", 115, 280);
 	const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 260);
 	const cameraLook = new THREE.Vector3(0, 10, 4);
 	camera.position.set(24, 58, 105); camera.lookAt(cameraLook);
-	scene.add(new THREE.AmbientLight("#bcdcff", 2.2));
-	scene.add(new THREE.HemisphereLight("#e8fcff", "#260a39", 2.5));
+	scene.add(new THREE.AmbientLight("#bcdcff", 3.7));
+	scene.add(new THREE.HemisphereLight("#e8fcff", "#260a39", 3.6));
 	const key = new THREE.DirectionalLight("#ffffff", 3.5); key.position.set(12, 42, 36); scene.add(key);
 	const cyan = new THREE.PointLight("#3df5ff", 120, 105, 1.7); cyan.position.set(0, 27, 38); scene.add(cyan);
 	const pink = new THREE.PointLight("#ff4f9a", 100, 95, 1.6); pink.position.set(-9, 18, -21); scene.add(pink);
 	const gold = new THREE.PointLight("#ffcb54", 92, 80, 1.5); gold.position.set(4, 8, -58); scene.add(gold);
 	const track = new THREE.Group(); const marbleGroup = new THREE.Group(); scene.add(track, marbleGroup);
-	let rapier: typeof RAPIER_TYPE; let world: any; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = []; let startSlots: TrackPoint[] = [];
+	let rapier: typeof RAPIER_TYPE; let world: any; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = []; let startSlots: TrackPoint[] = []; let finishPoint = createTrackLayout().finish;
 	let running = false; let timedOut = false; let startedAt = 0; let last = performance.now(); let disposed = false;
 	let requested: { marbles: Marble[]; seed: number } | undefined;
 	let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
@@ -60,11 +59,22 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 		body.setRotation({ x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w }, true);
 		world.createCollider(rapier.ColliderDesc.cuboid(...half).setFriction(0.7), body);
 	};
+	const addContinuousDeck = (segments: TrackSegment[]) => {
+		const points = [vector(segments[0].from), ...segments.map((segment) => vector(segment.to))];
+		const vertices: number[] = []; const indices: number[] = [];
+		points.forEach((point, index) => {
+			const before = points[Math.max(0, index - 1)]; const after = points[Math.min(points.length - 1, index + 1)]; const tangent = after.clone().sub(before); tangent.y = 0; tangent.normalize();
+			const side = new THREE.Vector3(-tangent.z, 0, tangent.x); const left = point.clone().addScaledVector(side, segments[Math.min(index, segments.length - 1)].width / 2); const right = point.clone().addScaledVector(side, -segments[Math.min(index, segments.length - 1)].width / 2);
+			vertices.push(left.x, left.y, left.z, right.x, right.y, right.z);
+			if (index < points.length - 1) indices.push(index * 2, index * 2 + 1, index * 2 + 2, index * 2 + 1, index * 2 + 3, index * 2 + 2);
+		});
+		const body = world.createRigidBody(rapier.RigidBodyDesc.fixed());
+		world.createCollider(rapier.ColliderDesc.trimesh(new Float32Array(vertices), new Uint32Array(indices)).setFriction(0.72), body);
+	};
 
 	const addTrackSegment = (segment: TrackSegment) => {
 		const start = vector(segment.from); const end = vector(segment.to); const direction = end.clone().sub(start); const length = direction.length();
 		const midpoint = start.clone().add(end).multiplyScalar(0.5); const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
-		addColliderBox(midpoint, [segment.width / 2, 0.28, (length + 0.5) / 2], quaternion);
 		const side = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion).normalize();
 		const railDimensions = createSafetyRail();
 		createRailOffsets(segment.width).forEach((offset) => {
@@ -74,8 +84,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 	};
 
 	const renderContinuousCourse = (segments: TrackSegment[]) => {
-		const controlPoints = [vector(segments[0].from), ...segments.map((segment) => vector(segment.to))];
-		const curve = new THREE.CatmullRomCurve3(controlPoints, false, "centripetal"); const samples = curve.getPoints(128); const width = segments[0].width;
+		const samples = [vector(segments[0].from), ...segments.map((segment) => vector(segment.to))];
+		const width = segments[0].width;
 		const vertices: number[] = []; const indices: number[] = []; const leftRail: THREE.Vector3[] = []; const rightRail: THREE.Vector3[] = [];
 		samples.forEach((point, index) => {
 			const before = samples[Math.max(0, index - 1)]; const after = samples[Math.min(samples.length - 1, index + 1)]; const tangent = after.clone().sub(before); tangent.y = 0; tangent.normalize();
@@ -85,16 +95,22 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 		});
 		const deckGeometry = new THREE.BufferGeometry(); deckGeometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3)); deckGeometry.setIndex(indices); deckGeometry.computeVertexNormals();
 		track.add(new THREE.Mesh(deckGeometry, new THREE.MeshStandardMaterial({ color: "#17347d", emissive: "#102457", emissiveIntensity: 1.15, metalness: 0.72, roughness: 0.27, side: THREE.DoubleSide })));
-		const railMaterial = new THREE.MeshBasicMaterial({ color: "#38f3ff" }); const railRadius = createSafetyRail().visualHeight / 6.5;
-		[leftRail, rightRail].forEach((points) => track.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, false, "centripetal"), 128, railRadius, 6, false), railMaterial)));
-		controlPoints.filter((_, index) => index % 4 === 0).forEach((point) => { const support = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, Math.max(2.5, point.y), 12), new THREE.MeshStandardMaterial({ color: "#39425f", metalness: 0.9, roughness: 0.35 })); support.position.set(point.x, Math.max(2.5, point.y) / 2 - 0.2, point.z); track.add(support); });
+		const railMaterial = new THREE.LineBasicMaterial({ color: "#38f3ff", transparent: true, opacity: 0.95 });
+		[leftRail, rightRail].forEach((points) => {
+			track.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), railMaterial));
+			const wallVertices: number[] = []; const wallIndices: number[] = [];
+			points.forEach((top, index) => { wallVertices.push(top.x, top.y - createSafetyRail().visualHeight, top.z, top.x, top.y, top.z); if (index < points.length - 1) wallIndices.push(index * 2, index * 2 + 1, index * 2 + 2, index * 2 + 1, index * 2 + 3, index * 2 + 2); });
+			const wallGeometry = new THREE.BufferGeometry(); wallGeometry.setAttribute("position", new THREE.Float32BufferAttribute(wallVertices, 3)); wallGeometry.setIndex(wallIndices);
+			track.add(new THREE.Mesh(wallGeometry, new THREE.MeshBasicMaterial({ color: "#286ad4", transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })));
+		});
+		samples.filter((_, index) => index % 10 === 0).forEach((point) => { const support = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, Math.max(2.5, point.y), 12), new THREE.MeshStandardMaterial({ color: "#39425f", metalness: 0.9, roughness: 0.35 })); support.position.set(point.x, Math.max(2.5, point.y) / 2 - 0.2, point.z); track.add(support); });
 	};
 
 	const buildTrack = (seed: number) => {
 		clear(track);
-		const layout = createTrackLayout(); layout.segments.forEach(addTrackSegment); renderContinuousCourse(layout.segments);
-		const finish = new THREE.Mesh(new THREE.TorusGeometry(5.1, 0.16, 10, 48), new THREE.MeshBasicMaterial({ color: "#ffe267" })); finish.position.set(0, 2.2, FINISH_Z); finish.rotation.x = Math.PI / 2; track.add(finish);
-		const title = new THREE.Mesh(new THREE.TorusGeometry(3, 0.07, 8, 32), new THREE.MeshBasicMaterial({ color: seed % 2 ? "#64f5ff" : "#ff67a7" })); title.position.set(0, 23.1, 67); title.rotation.x = Math.PI / 2; track.add(title);
+		const layout = createTrackLayout(); finishPoint = layout.finish; addContinuousDeck(layout.segments); layout.segments.forEach(addTrackSegment); renderContinuousCourse(layout.segments);
+		const finish = new THREE.Mesh(new THREE.TorusGeometry(5.1, 0.16, 10, 48), new THREE.MeshBasicMaterial({ color: "#ffe267" })); finish.position.set(finishPoint.x, finishPoint.y + 0.55, finishPoint.z); finish.rotation.x = Math.PI / 2; track.add(finish);
+		const title = new THREE.Mesh(new THREE.TorusGeometry(3, 0.07, 8, 32), new THREE.MeshBasicMaterial({ color: seed % 2 ? "#64f5ff" : "#ff67a7" })); title.position.set(layout.start.x, layout.start.y + 0.62, layout.start.z); title.rotation.x = Math.PI / 2; track.add(title);
 	};
 
 	const begin = (marbles: Marble[], seed: number) => {
@@ -108,10 +124,10 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 		startSlots = createStartGrid(marbles.length);
 		balls = marbles.map((marble, index) => {
 			const slot = startSlots[index]; const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(slot.x, slot.y, slot.z).setLinearDamping(0.025).setAngularDamping(0.05));
-			world.createCollider(rapier.ColliderDesc.ball(0.34).setRestitution(0.28).setFriction(0.32), body); const binding = renderBindings.get(index)!;
-			return { marble, body, stalled: 0, done: false, ...binding };
+			world.createCollider(rapier.ColliderDesc.ball(0.34).setRestitution(0.12).setFriction(0.32), body); const binding = renderBindings.get(index)!;
+			return { marble, body, stalled: 0, done: false, progress: 0, ...binding };
 		});
-		running = true; timedOut = false; startedAt = performance.now(); camera.position.set(24, 58, 105); cameraLook.set(0, 10, 4);
+		running = true; timedOut = false; startedAt = performance.now(); camera.position.set(50, 72, 125); cameraLook.set(0, 12, 18);
 	};
 
 	const updateCamera = (elapsedMs: number) => {
@@ -125,13 +141,13 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 		if (running && world && renderMeshes.length) {
 			world.timestep = delta / 1000; world.step(); const active = balls.filter((ball) => !ball.done); const elapsedMs = now - startedAt;
 			active.forEach((ball, index) => {
-				const pos = ball.body.translation(); const speed = ball.body.linvel(); const guide = getDownhillGuide(pos); ball.body.addForce({ x: guide.direction.x * guide.strength, y: guide.direction.y * guide.strength, z: guide.direction.z * guide.strength }, true); ball.stalled = Math.hypot(speed.x, speed.y, speed.z) < 0.18 ? ball.stalled + delta : 0;
-				if (ball.stalled > 1500) { ball.body.applyImpulse({ x: (Math.random() - 0.5) * 0.9, y: 0.5, z: -0.7 }, true); ball.stalled = 0; }
-				if (pos.y < -3 || Math.abs(pos.x) > 28) { const slot = startSlots[index % startSlots.length]; ball.body.setTranslation({ x: slot.x, y: slot.y, z: slot.z }, true); ball.body.setLinvel({ x: 0, y: 0, z: -0.5 }, true); }
-				if (pos.z < FINISH_Z) { ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble }); }
+				const pos = ball.body.translation(); const speed = ball.body.linvel(); const guide = getDownhillGuide(pos); ball.progress = guide.segmentIndex; ball.body.addForce({ x: guide.direction.x * guide.strength, y: guide.direction.y * guide.strength, z: guide.direction.z * guide.strength }, true); ball.stalled = Math.hypot(speed.x, speed.y, speed.z) < 0.18 ? ball.stalled + delta : 0;
+				if (ball.stalled > 1500) { ball.body.applyImpulse({ x: guide.direction.x * 0.8 + (Math.random() - 0.5) * 0.24, y: 0.03, z: guide.direction.z * 0.8 + (Math.random() - 0.5) * 0.24 }, true); ball.stalled = 0; }
+				if (pos.y < -3 || Math.abs(pos.x) > 45 || Math.abs(pos.z) > 78) { const slot = startSlots[index % startSlots.length]; ball.body.setTranslation({ x: slot.x, y: slot.y, z: slot.z }, true); ball.body.setLinvel({ x: 0, y: 0, z: -0.5 }, true); }
+				if (Math.hypot(pos.x - finishPoint.x, pos.z - finishPoint.z) < 4.2 && pos.y < finishPoint.y + 2.2) { ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble }); }
 			});
 			balls.forEach((ball) => { const pos = ball.body.translation(); dummy.position.set(pos.x, pos.y, pos.z); dummy.scale.setScalar(ball.done ? 0 : 1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); }); renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
-			const live = balls.filter((ball) => !ball.done); const leader = live.reduce<Ball | undefined>((best, ball) => !best || ball.body.translation().z < best.body.translation().z ? ball : best, undefined); const trailer = live.reduce<Ball | undefined>((best, ball) => !best || ball.body.translation().z > best.body.translation().z ? ball : best, undefined);
+			const live = balls.filter((ball) => !ball.done); const leader = live.reduce<Ball | undefined>((best, ball) => !best || ball.progress > best.progress ? ball : best, undefined); const trailer = live.reduce<Ball | undefined>((best, ball) => !best || ball.progress < best.progress ? ball : best, undefined);
 			updateCamera(elapsedMs); emit({ type: "tick", elapsedMs, finishedCount: balls.length - live.length, remaining: live.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
 			if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && live.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: live.map((ball) => ball.marble) }); }
 			if (!live.length) running = false;

@@ -7,7 +7,7 @@ An instant, offline-friendly neon pinball marble party game. The last marble to 
 - **Race** — 100 marbles are split as evenly as possible across 2–10 players. The final Top 10 is ranked in reverse finish order, so last wins.
 - **Team Split** — one marble per player rolls through the track before a balanced, random 2- or 3-team draw is revealed.
 
-Race sessions have safety rails, bumpers, escape respawns, stalled-marble nudges, and a 20-second timeout with options to rerun only the remaining marbles, restart, or show the current results. An optional prize pool awards 50% / 20% / 10% / 5% (ranks 4–7); winnings are summed per player.
+Race sessions have a continuous three-level downhill track, high U-channel safety rails, escape respawns, stalled-marble nudges, and a 60-second timeout with options to rerun only the remaining marbles, restart, or show the current results. An optional prize pool awards 50% / 20% / 10% / 5% (ranks 4–7); winnings are summed per player.
 
 ## Run locally
 
