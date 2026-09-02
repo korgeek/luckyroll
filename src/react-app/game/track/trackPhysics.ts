@@ -2,11 +2,12 @@ import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import { buildValidatedTrack } from "./trackBuild";
 import { createLaunchSlots } from "./trackSpec";
 import { projectToTrack } from "./trackSampler";
-import type { LaunchSlot, TrackGeometry, TrackSample, Vec3 } from "./trackTypes";
+import type { LaunchSlot, PhysicalLaunchPosition, TrackGeometry, TrackSample, Vec3 } from "./trackTypes";
 
 const GRAVITY = { x: 0, y: -16, z: 0 };
 const TIMESTEP_SECONDS = 1 / 60;
 const MARBLE_RADIUS = 0.34;
+const LAUNCH_CLEARANCE = MARBLE_RADIUS + 0.21;
 const MARBLE_RESTITUTION = 0.08;
 const MARBLE_FRICTION = 0.24;
 const LINEAR_DAMPING = 0.02;
@@ -97,13 +98,9 @@ export const createTrackCollider = (
 
 export const createMarbleBodies = (
   world: RapierWorld,
-  slots: readonly LaunchSlot[],
-  samples?: readonly TrackSample[],
+  positions: readonly PhysicalLaunchPosition[],
 ): readonly RapierBody[] => {
-  const positions = samples === undefined ? slots : launchPositionsFor(slots, samples);
-
-  return slots.map((_slot, index) => {
-    const position = positions[index];
+  return positions.map((position) => {
     const module = getRapier();
     const body = world.createRigidBody(
       module.RigidBodyDesc.dynamic()
@@ -119,30 +116,93 @@ export const createMarbleBodies = (
   });
 };
 
+const subtract = (left: Vec3, right: Vec3): Vec3 => ({
+  x: left.x - right.x,
+  y: left.y - right.y,
+  z: left.z - right.z,
+});
+
+const cross = (left: Vec3, right: Vec3): Vec3 => ({
+  x: left.y * right.z - left.z * right.y,
+  y: left.z * right.x - left.x * right.z,
+  z: left.x * right.y - left.y * right.x,
+});
+
+const normalize = (vector: Vec3): Vec3 => {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  return length === 0 ? { x: 0, y: 1, z: 0 } : {
+    x: vector.x / length,
+    y: vector.y / length,
+    z: vector.z / length,
+  };
+};
+
+const vertexAt = (geometry: TrackGeometry, row: number, column: number): Vec3 => {
+  const offset = (row * (geometry.profileSegments + 1) + column) * 3;
+  return {
+    x: geometry.positions[offset],
+    y: geometry.positions[offset + 1],
+    z: geometry.positions[offset + 2],
+  };
+};
+
+const deterministicJitter = (seed: number, row: number, column: number): number => {
+  let value = (seed >>> 0) ^ Math.imul(row + 1, 0x9e3779b1) ^ Math.imul(column + 1, 0x85ebca6b);
+  value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
+  value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
+  return ((value ^ (value >>> 16)) >>> 0) / 0xffffffff - 0.5;
+};
+
+const clamp = (value: number, minimum: number, maximum: number): number =>
+  Math.max(minimum, Math.min(maximum, value));
+
+const profileSegmentAt = (sample: TrackSample, profileSegments: number, lateral: number): number => {
+  const offsets = Array.from({ length: profileSegments + 1 }, (_, column) =>
+    Math.sin(-Math.PI / 2 + Math.PI * column / profileSegments) * sample.width / 2,
+  );
+  return Math.min(profileSegments - 1, Math.max(0, offsets.findIndex((offset, index) =>
+    index > 0 && lateral <= offset,
+  ) - 1));
+};
+
 export const launchPositionsFor = (
   slots: readonly LaunchSlot[],
-  samples: readonly TrackSample[],
-): readonly Vec3[] =>
+  geometry: TrackGeometry,
+  seed = 0,
+): readonly PhysicalLaunchPosition[] =>
   slots.map((slot) => {
-    const launchSample = samples[Math.min(samples.length - 1, slot.row * 3)];
-    const lateral = Math.max(-launchSample.width / 2, Math.min(launchSample.width / 2, slot.crossOffset));
-    const profileAngle = Math.asin(lateral / (launchSample.width / 2));
-    const profileLift = launchSample.channelDepth * (1 - Math.cos(profileAngle));
+    const row = Math.min(geometry.samples.length - 2, slot.row * 2);
+    const launchSample = geometry.samples[row];
+    const lateral = clamp(
+      slot.crossOffset + deterministicJitter(seed, slot.row, slot.column) * 0.12,
+      -launchSample.width / 2 + MARBLE_RADIUS,
+      launchSample.width / 2 - MARBLE_RADIUS,
+    );
+    const column = profileSegmentAt(launchSample, geometry.profileSegments, lateral);
+    const lower = vertexAt(geometry, row, column);
+    const upper = vertexAt(geometry, row, column + 1);
+    const nextLower = vertexAt(geometry, row + 1, column);
+    const profileOffset = Math.sin(-Math.PI / 2 + Math.PI * column / geometry.profileSegments) * launchSample.width / 2;
+    const nextProfileOffset = Math.sin(-Math.PI / 2 + Math.PI * (column + 1) / geometry.profileSegments) * launchSample.width / 2;
+    const interpolation = (lateral - profileOffset) / (nextProfileOffset - profileOffset);
+    const surface = {
+      x: lower.x + (upper.x - lower.x) * interpolation,
+      y: lower.y + (upper.y - lower.y) * interpolation,
+      z: lower.z + (upper.z - lower.z) * interpolation,
+    };
+    let normal = normalize(cross(subtract(upper, lower), subtract(nextLower, lower)));
+    if (normal.y < 0) normal = { x: -normal.x, y: -normal.y, z: -normal.z };
 
     return {
-      x: launchSample.position.x + launchSample.side.x * lateral + launchSample.up.x * (profileLift + MARBLE_RADIUS),
-      y: launchSample.position.y + launchSample.side.y * lateral + launchSample.up.y * (profileLift + MARBLE_RADIUS),
-      z: launchSample.position.z + launchSample.side.z * lateral + launchSample.up.z * (profileLift + MARBLE_RADIUS),
+      x: surface.x + normal.x * LAUNCH_CLEARANCE,
+      y: surface.y + normal.y * LAUNCH_CLEARANCE,
+      z: surface.z + normal.z * LAUNCH_CLEARANCE,
+      crossOffset: lateral,
+      row: slot.row,
+      column: slot.column,
+      physicalLaunchPosition: true,
     };
   });
-
-const rotateSlots = (slots: readonly LaunchSlot[], seed: number): readonly LaunchSlot[] => {
-  if (slots.length === 0) {
-    return slots;
-  }
-  const offset = Math.abs(seed) % slots.length;
-  return Array.from({ length: slots.length }, (_, index) => slots[(index + offset) % slots.length]);
-};
 
 export const runValidationRace = async (
   options: ValidationRaceOptions,
@@ -155,8 +215,7 @@ export const runValidationRace = async (
   createTrackCollider(world, built.geometry);
   const bodies = createMarbleBodies(
     world,
-    rotateSlots(createLaunchSlots(options.marbleCount), options.seed),
-    built.samples,
+    launchPositionsFor(createLaunchSlots(options.marbleCount), built.geometry, options.seed),
   );
   const stationaryMs = new Array<number>(bodies.length).fill(0);
   const finished = new Set<number>();

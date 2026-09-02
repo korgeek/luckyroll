@@ -14,6 +14,10 @@ describe("track centerline sampler", () => {
   const spec = createLuckyRollTrackSpec();
   const samples = sampleTrack(spec);
 
+  it("uses the approved half-unit sampling density", () => {
+    expect(spec.sampleSpacing).toBe(0.5);
+  });
+
   it("samples the route at stable arc-length intervals", () => {
     const gaps = samples.slice(1).map((sample, index) => distance(sample.position, samples[index].position));
     expect(Math.max(...gaps)).toBeLessThanOrEqual(1.1);
@@ -21,7 +25,8 @@ describe("track centerline sampler", () => {
   });
 
   it("keeps the authoritative centerline within the approved course length", () => {
-    const length = samples[samples.length - 1].distance;
+    const length = samples.slice(1).reduce((total, sample, index) =>
+      total + distance(sample.position, samples[index].position), 0);
 
     expect(length).toBeGreaterThanOrEqual(350);
     expect(length).toBeLessThanOrEqual(450);

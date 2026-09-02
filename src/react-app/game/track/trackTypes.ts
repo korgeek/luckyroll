@@ -3,6 +3,9 @@ export type Vec3 = Readonly<{ x: number; y: number; z: number }>;
 export type LaunchSlot = Vec3 &
   Readonly<{ crossOffset: number; row: number; column: number }>;
 
+export type PhysicalLaunchPosition = LaunchSlot &
+  Readonly<{ physicalLaunchPosition: true }>;
+
 export type TrackZone =
   | "launch"
   | "run"
