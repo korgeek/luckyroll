@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateTrackGeometry } from "./trackGeometry";
 import { sampleTrack } from "./trackSampler";
-import { createLuckyRollTrackSpec } from "./trackSpec";
+import { createLuckyRollTrackSpec, DEFAULT_TRACK_FEATURE_LAYOUT } from "./trackSpec";
 import type { TrackGeometry, TrackSample, TrackSpec, Vec3 } from "./trackTypes";
 import { buildValidatedTrack } from "./trackBuild";
 import { assertValidTrack, validateTrack } from "./trackValidation";
@@ -434,6 +434,112 @@ describe("static track validation", () => {
 
     expect(validateTrack(featured.spec, featured.samples, broken)).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "feature-geometry" })]),
+    );
+  });
+
+  it("requires divider buffers whenever canonical splitter samples expect the feature", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const broken = {
+      ...featured.geometry,
+      featurePositions: new Float32Array(),
+      featureNormals: new Float32Array(),
+      featureIndices: new Uint32Array(),
+    };
+
+    expect(validateTrack(featured.spec, featured.samples, broken)).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "feature-geometry",
+        message: expect.stringMatching(/expect.*non-empty/i),
+      })]),
+    );
+  });
+
+  it("keeps the feature expectation when canonical splitter metadata outlives a damaged sample label", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const samples = featured.samples.map((sample) => ({ ...sample, zone: "run" as const }));
+    const broken = {
+      ...featured.geometry,
+      featurePositions: new Float32Array(),
+      featureNormals: new Float32Array(),
+      featureIndices: new Uint32Array(),
+    };
+
+    expect(validateTrack(featured.spec, samples, broken)).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "feature-geometry",
+        message: expect.stringMatching(/expect.*non-empty/i),
+      })]),
+    );
+  });
+
+  it.each([
+    ["requires full-width splitter samples", { hallWidth: 1 }, /splitter.*wide/i],
+    ["rejects a divider outside the channel", { dividerRadius: 20 }, /inside.*channel/i],
+    ["requires a 1.36-unit divider height", { dividerHeight: 0.1 }, /height/i],
+  ])("fails closed when it %s", (_description, overrides, message) => {
+    const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, ...overrides };
+    const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
+    const samples = sampleTrack(spec);
+    const geometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
+
+    expect(validateTrack(spec, samples, geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "feature-geometry", message: expect.stringMatching(message) })]),
+    );
+  });
+
+  it("rejects a divider moved longitudinally beyond the splitter zone", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const featurePositions = new Float32Array(featured.geometry.featurePositions);
+    const dividerCenter = featurePositions.reduce(
+      (center, coordinate, index) => {
+        center[index % 3] += coordinate / (featurePositions.length / 3);
+        return center;
+      },
+      [0, 0, 0],
+    );
+    const nonSplitter = featured.samples.find((sample) => sample.zone !== "splitter");
+    if (nonSplitter === undefined) throw new Error("Feature test requires a non-splitter sample.");
+    for (let offset = 0; offset < featurePositions.length; offset += 3) {
+      featurePositions[offset] += nonSplitter.position.x - dividerCenter[0];
+      featurePositions[offset + 1] += nonSplitter.position.y - dividerCenter[1];
+      featurePositions[offset + 2] += nonSplitter.position.z - dividerCenter[2];
+    }
+
+    expect(validateTrack(featured.spec, featured.samples, { ...featured.geometry, featurePositions })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "feature-geometry", message: expect.stringMatching(/splitter zone/i) })]),
+    );
+  });
+
+  it("rejects a divider too close to an outer rim", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const featurePositions = new Float32Array(featured.geometry.featurePositions);
+    const feature = { x: featurePositions[0], y: featurePositions[1], z: featurePositions[2] };
+    const sampleIndex = featured.samples.reduce((nearest, sample, index) =>
+      Math.hypot(sample.position.x - feature.x, sample.position.z - feature.z) <
+      Math.hypot(featured.samples[nearest].position.x - feature.x, featured.samples[nearest].position.z - feature.z)
+        ? index
+        : nearest,
+    0);
+    const rowSize = featured.geometry.profileSegments + 1;
+    const rimOffset = (sampleIndex * rowSize + rowSize - 1) * 3;
+    featurePositions[0] = featured.geometry.positions[rimOffset];
+    featurePositions[1] = featured.geometry.positions[rimOffset + 1] + 0.1;
+    featurePositions[2] = featured.geometry.positions[rimOffset + 2];
+
+    expect(validateTrack(featured.spec, featured.samples, { ...featured.geometry, featurePositions })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "feature-geometry", message: expect.stringMatching(/rim clearance/i) })]),
+    );
+  });
+
+  it("rejects a longitudinal right-rim seam while accepting the canonical tapered lift", () => {
+    const featured = buildValidatedTrack({ features: true });
+    expect(validateTrack(featured.spec, featured.samples, featured.geometry)).toEqual([]);
+    const positions = new Float32Array(featured.geometry.positions);
+    const rowSize = featured.geometry.profileSegments + 1;
+    positions[(590 * rowSize + rowSize - 1) * 3 + 1] += 8;
+
+    expect(validateTrack(featured.spec, featured.samples, { ...featured.geometry, positions })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "rail-seam", sampleIndex: 590 })]),
     );
   });
 

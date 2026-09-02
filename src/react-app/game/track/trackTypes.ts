@@ -85,6 +85,7 @@ export type TrackValidationFailure = Readonly<{
     | "invalid-level"
     | "clearance"
     | "rail-gap"
+    | "rail-seam"
     | "finish-entry";
   sampleIndex?: number;
   message: string;

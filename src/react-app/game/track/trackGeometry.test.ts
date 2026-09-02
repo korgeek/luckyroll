@@ -204,6 +204,15 @@ describe("U-channel geometry", () => {
     const centerColumn = Math.floor(lifted.geometry.profileSegments / 2);
     const vertexY = (geometry: FeatureGeometry, sampleIndex: number, column: number): number =>
       geometry.positions[(sampleIndex * rowSize + column) * 3 + 1];
+    const maxRailStep = Math.max(...[0, 1, lifted.geometry.profileSegments - 1, lifted.geometry.profileSegments]
+      .flatMap((column) => Array.from({ length: lifted.samples.length - 1 }, (_, sampleIndex) =>
+        Math.abs(
+          (vertexY(lifted.geometry as FeatureGeometry, sampleIndex + 1, column) -
+            vertexY(lifted.geometry as FeatureGeometry, sampleIndex + 1, centerColumn)) -
+          (vertexY(lifted.geometry as FeatureGeometry, sampleIndex, column) -
+            vertexY(lifted.geometry as FeatureGeometry, sampleIndex, centerColumn)),
+        ),
+      )));
 
     expect(exitIndex).toBeLessThan(lifted.samples.length);
     expect(vertexY(lifted.geometry as FeatureGeometry, exitIndex, centerColumn))
@@ -214,6 +223,7 @@ describe("U-channel geometry", () => {
       .toBeCloseTo(vertexY(baseline.geometry as FeatureGeometry, exitIndex, 0), 6);
     expect(vertexY(lifted.geometry as FeatureGeometry, approachIndex, 0))
       .toBeCloseTo(vertexY(baseline.geometry as FeatureGeometry, approachIndex, 0), 6);
+    expect(maxRailStep).toBeLessThanOrEqual(0.71);
   });
 
 });

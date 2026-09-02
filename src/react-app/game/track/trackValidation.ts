@@ -12,6 +12,10 @@ const MAX_HEADING_DELTA = 0.16;
 const MIN_TRIANGLE_AREA = 0.000001;
 const MIN_CLEARANCE = 5;
 const MIN_RAIL_HEIGHT = 2.5 * 0.68;
+const MIN_DIVIDER_HEIGHT = 4 * 0.34;
+// The canonical right-edge taper's maximum adjacent local rail-height step is 0.70825.
+// 1.00 leaves a 0.29175-unit safety margin while rejecting a discontinuous raised vertex.
+const MAX_RAIL_HEIGHT_STEP = 1;
 const CROSSING_CANDIDATE_WIDTHS = 3;
 
 const distance = (left: Vec3, right: Vec3): number =>
@@ -338,11 +342,21 @@ const validateGeometry = (geometry: TrackGeometry): readonly TrackValidationFail
   return failures;
 };
 
-const validateFeatureGeometry = (geometry: TrackGeometry): readonly TrackValidationFailure[] => {
+const validateFeatureGeometry = (
+  spec: TrackSpec,
+  samples: readonly TrackSample[],
+  geometry: TrackGeometry,
+): readonly TrackValidationFailure[] => {
   const { featurePositions, featureNormals, featureIndices } = geometry;
   const anyFeatureBuffer = featurePositions.length > 0 || featureNormals.length > 0 || featureIndices.length > 0;
-  if (!anyFeatureBuffer) return [];
-  const invalid = (message: string): readonly TrackValidationFailure[] => [failure("feature-geometry", message)];
+  const splitterSampleIndices = samples.flatMap((sample, index) => sample.zone === "splitter" ? [index] : []);
+  const expectsFeature = splitterSampleIndices.length > 0 || spec.nodes.some((node) => node.zone === "splitter");
+  const invalid = (message: string, sampleIndex?: number): readonly TrackValidationFailure[] => [failure("feature-geometry", message, sampleIndex)];
+  if (!anyFeatureBuffer) {
+    return expectsFeature
+      ? invalid("Splitter samples expect non-empty divider position, normal, and index buffers.", splitterSampleIndices[0])
+      : [];
+  }
   const vertexCount = featurePositions.length / 3;
   if (
     featurePositions.length === 0 ||
@@ -411,7 +425,100 @@ const validateFeatureGeometry = (geometry: TrackGeometry): readonly TrackValidat
       }
     }
   }
-  return visited.size === referenced.size ? [] : invalid("Divider indices must form one connected obstacle component.");
+  if (visited.size !== referenced.size) return invalid("Divider indices must form one connected obstacle component.");
+
+  for (const sampleIndex of splitterSampleIndices) {
+    if (samples[sampleIndex].width < 16) {
+      return invalid("Every splitter-zone sample must remain at least 16 world units wide.", sampleIndex);
+    }
+  }
+
+  const rowSize = geometry.profileSegments + 1;
+  const nearestSampleIndex = (position: Vec3): number =>
+    samples.reduce((nearest, _sample, index) =>
+      Math.min(...Array.from({ length: rowSize }, (_, column) => distance(position, outerVertex(index, column)))) <
+      Math.min(...Array.from({ length: rowSize }, (_, column) => distance(position, outerVertex(nearest, column))) )
+        ? index
+        : nearest,
+    0);
+  const outerVertex = (sampleIndex: number, column: number): Vec3 => {
+    const offset = (sampleIndex * rowSize + column) * 3;
+    return { x: geometry.positions[offset], y: geometry.positions[offset + 1], z: geometry.positions[offset + 2] };
+  };
+  const featureVertices = Array.from({ length: vertexCount }, (_, vertex) => position(vertex));
+  const nearestIndices = featureVertices.map(nearestSampleIndex);
+  for (let vertex = 0; vertex < featureVertices.length; vertex += 1) {
+    const divider = featureVertices[vertex];
+    const sampleIndex = nearestIndices[vertex];
+    const sample = samples[sampleIndex];
+    const delta = {
+      x: divider.x - sample.position.x,
+      y: divider.y - sample.position.y,
+      z: divider.z - sample.position.z,
+    };
+    if (sample.zone !== "splitter" || sample.width < 16) {
+      return invalid("Divider nose and tail must remain fully inside the full-width splitter zone.", sampleIndex);
+    }
+    const lateral = delta.x * sample.side.x + delta.y * sample.side.y + delta.z * sample.side.z;
+    if (Math.abs(lateral) > sample.width / 2) {
+      return invalid("Divider must remain inside the channel between its outer rims.", sampleIndex);
+    }
+    const nearbyRows = [sampleIndex - 1, sampleIndex, sampleIndex + 1]
+      .filter((index) => index >= 0 && index < samples.length);
+    const rimClearance = Math.min(...nearbyRows.flatMap((index) => [0, rowSize - 1].map((column) =>
+      distance(divider, outerVertex(index, column)),
+    )));
+    if (rimClearance < MIN_DIVIDER_HEIGHT) {
+      return invalid(`Divider rim clearance must be at least ${MIN_DIVIDER_HEIGHT.toFixed(2)} world units.`, sampleIndex);
+    }
+  }
+
+  const verticalSpans = new Map<string, { position: Vec3; minimum: number; maximum: number }>();
+  for (const divider of featureVertices) {
+    const key = `${divider.x}:${divider.z}`;
+    const span = verticalSpans.get(key) ?? { position: divider, minimum: divider.y, maximum: divider.y };
+    span.minimum = Math.min(span.minimum, divider.y);
+    span.maximum = Math.max(span.maximum, divider.y);
+    verticalSpans.set(key, span);
+  }
+  for (const span of verticalSpans.values()) {
+    const sampleIndex = nearestSampleIndex(span.position);
+    const floor = outerVertex(sampleIndex, Math.floor(geometry.profileSegments / 2));
+    if (span.minimum < floor.y - 0.1) {
+      return invalid("Divider must not intersect the channel floor.", sampleIndex);
+    }
+    if (
+      span.maximum - span.minimum < MIN_DIVIDER_HEIGHT ||
+      span.maximum - floor.y < MIN_DIVIDER_HEIGHT
+    ) {
+      return invalid(`Divider height above its local channel floor must be at least ${MIN_DIVIDER_HEIGHT.toFixed(2)} world units.`, sampleIndex);
+    }
+  }
+
+  return [];
+};
+
+const validateRailSeams = (geometry: TrackGeometry): readonly TrackValidationFailure[] => {
+  const rowSize = geometry.profileSegments + 1;
+  const columns = [...new Set([0, 1, rowSize - 2, rowSize - 1])];
+  const railHeight = (sampleIndex: number, column: number): number => {
+    const center = positionAt(geometry, sampleIndex * rowSize + Math.floor(geometry.profileSegments / 2));
+    const rail = positionAt(geometry, sampleIndex * rowSize + column);
+    return (rail?.y ?? Number.NaN) - (center?.y ?? Number.NaN);
+  };
+
+  for (let sampleIndex = 1; sampleIndex < geometry.samples.length; sampleIndex += 1) {
+    for (const column of columns) {
+      if (Math.abs(railHeight(sampleIndex, column) - railHeight(sampleIndex - 1, column)) > MAX_RAIL_HEIGHT_STEP) {
+        return [failure(
+          "rail-seam",
+          `Outer edge and shoulder rail-height steps must not exceed ${MAX_RAIL_HEIGHT_STEP.toFixed(2)} world units.`,
+          sampleIndex,
+        )];
+      }
+    }
+  }
+  return [];
 };
 
 const validateClearance = (samples: readonly TrackSample[]): readonly TrackValidationFailure[] => {
@@ -505,7 +612,8 @@ export const validateTrack = (
     ...validateSamples(spec, samples),
     ...structureFailures,
     ...(structureFailures.length === 0 ? validateGeometry(geometry) : []),
-    ...validateFeatureGeometry(geometry),
+    ...validateRailSeams(geometry),
+    ...validateFeatureGeometry(spec, samples, geometry),
     ...validateClearance(samples),
     ...validateFinish(spec, samples),
   ];
