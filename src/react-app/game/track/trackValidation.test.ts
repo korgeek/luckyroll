@@ -437,20 +437,63 @@ describe("static track validation", () => {
     );
   });
 
-  it("rejects an offset divider whose footprint penetrates the faceted U surface", () => {
+  it("maps offset-divider penetration to its splitter-zone faceted surface", () => {
     const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, dividerOffset: 5 };
     const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
     const samples = sampleTrack(spec);
     const geometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
 
-    expect(validateTrack(spec, samples, geometry)).toEqual(
-      expect.arrayContaining([expect.objectContaining({
-        code: "feature-geometry",
-        message: expect.stringMatching(/faceted.*surface/i),
-        sampleIndex: expect.any(Number),
-        vertexIndex: expect.any(Number),
-      })]),
-    );
+    const failure = validateTrack(spec, samples, geometry).find(({ message }) => /penetrates.*faceted/i.test(message));
+    expect(failure).toEqual(expect.objectContaining({
+      code: "feature-geometry",
+      sampleIndex: 571,
+      vertexIndex: 13,
+    }));
+    expect(samples[failure?.sampleIndex ?? -1]?.zone).toBe("splitter");
+  });
+
+  it("accepts a raised offset divider when its footprint clears the splitter surface", () => {
+    const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, dividerOffset: 5 };
+    const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
+    const samples = sampleTrack(spec);
+    const geometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
+    const featurePositions = new Float32Array(geometry.featurePositions);
+    for (let offset = 1; offset < featurePositions.length; offset += 3) featurePositions[offset] += 5;
+
+    expect(validateTrack(spec, samples, { ...geometry, featurePositions })).toEqual([]);
+  });
+
+  it("accepts a canonical divider lowered within faceted-contact tolerance", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const featurePositions = new Float32Array(featured.geometry.featurePositions);
+    for (let offset = 1; offset < featurePositions.length; offset += 3) featurePositions[offset] -= 0.01;
+
+    expect(validateTrack(featured.spec, featured.samples, { ...featured.geometry, featurePositions })).toEqual([]);
+  });
+
+  it("rejects a canonical divider lowered beyond faceted-contact tolerance", () => {
+    const featured = buildValidatedTrack({ features: true });
+    const featurePositions = new Float32Array(featured.geometry.featurePositions);
+    for (let offset = 1; offset < featurePositions.length; offset += 3) featurePositions[offset] -= 0.03;
+
+    const failure = validateTrack(featured.spec, featured.samples, { ...featured.geometry, featurePositions })
+      .find(({ message }) => /penetrates.*faceted/i.test(message));
+    expect(failure).toEqual(expect.objectContaining({
+      code: "feature-geometry",
+      sampleIndex: expect.any(Number),
+      vertexIndex: expect.any(Number),
+    }));
+    expect(featured.samples[failure?.sampleIndex ?? -1]?.zone).toBe("splitter");
+  });
+
+  it("returns structured prerequisite failures for feature geometry with no samples", () => {
+    const featured = buildValidatedTrack({ features: true });
+
+    expect(() => validateTrack(featured.spec, [], featured.geometry)).not.toThrow();
+    expect(validateTrack(featured.spec, [], featured.geometry)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "geometry-structure" }),
+      expect.objectContaining({ code: "feature-geometry", message: expect.stringMatching(/prerequisite|samples|outer profile/i) }),
+    ]));
   });
 
   it("accepts a divider footprint raised just above the faceted U surface", () => {
@@ -522,7 +565,7 @@ describe("static track validation", () => {
 
   it.each([
     ["requires full-width splitter samples", { hallWidth: 1 }, /splitter.*wide/i],
-    ["rejects a divider outside the channel", { dividerRadius: 20 }, /inside.*channel/i],
+    ["rejects a divider outside the channel", { dividerRadius: 20 }, /inside.*channel|splitter zone/i],
     ["requires a 1.36-unit divider height", { dividerHeight: 0.1 }, /height/i],
   ])("fails closed when it %s", (_description, overrides, message) => {
     const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, ...overrides };
