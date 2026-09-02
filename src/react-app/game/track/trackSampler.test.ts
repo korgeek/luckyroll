@@ -11,12 +11,20 @@ describe("track centerline sampler", () => {
     const b = Math.atan2(sample.tangent.z, sample.tangent.x);
     return Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
   }));
-  const samples = sampleTrack(createLuckyRollTrackSpec());
+  const spec = createLuckyRollTrackSpec();
+  const samples = sampleTrack(spec);
 
   it("samples the route at stable arc-length intervals", () => {
     const gaps = samples.slice(1).map((sample, index) => distance(sample.position, samples[index].position));
     expect(Math.max(...gaps)).toBeLessThanOrEqual(1.1);
-    expect(Math.min(...gaps.slice(0, -1))).toBeGreaterThanOrEqual(0.75);
+    expect(Math.min(...gaps.slice(0, -1))).toBeGreaterThanOrEqual(spec.sampleSpacing * 0.75);
+  });
+
+  it("keeps the authoritative centerline within the approved course length", () => {
+    const length = samples[samples.length - 1].distance;
+
+    expect(length).toBeGreaterThanOrEqual(350);
+    expect(length).toBeLessThanOrEqual(450);
   });
 
   it("never creates an uphill sample", () => {
