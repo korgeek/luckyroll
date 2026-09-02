@@ -57,8 +57,10 @@ export type TrackValidationFailure = Readonly<{
     | "uphill"
     | "tight-turn"
     | "degenerate-triangle"
+    | "geometry-structure"
     | "winding"
     | "disconnected"
+    | "non-finite"
     | "clearance"
     | "rail-gap"
     | "finish-entry";

@@ -36,6 +36,36 @@ describe("Lucky Roll track specification", () => {
     ).toBe(true);
   });
 
+  it("keeps checkpoint membership in separated descending level bands", () => {
+    const checkpoints = createLuckyRollTrackSpec().nodes.filter(
+      (node): node is typeof node & { checkpoint: NonNullable<typeof node.checkpoint>; level: NonNullable<typeof node.level> } =>
+        node.checkpoint !== undefined && node.level !== undefined,
+    );
+    expect(Object.fromEntries(checkpoints.map((node) => [node.checkpoint, node.level]))).toEqual({
+      A: 3,
+      1: 3,
+      2: 3,
+      3: 3,
+      4: 3,
+      5: 2,
+      6: 2,
+      7: 2,
+      8: 2,
+      9: 1,
+      10: 1,
+      11: 1,
+      12: 1,
+    });
+
+    const heightsFor = (level: 1 | 2 | 3): number[] =>
+      checkpoints.filter((node) => node.level === level).map((node) => node.position.y);
+    const upper = heightsFor(3);
+    const middle = heightsFor(2);
+    const lower = heightsFor(1);
+    expect(Math.min(...upper) - Math.max(...middle)).toBeGreaterThanOrEqual(1);
+    expect(Math.min(...middle) - Math.max(...lower)).toBeGreaterThanOrEqual(1);
+  });
+
   it("fits 100 simultaneous starts inside the launch U-channel", () => {
     const slots = createLaunchSlots(100);
     expect(slots).toHaveLength(100);

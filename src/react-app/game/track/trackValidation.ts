@@ -67,6 +67,101 @@ const failure = (
   sampleIndex?: number,
 ): TrackValidationFailure => ({ code, message, ...(sampleIndex === undefined ? {} : { sampleIndex }) });
 
+const isFiniteVector = (vector: Vec3): boolean =>
+  Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z);
+
+const validateFiniteData = (
+  spec: TrackSpec,
+  samples: readonly TrackSample[],
+  geometry: TrackGeometry,
+): readonly TrackValidationFailure[] => {
+  if (
+    !Number.isFinite(spec.sampleSpacing) ||
+    !Number.isFinite(spec.profileSegments) ||
+    spec.nodes.some(
+      (node) =>
+        !isFiniteVector(node.position) ||
+        !Number.isFinite(node.width) ||
+        !Number.isFinite(node.channelDepth) ||
+        !Number.isFinite(node.bankRadians),
+    )
+  ) {
+    return [failure("non-finite", "Track specification contains a non-finite numeric value.")];
+  }
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = samples[index];
+    if (
+      !Number.isFinite(sample.index) ||
+      !Number.isFinite(sample.distance) ||
+      !isFiniteVector(sample.position) ||
+      !isFiniteVector(sample.tangent) ||
+      !isFiniteVector(sample.side) ||
+      !isFiniteVector(sample.up) ||
+      !Number.isFinite(sample.width) ||
+      !Number.isFinite(sample.channelDepth) ||
+      !Number.isFinite(sample.bankRadians)
+    ) {
+      return [failure("non-finite", "Track sample contains a non-finite numeric value.", index)];
+    }
+  }
+
+  if (
+    !Number.isFinite(geometry.profileSegments) ||
+    !Number.isFinite(geometry.triangleCount) ||
+    Array.from(geometry.positions).some((value) => !Number.isFinite(value)) ||
+    Array.from(geometry.normals).some((value) => !Number.isFinite(value))
+  ) {
+    return [failure("non-finite", "Track geometry contains a non-finite numeric value.")];
+  }
+
+  for (let index = 0; index < geometry.samples.length; index += 1) {
+    const sample = geometry.samples[index];
+    if (
+      !Number.isFinite(sample.index) ||
+      !Number.isFinite(sample.distance) ||
+      !isFiniteVector(sample.position) ||
+      !isFiniteVector(sample.tangent) ||
+      !isFiniteVector(sample.side) ||
+      !isFiniteVector(sample.up) ||
+      !Number.isFinite(sample.width) ||
+      !Number.isFinite(sample.channelDepth) ||
+      !Number.isFinite(sample.bankRadians)
+    ) {
+      return [failure("non-finite", "Geometry sample frame contains a non-finite numeric value.", index)];
+    }
+  }
+
+  return [];
+};
+
+const validateGeometryStructure = (
+  spec: TrackSpec,
+  samples: readonly TrackSample[],
+  geometry: TrackGeometry,
+): readonly TrackValidationFailure[] => {
+  const rowSize = spec.profileSegments + 1;
+  const expectedVertices = samples.length * rowSize;
+  const expectedIndices = Math.max(0, samples.length - 1) * spec.profileSegments * 6;
+  const vertexCount = geometry.positions.length / 3;
+  const valid =
+    Number.isInteger(spec.profileSegments) &&
+    spec.profileSegments > 0 &&
+    geometry.profileSegments === spec.profileSegments &&
+    geometry.samples.length === samples.length &&
+    geometry.positions.length === expectedVertices * 3 &&
+    geometry.positions.length % 3 === 0 &&
+    geometry.normals.length === geometry.positions.length &&
+    geometry.indices.length === expectedIndices &&
+    geometry.indices.length > 0 &&
+    geometry.triangleCount === geometry.indices.length / 3 &&
+    Array.from(geometry.indices).every((index) => index < vertexCount);
+
+  return valid
+    ? []
+    : [failure("geometry-structure", "Geometry buffers do not match the expected connected U-channel structure.")];
+};
+
 const validateCheckpointOrder = (spec: TrackSpec): readonly TrackValidationFailure[] => {
   const checkpoints = spec.nodes.flatMap((node) =>
     node.checkpoint === undefined ? [] : [node.checkpoint],
@@ -265,24 +360,37 @@ const validateFinish = (
   samples: readonly TrackSample[],
 ): readonly TrackValidationFailure[] => {
   const start = spec.nodes[0]?.position;
-  const finish = spec.nodes.find((node) => node.checkpoint === "12")?.position;
+  const finishNode = spec.nodes.find((node) => node.checkpoint === "12");
+  const finish = finishNode?.position;
   const lastSample = samples[samples.length - 1]?.position;
-  if (start === undefined || finish === undefined || lastSample === undefined) {
+  if (
+    start === undefined ||
+    finish === undefined ||
+    lastSample === undefined ||
+    spec.nodes[spec.nodes.length - 1]?.checkpoint !== "12"
+  ) {
     return [failure("finish-entry", "Track requires start, finish, and final sample positions.")];
   }
 
   const courseLength = samples[samples.length - 1]?.distance ?? 0;
-  const arrivesAtFinish = distance(finish, lastSample) <= spec.sampleSpacing * 2;
+  const finishEntryRadius = spec.sampleSpacing * 2;
+  const arrivesAtFinish = distance(finish, lastSample) <= finishEntryRadius;
   const separatesFromStart =
     distance(finish, start) >= courseLength * 0.25 || Math.abs(finish.y - start.y) >= 5;
+  const finalApproachStart = courseLength - finishEntryRadius;
+  const intrusionIndex = samples.findIndex(
+    (sample) =>
+      sample.distance < finalApproachStart &&
+      distance(sample.position, finish) <= finishEntryRadius,
+  );
 
-  return arrivesAtFinish && separatesFromStart
+  return arrivesAtFinish && separatesFromStart && intrusionIndex === -1
     ? []
     : [
         failure(
           "finish-entry",
-          "Finish must be near the final sample and sufficiently separated from the start.",
-          samples.length - 1,
+          "Finish must be reachable from the final approach only.",
+          intrusionIndex === -1 ? samples.length - 1 : intrusionIndex,
         ),
       ];
 };
@@ -291,13 +399,22 @@ export const validateTrack = (
   spec: TrackSpec,
   samples: readonly TrackSample[],
   geometry: TrackGeometry,
-): readonly TrackValidationFailure[] => [
-  ...validateCheckpointOrder(spec),
-  ...validateSamples(spec, samples),
-  ...validateGeometry(geometry),
-  ...validateClearance(samples),
-  ...validateFinish(spec, samples),
-];
+): readonly TrackValidationFailure[] => {
+  const finiteFailures = validateFiniteData(spec, samples, geometry);
+  if (finiteFailures.length > 0) {
+    return finiteFailures;
+  }
+
+  const structureFailures = validateGeometryStructure(spec, samples, geometry);
+  return [
+    ...validateCheckpointOrder(spec),
+    ...validateSamples(spec, samples),
+    ...structureFailures,
+    ...(structureFailures.length === 0 ? validateGeometry(geometry) : []),
+    ...validateClearance(samples),
+    ...validateFinish(spec, samples),
+  ];
+};
 
 export const assertValidTrack = (
   spec: TrackSpec,

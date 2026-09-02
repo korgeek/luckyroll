@@ -122,17 +122,17 @@ const flipTriangle = (fixture: TrackFixture): TrackFixture => {
 const detachProfileRow = (fixture: TrackFixture): TrackFixture => {
   const broken = buildTrackFixture();
   const triangleStart = Math.floor(broken.geometry.indices.length / 2 / 3) * 3;
-  const detachedPositions = new Float32Array(broken.geometry.positions.length + 9);
-  detachedPositions.set(broken.geometry.positions);
-  const detachedVertex = broken.geometry.positions.length / 3;
+  const detachedVertex = broken.geometry.positions.length / 3 - 3;
+  const detachedVertices = new Set([detachedVertex, detachedVertex + 1, detachedVertex + 2]);
 
-  for (let index = 0; index < 3; index += 1) {
-    const source = broken.geometry.indices[triangleStart + index] * 3;
-    detachedPositions.set(broken.geometry.positions.slice(source, source + 3), (detachedVertex + index) * 3);
-    broken.geometry.indices[triangleStart + index] = detachedVertex + index;
+  for (let index = 0; index < broken.geometry.indices.length; index += 1) {
+    if (detachedVertices.has(broken.geometry.indices[index])) {
+      broken.geometry.indices[index] = 0;
+    }
   }
-
-  broken.geometry = { ...broken.geometry, positions: detachedPositions };
+  broken.geometry.indices[triangleStart] = detachedVertex;
+  broken.geometry.indices[triangleStart + 1] = detachedVertex + 1;
+  broken.geometry.indices[triangleStart + 2] = detachedVertex + 2;
   void fixture;
   return broken;
 };
@@ -186,6 +186,85 @@ const moveFinishBesideStart = (fixture: TrackFixture): TrackFixture => {
   return broken;
 };
 
+const removeIndexBuffer = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.geometry = { ...broken.geometry, indices: new Uint32Array() };
+  void fixture;
+  return broken;
+};
+
+const desynchronizeNormalBuffer = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.geometry = { ...broken.geometry, normals: new Float32Array(broken.geometry.normals.length - 3) };
+  void fixture;
+  return broken;
+};
+
+const referenceVertexOutsidePositionBuffer = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.geometry.indices[0] = broken.geometry.positions.length / 3;
+  void fixture;
+  return broken;
+};
+
+const insertNonFiniteSample = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  const index = 20;
+  broken.samples[index] = {
+    ...broken.samples[index],
+    position: { ...broken.samples[index].position, x: Number.NaN },
+  };
+  void fixture;
+  return broken;
+};
+
+const insertNonFiniteGeometryPosition = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.geometry.positions[0] = Number.POSITIVE_INFINITY;
+  void fixture;
+  return broken;
+};
+
+const insertNonFiniteGeometrySample = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  broken.geometry = {
+    ...broken.geometry,
+    samples: broken.geometry.samples.map((sample, index) =>
+      index === 0 ? { ...sample, width: Number.NaN } : sample,
+    ),
+  };
+  void fixture;
+  return broken;
+};
+
+const moveEarlierApproachIntoFinish = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  const finish = broken.spec.nodes[broken.spec.nodes.length - 1].position;
+  const index = 20;
+  broken.samples[index] = { ...broken.samples[index], position: cloneVector(finish) };
+  void fixture;
+  return broken;
+};
+
+const appendGuideAfterFinish = (fixture: TrackFixture): TrackFixture => {
+  const broken = buildTrackFixture();
+  const finish = broken.spec.nodes[broken.spec.nodes.length - 1];
+  broken.spec = {
+    ...broken.spec,
+    nodes: [
+      ...broken.spec.nodes,
+      {
+        ...finish,
+        id: "after-finish",
+        checkpoint: undefined,
+        position: { ...finish.position, y: finish.position.y - 0.1 },
+      },
+    ],
+  };
+  void fixture;
+  return broken;
+};
+
 const qualifyingCrossingsBelow = (
   samples: readonly TrackSample[],
   minimumClearance: number,
@@ -222,6 +301,42 @@ describe("static track validation", () => {
 
   it("keeps every qualifying crossing at least 5.1 units apart", () => {
     expect(qualifyingCrossingsBelow(valid.samples, 5.1)).toEqual([]);
+  });
+
+  it.each([
+    ["empty indices", removeIndexBuffer],
+    ["inconsistent buffers", desynchronizeNormalBuffer],
+    ["an out-of-range index", referenceVertexOutsidePositionBuffer],
+  ])("reports geometry-structure for %s", (_description, mutate) => {
+    const broken = mutate(valid);
+    expect(validateTrack(broken.spec, broken.samples, broken.geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "geometry-structure" })]),
+    );
+  });
+
+  it.each([
+    ["a sample coordinate", insertNonFiniteSample],
+    ["a geometry position", insertNonFiniteGeometryPosition],
+    ["geometry sample metadata", insertNonFiniteGeometrySample],
+  ])("reports non-finite for %s", (_description, mutate) => {
+    const broken = mutate(valid);
+    expect(validateTrack(broken.spec, broken.samples, broken.geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "non-finite" })]),
+    );
+  });
+
+  it("rejects an earlier approach that intrudes into the finish region", () => {
+    const broken = moveEarlierApproachIntoFinish(valid);
+    expect(validateTrack(broken.spec, broken.samples, broken.geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "finish-entry", sampleIndex: 20 })]),
+    );
+  });
+
+  it("requires checkpoint 12 to be the final node", () => {
+    const broken = appendGuideAfterFinish(valid);
+    expect(validateTrack(broken.spec, broken.samples, broken.geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "finish-entry" })]),
+    );
   });
 
   it.each([
