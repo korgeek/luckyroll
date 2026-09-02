@@ -437,6 +437,54 @@ describe("static track validation", () => {
     );
   });
 
+  it("rejects an offset divider whose footprint penetrates the faceted U surface", () => {
+    const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, dividerOffset: 5 };
+    const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
+    const samples = sampleTrack(spec);
+    const geometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
+
+    expect(validateTrack(spec, samples, geometry)).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: "feature-geometry",
+        message: expect.stringMatching(/faceted.*surface/i),
+        sampleIndex: expect.any(Number),
+        vertexIndex: expect.any(Number),
+      })]),
+    );
+  });
+
+  it("accepts a divider footprint raised just above the faceted U surface", () => {
+    const featureLayout = { ...DEFAULT_TRACK_FEATURE_LAYOUT, dividerOffset: 0 };
+    const spec = createLuckyRollTrackSpec({ features: true, featureLayout });
+    const samples = sampleTrack(spec);
+    const geometry = generateTrackGeometry(samples, spec.profileSegments, featureLayout);
+    const featurePositions = new Float32Array(geometry.featurePositions);
+    for (let offset = 1; offset < featurePositions.length; offset += 3) featurePositions[offset] += 0.05;
+
+    expect(validateTrack(spec, samples, { ...geometry, featurePositions })).toEqual([]);
+  });
+
+  it.each([
+    ["an appended unreferenced divider vertex", (geometry: TrackGeometry) => ({
+      ...geometry,
+      featurePositions: new Float32Array([...geometry.featurePositions, ...geometry.featurePositions.slice(0, 3)]),
+      featureNormals: new Float32Array([...geometry.featureNormals, ...geometry.featureNormals.slice(0, 3)]),
+    })],
+    ["a zero divider normal", (geometry: TrackGeometry) => {
+      const featureNormals = new Float32Array(geometry.featureNormals);
+      featureNormals[0] = 0;
+      featureNormals[1] = 0;
+      featureNormals[2] = 0;
+      return { ...geometry, featureNormals };
+    }],
+  ])("fails closed for %s", (_description, mutate) => {
+    const featured = buildValidatedTrack({ features: true });
+
+    expect(validateTrack(featured.spec, featured.samples, mutate(featured.geometry))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "feature-geometry", vertexIndex: expect.any(Number) })]),
+    );
+  });
+
   it("requires divider buffers whenever canonical splitter samples expect the feature", () => {
     const featured = buildValidatedTrack({ features: true });
     const broken = {

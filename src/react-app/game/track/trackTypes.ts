@@ -88,5 +88,6 @@ export type TrackValidationFailure = Readonly<{
     | "rail-seam"
     | "finish-entry";
   sampleIndex?: number;
+  vertexIndex?: number;
   message: string;
 }>;

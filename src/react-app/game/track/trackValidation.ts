@@ -13,6 +13,8 @@ const MIN_TRIANGLE_AREA = 0.000001;
 const MIN_CLEARANCE = 5;
 const MIN_RAIL_HEIGHT = 2.5 * 0.68;
 const MIN_DIVIDER_HEIGHT = 4 * 0.34;
+// The canonical divider rests within 0.079486 of the low-poly shoulder facets; 0.100 preserves that contact.
+const MAX_DIVIDER_SURFACE_PENETRATION = 0.1;
 // The canonical right-edge taper's maximum adjacent local rail-height step is 0.70825.
 // 1.00 leaves a 0.29175-unit safety margin while rejecting a discontinuous raised vertex.
 const MAX_RAIL_HEIGHT_STEP = 1;
@@ -23,6 +25,88 @@ const distance = (left: Vec3, right: Vec3): number =>
 
 const horizontalDistance = (left: Vec3, right: Vec3): number =>
   Math.hypot(left.x - right.x, left.z - right.z);
+
+const subtract = (left: Vec3, right: Vec3): Vec3 => ({
+  x: left.x - right.x,
+  y: left.y - right.y,
+  z: left.z - right.z,
+});
+
+const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * right.y + left.z * right.z;
+
+const cross = (left: Vec3, right: Vec3): Vec3 => ({
+  x: left.y * right.z - left.z * right.y,
+  y: left.z * right.x - left.x * right.z,
+  z: left.x * right.y - left.y * right.x,
+});
+
+const scale = (vector: Vec3, amount: number): Vec3 => ({ x: vector.x * amount, y: vector.y * amount, z: vector.z * amount });
+
+const vectorLength = (vector: Vec3): number => Math.hypot(vector.x, vector.y, vector.z);
+
+const normalize = (vector: Vec3): Vec3 => scale(vector, 1 / vectorLength(vector));
+
+const pointToTriangleDistance = (point: Vec3, first: Vec3, second: Vec3, third: Vec3): number => {
+  const ab = subtract(second, first);
+  const ac = subtract(third, first);
+  const ap = subtract(point, first);
+  const d1 = dot(ab, ap);
+  const d2 = dot(ac, ap);
+  if (d1 <= 0 && d2 <= 0) return distance(point, first);
+
+  const bp = subtract(point, second);
+  const d3 = dot(ab, bp);
+  const d4 = dot(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return distance(point, second);
+
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) return distance(point, {
+    x: first.x + ab.x * d1 / (d1 - d3),
+    y: first.y + ab.y * d1 / (d1 - d3),
+    z: first.z + ab.z * d1 / (d1 - d3),
+  });
+
+  const cp = subtract(point, third);
+  const d5 = dot(ab, cp);
+  const d6 = dot(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return distance(point, third);
+
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) return distance(point, {
+    x: first.x + ac.x * d2 / (d2 - d6),
+    y: first.y + ac.y * d2 / (d2 - d6),
+    z: first.z + ac.z * d2 / (d2 - d6),
+  });
+
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+    const bc = subtract(third, second);
+    const weight = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+    return distance(point, { x: second.x + bc.x * weight, y: second.y + bc.y * weight, z: second.z + bc.z * weight });
+  }
+
+  const denominator = 1 / (va + vb + vc);
+  const v = vb * denominator;
+  const w = vc * denominator;
+  return distance(point, {
+    x: first.x + ab.x * v + ac.x * w,
+    y: first.y + ab.y * v + ac.y * w,
+    z: first.z + ab.z * v + ac.z * w,
+  });
+};
+
+const rayTriangleParameter = (origin: Vec3, direction: Vec3, first: Vec3, second: Vec3, third: Vec3): number | undefined => {
+  const ab = subtract(second, first);
+  const ac = subtract(third, first);
+  const determinant = dot(ab, cross(direction, ac));
+  if (Math.abs(determinant) < 0.000001) return undefined;
+  const offset = subtract(origin, first);
+  const u = dot(offset, cross(direction, ac)) / determinant;
+  if (u < -0.000001 || u > 1.000001) return undefined;
+  const v = dot(direction, cross(offset, ab)) / determinant;
+  if (v < -0.000001 || u + v > 1.000001) return undefined;
+  return dot(ac, cross(offset, ab)) / determinant;
+};
 
 const triangleArea = (first: Vec3, second: Vec3, third: Vec3): number => {
   const secondOffset = {
@@ -69,7 +153,13 @@ const failure = (
   code: TrackValidationFailure["code"],
   message: string,
   sampleIndex?: number,
-): TrackValidationFailure => ({ code, message, ...(sampleIndex === undefined ? {} : { sampleIndex }) });
+  vertexIndex?: number,
+): TrackValidationFailure => ({
+  code,
+  message,
+  ...(sampleIndex === undefined ? {} : { sampleIndex }),
+  ...(vertexIndex === undefined ? {} : { vertexIndex }),
+});
 
 const isFiniteVector = (vector: Vec3): boolean =>
   Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z);
@@ -351,7 +441,11 @@ const validateFeatureGeometry = (
   const anyFeatureBuffer = featurePositions.length > 0 || featureNormals.length > 0 || featureIndices.length > 0;
   const splitterSampleIndices = samples.flatMap((sample, index) => sample.zone === "splitter" ? [index] : []);
   const expectsFeature = splitterSampleIndices.length > 0 || spec.nodes.some((node) => node.zone === "splitter");
-  const invalid = (message: string, sampleIndex?: number): readonly TrackValidationFailure[] => [failure("feature-geometry", message, sampleIndex)];
+  const invalid = (
+    message: string,
+    sampleIndex?: number,
+    vertexIndex?: number,
+  ): readonly TrackValidationFailure[] => [failure("feature-geometry", message, sampleIndex, vertexIndex)];
   if (!anyFeatureBuffer) {
     return expectsFeature
       ? invalid("Splitter samples expect non-empty divider position, normal, and index buffers.", splitterSampleIndices[0])
@@ -393,6 +487,18 @@ const validateFeatureGeometry = (
     const offset = vertex * 3;
     return { x: featurePositions[offset], y: featurePositions[offset + 1], z: featurePositions[offset + 2] };
   };
+  const normal = (vertex: number): Vec3 => {
+    const offset = vertex * 3;
+    return { x: featureNormals[offset], y: featureNormals[offset + 1], z: featureNormals[offset + 2] };
+  };
+  const faceNormalTotals = Array.from({ length: vertexCount }, () => ({ x: 0, y: 0, z: 0 }));
+
+  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
+    const length = vectorLength(normal(vertex));
+    if (length < 0.95 || length > 1.05) {
+      return invalid("Divider normals must be non-zero unit vectors.", undefined, vertex);
+    }
+  }
 
   for (let offset = 0; offset < featureIndices.length; offset += 3) {
     const first = featureIndices[offset];
@@ -400,6 +506,12 @@ const validateFeatureGeometry = (
     const third = featureIndices[offset + 2];
     if (triangleArea(position(first), position(second), position(third)) <= MIN_TRIANGLE_AREA) {
       return invalid("Divider triangles must be non-degenerate.");
+    }
+    const faceNormal = normalize(cross(subtract(position(second), position(first)), subtract(position(third), position(first))));
+    for (const vertex of [first, second, third]) {
+      faceNormalTotals[vertex].x += faceNormal.x;
+      faceNormalTotals[vertex].y += faceNormal.y;
+      faceNormalTotals[vertex].z += faceNormal.z;
     }
     referenced.add(first); referenced.add(second); referenced.add(third);
     connect(first, second); connect(second, third); connect(third, first);
@@ -426,6 +538,16 @@ const validateFeatureGeometry = (
     }
   }
   if (visited.size !== referenced.size) return invalid("Divider indices must form one connected obstacle component.");
+  if (referenced.size !== vertexCount) {
+    const vertex = Array.from({ length: vertexCount }, (_, index) => index).find((index) => !referenced.has(index));
+    return invalid("Every divider position and normal vertex must be referenced by divider indices.", undefined, vertex);
+  }
+  for (const vertex of referenced) {
+    const expected = normalize(faceNormalTotals[vertex]);
+    if (dot(normal(vertex), expected) < 0.5) {
+      return invalid("Divider normals must align with their referenced face normals.", undefined, vertex);
+    }
+  }
 
   for (const sampleIndex of splitterSampleIndices) {
     if (samples[sampleIndex].width < 16) {
@@ -434,17 +556,76 @@ const validateFeatureGeometry = (
   }
 
   const rowSize = geometry.profileSegments + 1;
-  const nearestSampleIndex = (position: Vec3): number =>
-    samples.reduce((nearest, _sample, index) =>
-      Math.min(...Array.from({ length: rowSize }, (_, column) => distance(position, outerVertex(index, column)))) <
-      Math.min(...Array.from({ length: rowSize }, (_, column) => distance(position, outerVertex(nearest, column))) )
-        ? index
-        : nearest,
-    0);
   const outerVertex = (sampleIndex: number, column: number): Vec3 => {
     const offset = (sampleIndex * rowSize + column) * 3;
     return { x: geometry.positions[offset], y: geometry.positions[offset + 1], z: geometry.positions[offset + 2] };
   };
+  const nearestSampleIndex = (position: Vec3): number =>
+    samples.reduce((nearest, _sample, index) =>
+      Math.min(...Array.from({ length: rowSize }, (_, column) => distance(position, outerVertex(index, column)))) <
+      Math.min(...Array.from({ length: rowSize }, (_, column) => distance(position, outerVertex(nearest, column))))
+        ? index
+        : nearest,
+    0);
+  const nearestCenterlineSampleIndex = (position: Vec3): number => {
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < samples.length - 1; index += 1) {
+      const first = samples[index].position;
+      const second = samples[index + 1].position;
+      const spanX = second.x - first.x;
+      const spanZ = second.z - first.z;
+      const spanLengthSquared = spanX * spanX + spanZ * spanZ;
+      const fraction = spanLengthSquared === 0 ? 0 : Math.max(0, Math.min(1, (
+        (position.x - first.x) * spanX + (position.z - first.z) * spanZ
+      ) / spanLengthSquared));
+      const closest = { x: first.x + spanX * fraction, y: 0, z: first.z + spanZ * fraction };
+      const candidateDistance = horizontalDistance(position, closest);
+      if (candidateDistance < nearestDistance) {
+        nearestDistance = candidateDistance;
+        nearestIndex = fraction < 0.5 ? index : index + 1;
+      }
+    }
+    return nearestIndex;
+  };
+  const profileColumnForLateral = (sampleIndex: number, lateral: number): number => {
+    const sample = samples[sampleIndex];
+    for (let column = 0; column < geometry.profileSegments; column += 1) {
+      const first = dot(subtract(outerVertex(sampleIndex, column), sample.position), sample.side);
+      const second = dot(subtract(outerVertex(sampleIndex, column + 1), sample.position), sample.side);
+      if (lateral >= Math.min(first, second) && lateral <= Math.max(first, second)) return column;
+    }
+    return Math.max(0, Math.min(geometry.profileSegments - 1, Math.round(
+      (lateral / sample.width + 0.5) * geometry.profileSegments,
+    )));
+  };
+  const facetedSurfaceOffset = (divider: Vec3, sampleIndex: number, lateral: number): number | undefined => {
+    const column = profileColumnForLateral(sampleIndex, lateral);
+    const candidates: number[] = [];
+    for (let row = Math.max(0, sampleIndex - 1); row < Math.min(samples.length - 1, sampleIndex + 1); row += 1) {
+      for (let profile = Math.max(0, column - 1); profile <= Math.min(geometry.profileSegments - 1, column + 1); profile += 1) {
+        const current = outerVertex(row, profile);
+        const currentNext = outerVertex(row, profile + 1);
+        const next = outerVertex(row + 1, profile);
+        const nextNext = outerVertex(row + 1, profile + 1);
+        for (const triangle of [[current, currentNext, next], [next, currentNext, nextNext]] as const) {
+          const intersection = rayTriangleParameter(divider, samples[sampleIndex].up, ...triangle);
+          if (intersection !== undefined) candidates.push(intersection);
+        }
+      }
+    }
+    return candidates.length === 0 ? undefined : candidates.reduce((nearest, candidate) =>
+      Math.abs(candidate) < Math.abs(nearest) ? candidate : nearest,
+    );
+  };
+  const wallTriangles = Array.from({ length: samples.length - 1 }, (_, row) => [0, geometry.profileSegments - 1]
+    .flatMap((column) => {
+      const current = outerVertex(row, column);
+      const currentNext = outerVertex(row, column + 1);
+      const next = outerVertex(row + 1, column);
+      const nextNext = outerVertex(row + 1, column + 1);
+      return [[current, currentNext, next], [next, currentNext, nextNext]] as const;
+    })).flat();
   const featureVertices = Array.from({ length: vertexCount }, (_, vertex) => position(vertex));
   const nearestIndices = featureVertices.map(nearestSampleIndex);
   for (let vertex = 0; vertex < featureVertices.length; vertex += 1) {
@@ -463,35 +644,54 @@ const validateFeatureGeometry = (
     if (Math.abs(lateral) > sample.width / 2) {
       return invalid("Divider must remain inside the channel between its outer rims.", sampleIndex);
     }
-    const nearbyRows = [sampleIndex - 1, sampleIndex, sampleIndex + 1]
-      .filter((index) => index >= 0 && index < samples.length);
-    const rimClearance = Math.min(...nearbyRows.flatMap((index) => [0, rowSize - 1].map((column) =>
-      distance(divider, outerVertex(index, column)),
-    )));
+    const rimClearance = Math.min(...wallTriangles.map((triangle) => pointToTriangleDistance(divider, ...triangle)));
     if (rimClearance < MIN_DIVIDER_HEIGHT) {
-      return invalid(`Divider rim clearance must be at least ${MIN_DIVIDER_HEIGHT.toFixed(2)} world units.`, sampleIndex);
+      return invalid(`Divider rim clearance must be at least ${MIN_DIVIDER_HEIGHT.toFixed(2)} world units on the faceted outer U surface.`, sampleIndex, vertex);
     }
   }
 
-  const verticalSpans = new Map<string, { position: Vec3; minimum: number; maximum: number }>();
-  for (const divider of featureVertices) {
+  const verticalSpans = new Map<string, { position: Vec3; minimum: number; maximum: number; bottomVertex: number }>();
+  for (let vertex = 0; vertex < featureVertices.length; vertex += 1) {
+    const divider = featureVertices[vertex];
     const key = `${divider.x}:${divider.z}`;
-    const span = verticalSpans.get(key) ?? { position: divider, minimum: divider.y, maximum: divider.y };
-    span.minimum = Math.min(span.minimum, divider.y);
+    const span = verticalSpans.get(key) ?? {
+      position: divider,
+      minimum: divider.y,
+      maximum: divider.y,
+      bottomVertex: vertex,
+    };
+    if (divider.y < span.minimum) {
+      span.minimum = divider.y;
+      span.position = divider;
+      span.bottomVertex = vertex;
+    }
     span.maximum = Math.max(span.maximum, divider.y);
     verticalSpans.set(key, span);
   }
   for (const span of verticalSpans.values()) {
-    const sampleIndex = nearestSampleIndex(span.position);
+    const sampleIndex = nearestCenterlineSampleIndex(span.position);
+    const sample = samples[sampleIndex];
     const floor = outerVertex(sampleIndex, Math.floor(geometry.profileSegments / 2));
     if (span.minimum < floor.y - 0.1) {
-      return invalid("Divider must not intersect the channel floor.", sampleIndex);
+      return invalid("Divider must not intersect the channel floor.", sampleIndex, span.bottomVertex);
     }
     if (
       span.maximum - span.minimum < MIN_DIVIDER_HEIGHT ||
       span.maximum - floor.y < MIN_DIVIDER_HEIGHT
     ) {
-      return invalid(`Divider height above its local channel floor must be at least ${MIN_DIVIDER_HEIGHT.toFixed(2)} world units.`, sampleIndex);
+      return invalid(`Divider height above its local channel floor must be at least ${MIN_DIVIDER_HEIGHT.toFixed(2)} world units.`, sampleIndex, span.bottomVertex);
+    }
+    const lateral = dot(subtract(span.position, sample.position), sample.side);
+    const surfaceOffset = facetedSurfaceOffset(span.position, sampleIndex, lateral);
+    if (surfaceOffset === undefined) {
+      return invalid("Divider footprint must map to a local faceted U-surface triangle.", sampleIndex, span.bottomVertex);
+    }
+    if (surfaceOffset > MAX_DIVIDER_SURFACE_PENETRATION) {
+      return invalid(
+        `Divider footprint penetrates the faceted U surface by ${surfaceOffset.toFixed(6)} world units; the tolerance is ${MAX_DIVIDER_SURFACE_PENETRATION.toFixed(3)}.`,
+        sampleIndex,
+        span.bottomVertex,
+      );
     }
   }
 

@@ -8,6 +8,8 @@ The feature-only grade is 0.280; baseline `features: false` stays at 0.245. Cont
 
 The outer and feature buffers are generated per build, validated before use, and the exact same arrays flow to rendering and to the two trimesh colliders on the same fixed body. There is no cross-build cache or mutation. Feature-disabled builds have no splitter expectation and valid empty feature buffers.
 
+Review round two validates the actual faceted outer mesh rather than only centerline/profile metadata. Every divider footprint bottom vertex is ray-mapped through its local profile column to the containing outer U triangles and rejected for surface penetration over 0.100 units. The canonical divider's largest low-poly resting-contact interpolation is 0.079486, so this preserves the existing geometry with 0.020514 units of documented tolerance; the offset-5 regression penetrates by approximately 1.105026 and is rejected with sample and vertex identifiers. Divider-to-rim clearance now uses point-to-triangle distance against the real left/right outer wall facets. Every feature vertex must be indexed, and every normal must be finite, 0.95–1.05 unit length, and aligned with its accumulated incident face normal.
+
 ## TDD, tuning, and physics evidence
 
 RED first demonstrated missing divider validation/integration and the later review mutations: all-empty expected feature buffers, a too-narrow hall, an oversized/out-of-channel divider, a too-short divider, longitudinally misplaced geometry, too-close rim geometry, and a sample-590 right-rim discontinuity were accepted before the validator work. GREEN adds structured `feature-geometry` failures for the feature expectation and the actual semantic envelope, plus `rail-seam` for both outer rims and shoulders.
@@ -18,6 +20,6 @@ The final fixed-seed soak ran seeds 11, 23, 37, 41, 53, 67, 71, 83, 97, and 101 
 
 ## Review-fix verification
 
-Sol's review of `534d8af..081f27d` reported the original aggregate suite passing with exit 0 (19 files, 99 tests) while identifying validator/report gaps. The review-fix focused suites pass: 38 validation tests, 9 geometry tests, and 6 specification tests (53/53); the renderer/scene integration group passes 67/67. The final repository suite, production build, tracked-diff inspection, and legacy-symbol search are rerun before the review-fix commit.
+Sol's first review-fix verification reported focused 53/53, full 19 files / 107 tests with exit 0 in 122.59s, and build exit 0, while identifying the remaining faceted-surface and feature-buffer integrity gaps. Round-two RED reproduced all three gaps: offset-5 penetration, an appended in-hall unreferenced vertex, and a zero normal. GREEN static verification is 42 validation, 9 geometry, and 6 specification tests (57/57); the final repository suite, production build, tracked-diff inspection, and legacy-symbol search are rerun before the round-two local commit.
 
-Current review-fix status: pending local commit on `feature/continuous-marble-track`; no main merge or push is performed by this task. The prior Task 7 implementation commit is `081f27d502a2fca800ebc164fd610757b49ef5d9`.
+Current review-fix status: round-two local commit pending on `feature/continuous-marble-track`; review approval remains pending. No main merge or push is performed by this task. The prior Task 7 implementation commit is `081f27d502a2fca800ebc164fd610757b49ef5d9`.
