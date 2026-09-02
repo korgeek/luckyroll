@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { buildValidatedTrack } from "./trackBuild";
 import { createTrackRenderGroup } from "./trackRender";
+import { projectToTrack } from "./trackSampler";
 
 describe("track renderer", () => {
   it("uses the exact validated buffers for one primary track mesh", () => {
@@ -50,12 +51,26 @@ describe("track renderer", () => {
   });
 
   it("adds named centerline, checkpoint, splitter, and frame helpers only when debug is enabled", () => {
-    const group = createTrackRenderGroup(buildValidatedTrack({ features: true }).geometry, { debug: true });
+    const built = buildValidatedTrack({ features: true });
+    const group = createTrackRenderGroup(built.geometry, { debug: true, checkpointNodes: built.spec.nodes });
 
     expect(group.getObjectByName("track-debug-centerline")).toBeDefined();
     expect(group.getObjectByName("track-debug-frames")).toBeDefined();
     expect(group.getObjectByName("track-debug-checkpoint-markers")).toBeDefined();
     expect(group.getObjectByName("track-debug-checkpoint-labels")).toBeDefined();
     expect(group.getObjectByName("track-debug-splitter-clearance")).toBeDefined();
+  });
+
+  it("anchors every checkpoint helper to its canonical node's nearest sampled position instead of uniform route fractions", () => {
+    const built = buildValidatedTrack({ features: true });
+    const group = createTrackRenderGroup(built.geometry, { debug: true, checkpointNodes: built.spec.nodes });
+    const checkpoints = built.spec.nodes.filter((node) => node.checkpoint !== undefined);
+
+    checkpoints.forEach((node) => {
+      const marker = group.getObjectByName(`track-debug-checkpoint-${node.checkpoint}`)!;
+      const expected = projectToTrack(node.position, built.samples).sampleIndex;
+      expect(marker.userData.sampleIndex).toBe(expected);
+      expect(marker.position.y).toBeCloseTo(built.samples[expected].position.y + 1.2);
+    });
   });
 });

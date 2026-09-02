@@ -3,6 +3,7 @@ import type { TrackSample, Vec3 } from "./track/trackTypes";
 export type CameraShotName = "overview" | "side" | "profile" | "leader" | "trailer" | "finish";
 export type TrackBounds = Readonly<{ center: Vec3; radius: number }>;
 export type CameraShot = { position: { x: number; y: number; z: number }; lookAt: { x: number; y: number; z: number }; near: number; far: number };
+export type RaceCameraDirector = Readonly<{ select: (elapsedMs: number, leadingProgress: number) => CameraShotName; reset: () => void }>;
 
 const fallbackBounds: TrackBounds = Object.freeze({ center: Object.freeze({ x: 0, y: 0, z: 0 }), radius: 1 });
 
@@ -52,3 +53,17 @@ export const selectProductionCameraShot = (elapsedMs: number, leadingProgress: n
   const cycle = Math.floor(Math.max(0, elapsedMs) / 6_000) % 3;
   return cycle === 0 ? "overview" : cycle === 1 ? "leader" : "trailer";
 };
+
+export const createRaceCameraDirector = (): RaceCameraDirector => {
+  let finishLatched = false;
+  return Object.freeze({
+    select: (elapsedMs: number, leadingProgress: number) => {
+      finishLatched ||= leadingProgress >= 0.85;
+      return finishLatched ? "finish" : selectProductionCameraShot(elapsedMs, leadingProgress);
+    },
+    reset: () => { finishLatched = false; },
+  });
+};
+
+export const hasCameraClipChanged = (previous: Pick<CameraShot, "near" | "far">, next: Pick<CameraShot, "near" | "far">): boolean =>
+  previous.near !== next.near || previous.far !== next.far;

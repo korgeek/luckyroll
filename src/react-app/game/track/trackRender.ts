@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import type { TrackGeometry, TrackSample, Vec3 } from "./trackTypes";
+import { projectToTrack } from "./trackSampler";
+import type { TrackGeometry, TrackNode, TrackSample, Vec3 } from "./trackTypes";
 
-export type TrackRenderOptions = Readonly<{ debug?: boolean }>;
+export type TrackRenderOptions = Readonly<{ debug?: boolean; checkpointNodes?: readonly TrackNode[] }>;
 
 const toVector3 = (value: Vec3): THREE.Vector3 => new THREE.Vector3(value.x, value.y, value.z);
 
@@ -83,19 +84,21 @@ const addSegment = (positions: number[], start: Vec3, end: Vec3): void => {
   positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
 };
 
-const createCheckpointHelpers = (samples: readonly TrackSample[]): THREE.Group => {
-  const checkpoints = ["A", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const createCheckpointHelpers = (samples: readonly TrackSample[], nodes: readonly TrackNode[] = []): THREE.Group => {
+  const checkpoints = nodes.filter((node): node is TrackNode & { checkpoint: NonNullable<TrackNode["checkpoint"]> } => node.checkpoint !== undefined);
   const markers = new THREE.Group();
   markers.name = "track-debug-checkpoint-markers";
   const labels = new THREE.Group();
   labels.name = "track-debug-checkpoint-labels";
-  checkpoints.forEach((checkpoint, index) => {
-    const sample = samples[Math.round(index * (samples.length - 1) / (checkpoints.length - 1))];
+  checkpoints.forEach((node) => {
+    const sampleIndex = projectToTrack(node.position, samples).sampleIndex;
+    const sample = samples[sampleIndex];
     if (!sample) return;
     const marker = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), new THREE.MeshBasicMaterial({ color: "#ff5f9b" }));
     marker.position.set(sample.position.x, sample.position.y + 1.2, sample.position.z);
-    marker.name = `track-debug-checkpoint-${checkpoint}`;
-    marker.userData.checkpoint = checkpoint;
+    marker.name = `track-debug-checkpoint-${node.checkpoint}`;
+    marker.userData.checkpoint = node.checkpoint;
+    marker.userData.sampleIndex = sampleIndex;
     markers.add(marker);
     const labelMaterial = new THREE.SpriteMaterial({ color: "#ffffff", depthTest: false, depthWrite: false });
     if (!navigator.userAgent.includes("jsdom")) {
@@ -105,15 +108,16 @@ const createCheckpointHelpers = (samples: readonly TrackSample[]): THREE.Group =
       if (context) {
         context.fillStyle = "#153c4a"; context.fillRect(0, 0, canvas.width, canvas.height);
         context.fillStyle = "#ffffff"; context.font = "bold 46px system-ui"; context.textAlign = "center"; context.textBaseline = "middle";
-        context.fillText(checkpoint, canvas.width / 2, canvas.height / 2);
+        context.fillText(node.checkpoint, canvas.width / 2, canvas.height / 2);
         labelMaterial.map = new THREE.CanvasTexture(canvas);
       }
     }
     const label = new THREE.Sprite(labelMaterial);
     label.position.set(sample.position.x, sample.position.y + 2.15, sample.position.z);
     label.scale.set(2.1, 0.95, 1);
-    label.name = `track-debug-checkpoint-label-${checkpoint}`;
-    label.userData.label = checkpoint;
+    label.name = `track-debug-checkpoint-label-${node.checkpoint}`;
+    label.userData.label = node.checkpoint;
+    label.userData.sampleIndex = sampleIndex;
     labels.add(label);
   });
   const group = new THREE.Group();
@@ -144,7 +148,7 @@ const createSplitterClearanceHelper = (samples: readonly TrackSample[]): THREE.L
   return helper;
 };
 
-export const createTrackDebugGroup = (samples: readonly TrackSample[]): THREE.Group => {
+export const createTrackDebugGroup = (samples: readonly TrackSample[], checkpointNodes: readonly TrackNode[] = []): THREE.Group => {
   const group = new THREE.Group();
   group.name = "track-debug";
   const centerline = new THREE.BufferGeometry().setFromPoints(samples.map((sample) => toVector3(sample.position)));
@@ -191,7 +195,7 @@ export const createTrackDebugGroup = (samples: readonly TrackSample[]): THREE.Gr
     new THREE.LineBasicMaterial({ color: "#ff5f9b" }),
   );
   zones.name = "track-debug-zones";
-  group.add(frames, zones, createCheckpointHelpers(samples), createSplitterClearanceHelper(samples));
+  group.add(frames, zones, createCheckpointHelpers(samples, checkpointNodes), createSplitterClearanceHelper(samples));
   return group;
 };
 
@@ -214,7 +218,7 @@ export const createTrackRenderGroup = (
   const divider = createDividerMesh(geometry);
   group.add(surface, createRimLines(geometry), createSupports(geometry.samples));
   if (divider !== undefined) group.add(divider);
-  if (options.debug === true) group.add(createTrackDebugGroup(geometry.samples));
+  if (options.debug === true) group.add(createTrackDebugGroup(geometry.samples, options.checkpointNodes));
   return group;
 };
 
