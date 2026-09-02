@@ -1,0 +1,34 @@
+import { describe, expect, it } from "vitest";
+import { createLuckyRollTrackSpec } from "./trackSpec";
+import { projectToTrack, sampleTrack } from "./trackSampler";
+import type { TrackSample, Vec3 } from "./trackTypes";
+
+describe("track centerline sampler", () => {
+  const distance = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const maxHeadingDelta = (items: readonly TrackSample[]) => Math.max(...items.slice(1).map((sample, index) => {
+    const previous = items[index];
+    const a = Math.atan2(previous.tangent.z, previous.tangent.x);
+    const b = Math.atan2(sample.tangent.z, sample.tangent.x);
+    return Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
+  }));
+  const samples = sampleTrack(createLuckyRollTrackSpec());
+
+  it("samples the route at stable arc-length intervals", () => {
+    const gaps = samples.slice(1).map((sample, index) => distance(sample.position, samples[index].position));
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(1.1);
+    expect(Math.min(...gaps.slice(0, -1))).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("never creates an uphill sample", () => {
+    expect(samples.every((sample, index) => index === 0 || sample.position.y < samples[index - 1].position.y)).toBe(true);
+  });
+
+  it("keeps adjacent tangents below the maximum heading change", () => {
+    expect(maxHeadingDelta(samples)).toBeLessThan(0.16);
+  });
+
+  it("projects A and 12 to opposite progress endpoints", () => {
+    expect(projectToTrack(samples[0].position, samples).progress).toBe(0);
+    expect(projectToTrack(samples[samples.length - 1].position, samples).progress).toBe(1);
+  });
+});
