@@ -20,6 +20,7 @@
 - Obstacles use fixed or kinematic Rapier collision. No hidden ranking forces, teleportation, guide forces, or recovery rails.
 - A moving marble may exceed 60 seconds without failing automated obstacle qualification. The existing 60-second production timeout dialog remains.
 - At most ten 100-marble end-to-end physics races may run: seeds `11, 23, 37, 41, 53, 67, 71, 83, 97, 101`, each at most once. Static/unit tests and builds do not consume this budget. Before an eleventh full race, stop and ask the user for validation or authorization.
+- Existing `trackPhysics.*Seeds.test.ts` soak files and any legacy 100-marble end-to-end cases are excluded from baseline and ordinary regression commands; the new ten obstacle races replace them for this feature's qualification.
 - Use instancing/shared resources and no full-screen post-processing; mobile target is at least 30 FPS at `360x800` with 100 active marbles.
 - All visible UI remains English.
 - Do not add or commit `.codex-remote-attachments/`.
@@ -387,7 +388,9 @@ Wire fixed-step device updates before `world.step()`, copy the returned pose int
 
 Run: `npm test -- --run src/react-app/game/track/obstacleLayout.test.ts src/react-app/game/track/obstacleGeometry.test.ts src/react-app/game/track/obstacleRender.test.ts src/react-app/game/track/obstaclePhysics.test.ts src/react-app/game/cameraPlan.test.ts src/react-app/game/MarbleRaceScene.test.ts`
 
-Then run: `npm test -- --run --exclude src/react-app/game/track/obstaclePhysics.validation.test.ts`
+Then run the ordinary non-race regression set explicitly:
+
+`npm test -- --run src/react-app/domain src/react-app/components src/react-app/game/cameraControls.test.ts src/react-app/game/cameraPlan.test.ts src/react-app/game/marbleBatches.test.ts src/react-app/game/raceTiming.test.ts src/react-app/game/MarbleRaceScene.test.ts src/react-app/game/track/trackSpec.test.ts src/react-app/game/track/trackSampler.test.ts src/react-app/game/track/trackGeometry.test.ts src/react-app/game/track/trackValidation.test.ts src/react-app/game/track/trackRender.test.ts src/react-app/game/track/trackPhysics.launchInvariants.test.ts src/react-app/game/track/obstacleLayout.test.ts src/react-app/game/track/obstacleGeometry.test.ts src/react-app/game/track/obstacleRender.test.ts src/react-app/game/track/obstaclePhysics.test.ts`
 
 Expected: all unit/static/lifecycle tests pass. These commands do not create a 100-marble end-to-end world and do not consume the ten-race budget.
 
