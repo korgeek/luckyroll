@@ -2,10 +2,10 @@
 
 Prepared before any 100-marble obstacle physics world steps.
 
-- Validated source commit: `2b72419e38d0a6aecf4c1d35abd0aef237d3f132`
-- Budget: `1/10` consumed; qualification stopped on the first failed row and must not be rerun without user authorization.
+- Resume source commit: `23d6548b31fb471d182e5674b62ffcbcca593cb1`
+- Budget: `1/10` consumed; Sol authorized exactly the nine pending seeds below.
 - Command: `RUN_OBSTACLE_QUALIFICATION=1 npm test -- --run src/react-app/game/track/obstaclePhysics.validation.test.ts`
-- Rule: this command may run exactly once. A recorded row prevents another run.
+- Rule: the resume command may run exactly once. It refuses seed 11, duplicates, unknown seeds, gaps, and an all-recorded ledger; assertions run only after all nine pending seeds report a row.
 
 | Seed | State | Result |
 | ---: | --- | --- |

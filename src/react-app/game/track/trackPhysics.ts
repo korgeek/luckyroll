@@ -377,8 +377,11 @@ export const runObstacleValidationRace = async (options: Readonly<{ seed: number
 };
 
 export const validateObstacleQualificationSeeds = (seeds: readonly number[], recordedSeeds: readonly number[] = []): readonly number[] => {
-  if (seeds.length !== FIXED_VALIDATION_SEEDS.length || seeds.some((seed, index) => seed !== FIXED_VALIDATION_SEEDS[index])) throw new Error("Obstacle qualification must use the ten fixed seeds exactly once in canonical order.");
+  if (new Set(recordedSeeds).size !== recordedSeeds.length || recordedSeeds.some((seed, index) => seed !== FIXED_VALIDATION_SEEDS[index])) throw new Error("Obstacle qualification must use the ten fixed seeds exactly once in canonical order.");
   if (new Set(seeds).size !== seeds.length) throw new Error("Obstacle qualification seeds must be unique.");
-  if (recordedSeeds.length > 0) throw new Error("Obstacle qualification ledger already records stepped seeds; do not start another race.");
+  if (seeds.some((seed) => recordedSeeds.includes(seed))) throw new Error("Obstacle qualification ledger already records a requested seed; do not start another race.");
+  const pending = FIXED_VALIDATION_SEEDS.slice(recordedSeeds.length);
+  if (seeds.length !== pending.length || seeds.some((seed, index) => seed !== pending[index])) throw new Error("Obstacle qualification must use the ten fixed seeds exactly once in canonical order.");
+  if (pending.length === 0) throw new Error("Obstacle qualification ledger already records every seed; do not start another race.");
   return Object.freeze([...seeds]);
 };
