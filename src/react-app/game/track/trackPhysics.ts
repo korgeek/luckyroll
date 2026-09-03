@@ -70,7 +70,7 @@ export const initializeTrackPhysics = (): Promise<RapierModule> => {
   return initialized;
 };
 
-const getRapier = (): RapierModule => {
+export const getInitializedTrackPhysicsRapier = (): RapierModule => {
   if (rapier === undefined) {
     throw new Error("Rapier must be initialized before creating track physics bodies.");
   }
@@ -78,7 +78,7 @@ const getRapier = (): RapierModule => {
 };
 
 export const createTrackPhysicsWorld = (gravity: Vec3 = GRAVITY): RapierWorld =>
-  new (getRapier()).World(gravity);
+  new (getInitializedTrackPhysicsRapier()).World(gravity);
 
 const toVec3 = (value: { x: number; y: number; z: number }): Vec3 => ({
   x: value.x,
@@ -104,7 +104,7 @@ export const createTrackCollider = (
   world: RapierWorld,
   geometry: TrackGeometry,
 ): TrackColliderResources => {
-  const module = getRapier();
+  const module = getInitializedTrackPhysicsRapier();
   const body = world.createRigidBody(module.RigidBodyDesc.fixed());
   const outer = world.createCollider(module.ColliderDesc.trimesh(geometry.positions, geometry.indices)
     .setFriction(MARBLE_FRICTION)
@@ -122,7 +122,7 @@ export const createMarbleBodies = (
   positions: readonly PhysicalLaunchPosition[],
 ): readonly RapierBody[] => {
   return positions.map((position) => {
-    const module = getRapier();
+    const module = getInitializedTrackPhysicsRapier();
     const body = world.createRigidBody(
       module.RigidBodyDesc.dynamic()
         .setTranslation(position.x, position.y, position.z)

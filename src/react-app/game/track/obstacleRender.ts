@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { resolvePusherPose } from "./obstacleLayout";
 import type { ObstacleGeometryResources, IndexedGeometry } from "./obstacleGeometry";
+import type { DevicePose } from "./obstaclePhysics";
 import type { ResolvedPusherPose, Vec3 } from "./trackTypes";
 
 type PusherRefs = Readonly<{ root: THREE.Group; shaft: THREE.Mesh; firstCap: THREE.Mesh; secondCap: THREE.Mesh }>;
-type DeviceRefs = Readonly<{ left: PusherRefs; right: PusherRefs }>;
+type DeviceRefs = Readonly<{ left: PusherRefs; right: PusherRefs; agitator: THREE.Group; gate: THREE.Mesh }>;
 const DEVICE_REFS = "neonDeviceRefs";
 const geometry = (resource: IndexedGeometry): THREE.BufferGeometry => {
   const result = new THREE.BufferGeometry(); result.setAttribute("position", new THREE.BufferAttribute(resource.positions, 3)); result.setAttribute("normal", new THREE.BufferAttribute(resource.normals, 3)); result.setIndex(new THREE.BufferAttribute(resource.indices, 1)); result.computeBoundingSphere(); return result;
@@ -26,17 +27,27 @@ export const createObstacleRenderGroup = (resources: ObstacleGeometryResources):
 
   const pusherRoot = new THREE.Group(); pusherRoot.name = "alternating-pushers"; const shaftGeometry = new THREE.CylinderGeometry(resources.layout.pushers.radius, resources.layout.pushers.radius, 1, 10); const capGeometry = new THREE.SphereGeometry(resources.layout.pushers.radius, 10, 8); const pusherQuaternion = frameQuaternion(resources.layout.pushers.frame.side);
   const createPusher = (name: string): PusherRefs => { const root = new THREE.Group(); root.name = name; root.quaternion.copy(pusherQuaternion); const shaft = new THREE.Mesh(shaftGeometry, magenta); shaft.name = `${name}-shaft`; const firstCap = new THREE.Mesh(capGeometry, magenta); firstCap.name = `${name}-front-cap`; const secondCap = new THREE.Mesh(capGeometry, magenta); secondCap.name = `${name}-rear-cap`; root.add(shaft, firstCap, secondCap); pusherRoot.add(root); return Object.freeze({ root, shaft, firstCap, secondCap }); };
-  const left = createPusher("pusher-left-mesh"); const right = createPusher("pusher-right-mesh"); group.add(pusherRoot); group.userData[DEVICE_REFS] = Object.freeze({ left, right } satisfies DeviceRefs);
+  const left = createPusher("pusher-left-mesh"); const right = createPusher("pusher-right-mesh"); group.add(pusherRoot);
+
+  const agitator = new THREE.Group(); agitator.name = "start-agitator"; const armGeometry = new THREE.BoxGeometry(4.7, 0.24, 0.32);
+  for (let arm = 0; arm < 3; arm += 1) { const angle = arm / 3 * Math.PI * 2; const mesh = new THREE.Mesh(armGeometry, magenta); mesh.position.set(Math.cos(angle) * 2.35, 0, Math.sin(angle) * 2.35); mesh.rotation.y = -angle; agitator.add(mesh); }
+  const gate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.24, 8.2), dark); gate.name = "release-gate"; group.add(agitator, gate);
+  group.userData[DEVICE_REFS] = Object.freeze({ left, right, agitator, gate } satisfies DeviceRefs);
 
   const accents = new THREE.Group(); accents.name = "neon-rim-accents"; const accentGeometry = new THREE.BoxGeometry(0.65, 0.14, 1.8);
   resources.pegs.forEach((peg, index) => { const accent = new THREE.Mesh(accentGeometry, index % 2 === 0 ? cyan : orange); writePosition(accent, peg.center); accent.position.addScaledVector(new THREE.Vector3(resources.layout.pegHall.frame.side.x, resources.layout.pegHall.frame.side.y, resources.layout.pegHall.frame.side.z), index % 2 === 0 ? 1 : -1); accent.position.addScaledVector(new THREE.Vector3(resources.layout.pegHall.frame.up.x, resources.layout.pegHall.frame.up.y, resources.layout.pegHall.frame.up.z), 0.12); accents.add(accent); }); group.add(accents);
   setDeviceRenderPose(group, resolvePusherPose(resources.layout.pushers, 0)); return group;
 };
 
-export const setDeviceRenderPose = (group: THREE.Object3D, pose: ResolvedPusherPose): void => {
+export const setDeviceRenderPose = (group: THREE.Object3D, pose: ResolvedPusherPose | DevicePose): void => {
   const refs = group.userData[DEVICE_REFS] as DeviceRefs | undefined; if (refs === undefined) return;
-  const writePusher = (refsForSide: PusherRefs, side: ResolvedPusherPose["left"]): void => { const shaftLength = Math.max(0, side.depth - 1.1); writePosition(refsForSide.root, side.center); refsForSide.shaft.scale.set(1, shaftLength, 1); refsForSide.firstCap.position.set(0, -shaftLength / 2, 0); refsForSide.secondCap.position.set(0, shaftLength / 2, 0); };
-  writePusher(refs.left, pose.left); writePusher(refs.right, pose.right);
+  const isDevicePose = (value: ResolvedPusherPose | DevicePose): value is DevicePose => "pusherTransforms" in value;
+  const device: DevicePose | undefined = isDevicePose(pose) ? pose : undefined;
+  const pusherPose: ResolvedPusherPose = device === undefined ? pose as ResolvedPusherPose : device.pushers;
+  const writeQuaternion = (target: THREE.Object3D, rotation: DevicePose["gate"]["rotation"]): void => { target.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w); };
+  const writePusher = (refsForSide: PusherRefs, side: ResolvedPusherPose["left"], transform?: DevicePose["pusherTransforms"]["left"]): void => { const shaftLength = Math.max(0, side.depth - 1.1); writePosition(refsForSide.root, transform?.translation ?? side.center); if (transform !== undefined) writeQuaternion(refsForSide.root, transform.rotation); refsForSide.shaft.scale.set(1, shaftLength, 1); refsForSide.firstCap.position.set(0, -shaftLength / 2, 0); refsForSide.secondCap.position.set(0, shaftLength / 2, 0); };
+  writePusher(refs.left, pusherPose.left, device?.pusherTransforms.left); writePusher(refs.right, pusherPose.right, device?.pusherTransforms.right);
+  if (device !== undefined) { writePosition(refs.agitator, device.agitator.translation); writeQuaternion(refs.agitator, device.agitator.rotation); writePosition(refs.gate, device.gate.translation); writeQuaternion(refs.gate, device.gate.rotation); }
 };
 
 export const disposeObstacleRenderGroup = (group: THREE.Object3D): void => {
