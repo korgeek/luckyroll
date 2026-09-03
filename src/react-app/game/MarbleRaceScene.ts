@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyZoom, initialCameraControls } from "./cameraControls";
-import { createRaceCameraDirector, getTrackBounds, writeCameraShot, type CameraShot, type CameraShotName } from "./cameraPlan";
+import { createRaceFocusDirector, getTrackBounds, writeCameraShot, writeControlledTrackFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
@@ -17,7 +17,7 @@ export type SceneEvent =
   | { type: "finish"; marble: Marble }
   | { type: "timeout"; remaining: Marble[] };
 export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; reset: () => void; dispose: () => void };
-type Ball = { marble: Marble; body: any; done: boolean; progress: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
+type Ball = { id: number; marble: Marble; body: any; done: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
 type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 
 const FINISH_PROGRESS = 0.995;
@@ -178,13 +178,15 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const marbleGroup = new THREE.Group();
   scene.add(track, marbleGroup);
   let world: any; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
+  const liveBalls: Ball[] = [];
   let running = false; let timedOut = false; let startedAt = 0; let last = performance.now(); let disposed = false;
   let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
   let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
   const dummy = new THREE.Object3D();
-  const raceCamera = createRaceCameraDirector();
-  const cameraFocus = new THREE.Vector3(); const cameraOffset = new THREE.Vector3(); const cameraTarget = new THREE.Vector3(); const worldUp = new THREE.Vector3(0, 1, 0);
+  const raceFocus = createRaceFocusDirector();
+  const cameraFocus = new THREE.Vector3(); const cameraTarget = new THREE.Vector3(); const cameraUpTarget = new THREE.Vector3(0, 1, 0);
   const cameraShot: CameraShot = { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 };
+  const controlledCameraShot: CameraShot = { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 };
   const resize = () => { const width = canvas.clientWidth || window.innerWidth; const height = canvas.clientHeight || window.innerHeight; renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); };
   window.addEventListener("resize", resize); canvas.style.touchAction = "none"; resize();
   const onPointerDown = (event: PointerEvent) => { activePointer = event.pointerId; pointerX = event.clientX; pointerY = event.clientY; canvas.setPointerCapture(event.pointerId); };
@@ -212,22 +214,36 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       world,
       launchPositions,
     );
-    balls = marbles.map((marble, index) => ({ marble, body: bodies[index], done: false, progress: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
-    raceCamera.reset(); running = true; timedOut = false; startedAt = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? startedAt : 0;
+    balls = marbles.map((marble, index) => ({ id: marble.id, marble, body: bodies[index], done: false, progress: 0, sampleIndex: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
+    liveBalls.length = 0; raceFocus.reset(); running = true; timedOut = false; startedAt = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? startedAt : 0;
   };
 
-  const updateCamera = (elapsedMs: number, leader?: Ball, trailer?: Ball) => {
-    activeShot = debug.isPaused() ? debug.activeShot() : raceCamera.select(elapsedMs, leader?.progress ?? 0);
-    const focus = activeShot === "leader" ? leader?.position : activeShot === "trailer" ? trailer?.position : activeShot === "finish" ? sceneTrack.built.samples[sceneTrack.built.samples.length - 1]?.position : undefined;
-    writeCameraShot(cameraShot, activeShot, bounds, focus);
-    if (camera.near !== cameraShot.near || camera.far !== cameraShot.far) {
-      camera.near = cameraShot.near; camera.far = cameraShot.far; camera.updateProjectionMatrix();
+  const updateCamera = (nowMs: number, leaderProgress: number) => {
+    let localUp = sceneTrack.built.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
+    if (debug.isPaused()) {
+      activeShot = debug.activeShot();
+      writeCameraShot(cameraShot, activeShot, bounds);
+    } else {
+      const target = raceFocus.select({ live: liveBalls, leaderProgress, nowMs });
+      if (target) {
+        const sample = sceneTrack.built.samples[target.sampleIndex] ?? sceneTrack.built.samples[0];
+        localUp = sample.up;
+        activeShot = target === liveBalls[0] ? "leader" : target === liveBalls[liveBalls.length - 1] ? "trailer" : "profile";
+        writeTrackFollowShot(cameraShot, target.position, sample, bounds);
+      } else {
+        activeShot = "overview";
+        writeCameraShot(cameraShot, activeShot, bounds);
+      }
     }
-    cameraFocus.set(cameraShot.lookAt.x, cameraShot.lookAt.y, cameraShot.lookAt.z);
-    cameraOffset.set(cameraShot.position.x, cameraShot.position.y, cameraShot.position.z).sub(cameraFocus).applyAxisAngle(worldUp, controls.yaw).multiplyScalar(controls.zoom);
-    cameraOffset.y += controls.pitch * 25;
-    cameraTarget.copy(cameraFocus).add(cameraOffset);
+    writeControlledTrackFollowShot(controlledCameraShot, cameraShot, localUp, controls);
+    if (camera.near !== controlledCameraShot.near || camera.far !== controlledCameraShot.far) {
+      camera.near = controlledCameraShot.near; camera.far = controlledCameraShot.far; camera.updateProjectionMatrix();
+    }
+    cameraFocus.set(controlledCameraShot.lookAt.x, controlledCameraShot.lookAt.y, controlledCameraShot.lookAt.z);
+    cameraTarget.set(controlledCameraShot.position.x, controlledCameraShot.position.y, controlledCameraShot.position.z);
+    cameraUpTarget.set(localUp.x, localUp.y, localUp.z);
     camera.position.lerp(cameraTarget, 0.042); cameraLook.lerp(cameraFocus, 0.05); camera.lookAt(cameraLook);
+    camera.up.lerp(cameraUpTarget, 0.05);
   };
 
   const loop = (now: number) => {
@@ -239,22 +255,26 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (running && !paused && debugWasPaused) pausedDuration += now - pauseStarted;
     debugWasPaused = paused;
     if (running && world && renderMeshes.length && !paused) {
-      world.timestep = delta / 1000; world.step(); const active = balls.filter((ball) => !ball.done); const elapsedMs = getRaceElapsedMs(now, startedAt, pausedDuration, pauseStarted, false);
-      active.forEach((ball) => {
+      world.timestep = delta / 1000; world.step(); const elapsedMs = getRaceElapsedMs(now, startedAt, pausedDuration, pauseStarted, false);
+      balls.forEach((ball) => {
+        if (ball.done) return;
         const raceState = evaluateRaceBody(ball.body, sceneTrack.built.samples);
-        ball.progress = raceState.projection.progress; ball.position = raceState.position;
+        ball.progress = raceState.projection.progress; ball.sampleIndex = raceState.projection.sampleIndex; ball.position = raceState.position;
         if (raceState.finished) {
           ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble });
         }
       });
       balls.forEach((ball) => { dummy.position.set(ball.position.x, ball.position.y, ball.position.z); dummy.scale.setScalar(ball.done ? 0 : 1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); });
       renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
-      const live = balls.filter((ball) => !ball.done); const leader = live.reduce<Ball | undefined>((best, ball) => !best || ball.progress > best.progress ? ball : best, undefined); const trailer = live.reduce<Ball | undefined>((best, ball) => !best || ball.progress < best.progress ? ball : best, undefined);
-      updateCamera(elapsedMs, leader, trailer); emit({ type: "tick", elapsedMs, finishedCount: balls.length - live.length, remaining: live.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
-      if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && live.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: live.map((ball) => ball.marble) }); }
-      if (!live.length) running = false;
+      liveBalls.length = 0;
+      balls.forEach((ball) => { if (!ball.done) liveBalls.push(ball); });
+      liveBalls.sort((left, right) => right.progress - left.progress);
+      const leader = liveBalls[0]; const trailer = liveBalls[liveBalls.length - 1];
+      updateCamera(now, leader?.progress ?? 0); emit({ type: "tick", elapsedMs, finishedCount: balls.length - liveBalls.length, remaining: liveBalls.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
+      if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
+      if (!liveBalls.length) running = false;
     }
-    if (paused) updateCamera(getRaceElapsedMs(now, startedAt, pausedDuration, pauseStarted, true));
+    if (paused) updateCamera(now, liveBalls[0]?.progress ?? 0);
     renderer.render(scene, camera);
     if (trackDebug) trackDebug.update({
       fps: 1_000 / Math.max(1, delta), drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
@@ -272,7 +292,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   return {
     start: (marbles, seed) => starts.requestStart({ marbles, seed }),
     restartRemaining: (marbles) => starts.requestStart({ marbles, seed: Date.now() }),
-    reset: () => { starts.reset(); raceCamera.reset(); running = false; balls = []; renderMeshes = []; clearMarbles(); track.visible = false; },
+    reset: () => { starts.reset(); raceFocus.reset(); running = false; balls = []; liveBalls.length = 0; renderMeshes = []; clearMarbles(); track.visible = false; },
     dispose: () => {
       disposed = true; starts.dispose(); running = false; world?.free(); trackDebug?.dispose(); disposeTrackRenderGroup(track); clearMarbles(); renderer.dispose();
       window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);

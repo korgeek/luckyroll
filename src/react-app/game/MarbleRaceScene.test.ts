@@ -179,6 +179,7 @@ describe("continuous-track scene seams", () => {
 
     expect(projections).toBe(1);
     expect(state.projection.progress).toBe(0);
+    expect(state.projection.sampleIndex).toBe(0);
   });
 
   it("requires both final projected progress and the shared finish volume", () => {
