@@ -17,6 +17,8 @@ const PALETTE: readonly [ModuleKind, string][] = [
 	["straight", "Straight module"], ["curve", "Curve module"], ["funnel", "Funnel module"],
 	["wave", "Wave module"], ["pinwheel", "Pinwheel module"], ["booster", "Booster module"], ["bumper", "Bumper module"],
 ];
+const KIND_ABBREVIATION: Readonly<Record<ModuleKind, string>> = { straight: "STR", curve: "CUR", funnel: "FUN", wave: "WAV", pinwheel: "PIN", booster: "BST", bumper: "BUM" };
+const ROTATION_MARK: readonly string[] = ["→", "↓", "←", "↑"];
 
 const cellLabel = (cell: TrackCell, index: number): string => {
 	const row = Math.floor(index / COLUMNS) + 1; const column = index % COLUMNS + 1;
@@ -64,7 +66,7 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 			<div className="track-board" role="grid" aria-label="5 column by 8 row track board">
 				{Array.from({ length: ROWS }, (_, row) => <div role="row" key={row}>{Array.from({ length: COLUMNS }, (_, column) => {
 					const index = row * COLUMNS + column; const cell = state.draft.cells[index]; const fixed = cell?.kind === "start" || cell?.kind === "finish";
-					return <button role="gridcell" className={`track-cell ${cell === null ? "empty" : "occupied"} ${fixed ? "fixed" : ""}`} data-cell-index={index} key={index} disabled={fixed} tabIndex={state.selectedCell === index ? 0 : -1} aria-label={cellLabel(cell, index)} onFocus={() => dispatch({ type: "focus", cellIndex: index })} onClick={() => handleCellClick(index)} onKeyDown={(event) => onCellKeyDown(event, index)} onPointerDown={() => startLongPress(index)} onPointerMove={clearTimer} onPointerUp={clearTimer} onPointerCancel={() => { clearTimer(); longPress.current = false; }}>{cell === null ? "" : cell.kind === "start" ? "S" : cell.kind === "finish" ? "F" : cell.kind.slice(0, 1).toUpperCase()}</button>;
+					return <button role="gridcell" className={`track-cell ${cell === null ? "empty" : "occupied"} ${fixed ? "fixed" : ""}`} data-cell-index={index} key={index} disabled={fixed} tabIndex={state.selectedCell === index ? 0 : -1} aria-label={cellLabel(cell, index)} onFocus={() => dispatch({ type: "focus", cellIndex: index })} onClick={() => handleCellClick(index)} onKeyDown={(event) => onCellKeyDown(event, index)} onPointerDown={() => startLongPress(index)} onPointerMove={clearTimer} onPointerUp={clearTimer} onPointerCancel={() => { clearTimer(); longPress.current = false; }}><span className="track-cell-kind" aria-hidden="true">{cell === null ? "+" : cell.kind === "start" ? "START" : cell.kind === "finish" ? "FINISH" : KIND_ABBREVIATION[cell.kind]}</span>{cell !== null && cell.kind !== "start" && cell.kind !== "finish" && <span className="track-cell-rotation" aria-hidden="true">{ROTATION_MARK[cell.rotation]} {cell.rotation * 90}°</span>}</button>;
 				})}</div>)}
 			</div>
 			<p className="track-editor-help">Tap empty cells to place. Tap modules to rotate. Use Enter, Space, or Delete.</p>
