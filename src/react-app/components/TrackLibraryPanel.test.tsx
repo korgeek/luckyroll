@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDefaultTrackDesign } from "../designer/trackDesign";
 import { TrackLibraryPanel } from "./TrackLibraryPanel";
 
-const local = (id: string, name: string, updatedAt: number) => ({ id, name, updatedAt, ...createDefaultTrackDesign(name) });
+const local = (id: string, name: string, updatedAt: number) => ({ ...createDefaultTrackDesign(name), id, updatedAt });
 const handlers = () => ({ onNew: vi.fn(), onEdit: vi.fn(), onSelect: vi.fn(), onPlay: vi.fn(), onShare: vi.fn(), onDelete: vi.fn(), onImport: vi.fn() });
 
 describe("TrackLibraryPanel", () => {
