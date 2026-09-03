@@ -181,8 +181,8 @@ const adaptiveParameters = (
   path: CellPath,
   kind: ModuleKind | "start" | "finish",
   widthAt: (localU: number) => number,
-): readonly number[] => {
-  const output: number[] = [];
+): readonly Readonly<{ localU: number; chordError: number }>[] => {
+  const output = new Map<number, number>();
   const visit = (start: number, end: number, depth: number): void => {
     const first = path.pointAt(start);
     const last = path.pointAt(end);
@@ -207,12 +207,14 @@ const adaptiveParameters = (
       visit(start, middleU, depth + 1);
       visit(middleU, end, depth + 1);
     } else {
-      output.push(start, end);
+      const acceptedError = chordError(first.position, last.position, middle.position);
+      output.set(start, Math.max(output.get(start) ?? 0, acceptedError));
+      output.set(end, Math.max(output.get(end) ?? 0, acceptedError));
     }
   };
   const seeds = kind === "funnel" ? [0, 0.1, 0.45, 0.5, 0.55, 0.9, 1] : [0, 0.1, 0.9, 1];
   for (let index = 0; index < seeds.length - 1; index += 1) visit(seeds[index], seeds[index + 1], 0);
-  return [...new Set(output)].sort((a, b) => a - b);
+  return [...output.entries()].sort(([left], [right]) => left - right).map(([localU, acceptedError]) => ({ localU, chordError: acceptedError }));
 };
 
 const createPort = (cellIndex: number, direction: Direction, clearWidth: number): ModulePort => freeze({
@@ -240,7 +242,8 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
     const path = makeCellPath(cell.kind, entry, exit, step.cellIndex);
     const widthAt = (localU: number): number => cell.kind === "funnel" ? moduleWidthAt(cell.kind, localU) : CHANNEL_WIDTH;
     const parameters = adaptiveParameters(path, cell.kind, widthAt);
-    for (const localU of parameters) {
+    for (const parameter of parameters) {
+      const localU = parameter.localU;
       const analytic = path.pointAt(localU);
       const tangent = toWorldDirection(analytic.derivative);
       const canonicalSide = normalize({ x: -analytic.derivative.z, y: 0, z: analytic.derivative.x });
@@ -274,6 +277,7 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
         zone: cell.kind === "start" ? "launch" : cell.kind === "finish" ? "finish" : "run",
         cellIndex: step.cellIndex,
         localU,
+        chordError: parameter.chordError,
         centerlineCurvature: freeze(boardToWorld(curvature(analytic))),
         ...(port === undefined ? {} : { port, ports: freeze([port]) }),
       }));

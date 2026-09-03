@@ -16,6 +16,7 @@ export type ModulePathSample = TrackSample & Readonly<{
   cellIndex: number;
   localU: number;
   centerlineCurvature: Vec3;
+  chordError?: number;
   port?: ModulePort;
   ports?: readonly ModulePort[];
 }>;
