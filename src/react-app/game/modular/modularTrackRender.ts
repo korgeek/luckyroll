@@ -78,10 +78,10 @@ const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMateria
   const transform = new THREE.Object3D();
   devices.bumpers.forEach((bar, index) => {
     const coreLength = bar.length - bar.thickness;
-    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(bar.thickness, coreLength, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
+    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(bar.height, coreLength, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
     for (const [capIndex, sign] of [-1, 1].entries()) {
       transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * coreLength / 2);
-      transform.scale.setScalar(bar.thickness); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);
+      transform.scale.set(bar.height, bar.thickness, bar.thickness); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);
     }
   });
   shafts.instanceMatrix.needsUpdate = true; caps.instanceMatrix.needsUpdate = true;

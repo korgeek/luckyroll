@@ -9,6 +9,7 @@ import {
   runModularSeamProbe,
 } from "./modularTrackPhysics";
 import {
+  createMarbleBodies,
   createTrackPhysicsWorld,
   getInitializedTrackPhysicsRapier,
   initializeTrackPhysics,
@@ -31,6 +32,8 @@ describe("modular track physics", () => {
     expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 6)).toEqual({ x: 12, y: 2, z: 3 });
     expect(applyBoosterVelocity({ x: 20, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 7)).toEqual({ x: 20, y: 2, z: 3 });
     expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 7)).toEqual({ x: 10, y: 2, z: 3 });
+    const compact = createBoosterState(2, 3);
+    expect(applyBoosterVelocity({ x: 10, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, compact, 2, 1, 3)).toEqual({ x: 12, y: 0, z: 0 });
   });
 
   it("creates deterministic non-overlapping bowl launch positions without stepping", () => {
@@ -56,6 +59,31 @@ describe("modular track physics", () => {
   });
 
   it.each([8, 18, 42] as const)("keeps representative seam probes contained at speed %i", async (speed) => {
-    await expect(runModularSeamProbe({ speed, lateral: 0 })).resolves.toEqual({ maxNormalVelocityDelta: 0, maxForwardLossRatio: 0, escapes: 0 });
+    for (const lateral of [0, 12 / 2 - 1.5 * 0.68, -(12 / 2 - 1.5 * 0.68)]) {
+      const result = await runModularSeamProbe({ speed, lateral });
+      expect(result.maxNormalVelocityDelta).toBeLessThanOrEqual(0.05);
+      expect(result.maxForwardLossRatio).toBeLessThanOrEqual(0.01);
+      expect(result.escapes).toBe(0);
+    }
+  });
+
+  it("opens the physical gate before launching at exactly eight forward units per second", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const [body] = createMarbleBodies(world, createModularLaunchPositions(1, built, 11));
+    let launchedVelocity;
+    for (let step = 0; step < 43; step += 1) {
+      const pose = resources.stepBeforeWorld();
+      world.step();
+      resources.stepAfterWorld([body]);
+      if (pose.gateOpen && launchedVelocity === undefined) launchedVelocity = body.linvel();
+    }
+    const forward = built.samples[0].tangent;
+    expect(launchedVelocity).toBeDefined();
+    if (launchedVelocity === undefined) throw new Error("Gate did not launch the marble.");
+    expect(launchedVelocity.x * forward.x + launchedVelocity.y * forward.y + launchedVelocity.z * forward.z).toBeCloseTo(8, 5);
+    resources.dispose(); world.free();
   });
 });

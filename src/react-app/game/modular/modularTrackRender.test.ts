@@ -32,11 +32,11 @@ describe("modular track rendering", () => {
       shafts.getMatrixAt(index, matrix); matrix.decompose(position, shaftQuaternion, scale);
       const center = new THREE.Vector3(bar.center.x, bar.center.y, bar.center.z); const axis = new THREE.Vector3(bar.axis.x, bar.axis.y, bar.axis.z);
       expect(position.distanceTo(center)).toBeLessThan(1e-5); expect(new THREE.Vector3(0, 1, 0).applyQuaternion(shaftQuaternion).dot(axis)).toBeCloseTo(1, 5);
-      expect(scale.x).toBeCloseTo(bar.thickness, 6); expect(scale.y).toBeCloseTo(bar.length - bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
+      expect(scale.x).toBeCloseTo(bar.height, 6); expect(scale.y).toBeCloseTo(bar.length - bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
       for (const [capIndex, sign] of [-1, 1].entries()) {
         caps.getMatrixAt(index * 2 + capIndex, matrix); matrix.decompose(position, new THREE.Quaternion(), scale);
         const expected = new THREE.Vector3(bar.center.x, bar.center.y, bar.center.z).addScaledVector(new THREE.Vector3(bar.axis.x, bar.axis.y, bar.axis.z), sign * (bar.length - bar.thickness) / 2);
-        expect(position.distanceTo(expected)).toBeLessThan(1e-5); expect(scale.x).toBeCloseTo(bar.thickness, 6); expect(scale.y).toBeCloseTo(bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
+        expect(position.distanceTo(expected)).toBeLessThan(1e-5); expect(scale.x).toBeCloseTo(bar.height, 6); expect(scale.y).toBeCloseTo(bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
       }
     });
     const rim = rendered.group.getObjectByName("modular-neon-rims") as THREE.InstancedMesh;

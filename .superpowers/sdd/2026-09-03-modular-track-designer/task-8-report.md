@@ -39,3 +39,20 @@ Raw result: `Test Files 2 passed (2)`; `Tests 16 passed (16)`. Rapier emitted on
 ## Deferred by controller ruling
 
 No 16/100-marble 60-second completion run, ten-seed qualification, forced completion, ranking/guide force, or recovery force was implemented or run before first deploy. Physics remains natural and focused checks cover collider identity, containment/launcher spacing, device stepping, booster transitions, reset, disposal, and representative seams.
+
+## Fix Round 1
+
+RED additions covered compact booster-state strides and physical gate launch timing. The stride assertion initially failed because the helper assumed a hard-coded 40-cell layout; the gate assertion initially observed the next-step post-launch velocity rather than the exact velocity at opening.
+
+GREEN verification:
+
+```text
+npx tsc -p tsconfig.app.json --noEmit
+npm test -- --run src/react-app/game/modular/modularTrackPhysics.test.ts
+```
+
+Raw result: TypeScript exit 0; `Test Files 1 passed (1)` and `Tests 8 passed (8)`, including all 9 representative seam cases (3 speeds × 3 lateral offsets), real welded/control Rapier stepping, exact gate launch component, stride-aware booster consumption, pinwheel pose/reset, and disposal.
+
+The deferred 60-second/100-marble run remains unimplemented and unrun.
+
+Fix-round physical changes also add the canonical gate cuboid with disabled/open transition, local-Y pinwheel rotation, full descriptor-sized bumper colliders/render instances, and cleared previous-position/booster state on reset.
