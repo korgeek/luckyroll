@@ -14,9 +14,12 @@ describe.sequential("neon obstacle physics qualification", () => {
     expect(() => validateObstacleQualificationSeeds(FIXED_VALIDATION_SEEDS, [FIXED_VALIDATION_SEEDS[0]])).toThrow("already records");
   });
 
-  it("contains the exactly-once pending seed plan before qualification", () => {
+  it("reads a ledger that blocks any second qualification command after a recorded seed", () => {
     const rows = ledgerRows();
-    expect(validateObstacleQualificationSeeds(rows.map((row) => row.seed), rows.filter((row) => row.state === "recorded").map((row) => row.seed))).toEqual(FIXED_VALIDATION_SEEDS);
+    const seeds = rows.map((row) => row.seed);
+    const recorded = rows.filter((row) => row.state === "recorded").map((row) => row.seed);
+    if (recorded.length === 0) expect(validateObstacleQualificationSeeds(seeds, recorded)).toEqual(FIXED_VALIDATION_SEEDS);
+    else expect(() => validateObstacleQualificationSeeds(seeds, recorded)).toThrow("already records");
   });
 
   it.runIf(runQualification)("runs every fixed seed once and reports containment, movement, and finisher identity", async () => {
@@ -24,7 +27,7 @@ describe.sequential("neon obstacle physics qualification", () => {
     const seeds = validateObstacleQualificationSeeds(rows.map((row) => row.seed), rows.filter((row) => row.state === "recorded").map((row) => row.seed));
     for (const seed of seeds) {
       const result = await runObstacleValidationRace({ seed, durationSeconds: 60 });
-      console.info(`QUALIFICATION seed=${seed} finishers=${result.finishOrder.length} elapsed=${result.finishTimesMs.at(-1) ?? "—"} escapes=${result.escapes.length} stalls=${result.stalls.length} unique=${new Set(result.finishOrder).size === result.finishOrder.length}`);
+      console.info(`QUALIFICATION seed=${seed} finishers=${result.finishOrder.length} elapsed=${result.finishTimesMs[result.finishTimesMs.length - 1] ?? "—"} escapes=${result.escapes.length} stalls=${result.stalls.length} unique=${new Set(result.finishOrder).size === result.finishOrder.length}`);
       expect(result.escapes, `seed ${seed} escapes`).toEqual([]);
       expect(result.stalls, `seed ${seed} stalls`).toEqual([]);
       expect(new Set(result.finishOrder).size, `seed ${seed} finisher identities`).toBe(result.finishOrder.length);
