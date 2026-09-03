@@ -16,6 +16,20 @@ import {
 } from "../track/trackPhysics";
 import { resolveModuleDevices } from "./moduleDevices";
 
+const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => ({
+  x: (1 - 2 * (quaternion.y ** 2 + quaternion.z ** 2)) * vector.x + 2 * (quaternion.x * quaternion.y - quaternion.z * quaternion.w) * vector.y + 2 * (quaternion.x * quaternion.z + quaternion.y * quaternion.w) * vector.z,
+  y: 2 * (quaternion.x * quaternion.y + quaternion.z * quaternion.w) * vector.x + (1 - 2 * (quaternion.x ** 2 + quaternion.z ** 2)) * vector.y + 2 * (quaternion.y * quaternion.z - quaternion.x * quaternion.w) * vector.z,
+  z: 2 * (quaternion.x * quaternion.z - quaternion.y * quaternion.w) * vector.x + 2 * (quaternion.y * quaternion.z + quaternion.x * quaternion.w) * vector.y + (1 - 2 * (quaternion.x ** 2 + quaternion.y ** 2)) * vector.z,
+});
+const inverseRotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => rotate({ x: -quaternion.x, y: -quaternion.y, z: -quaternion.z, w: quaternion.w }, vector);
+const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b: { x: number; y: number; z: number; w: number }) => ({
+  x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+  y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+  z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+  w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+});
+const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), z: 0, w: Math.cos(radians / 2) });
+
 describe("modular track physics", () => {
   it("creates one fixed welded trimesh with internal-edge fixing", async () => {
     await initializeTrackPhysics();
@@ -26,6 +40,45 @@ describe("modular track physics", () => {
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
     resources.dispose();
     world.free();
+  });
+
+  it("observes bumper physics frames and descriptor dimensions", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+    const rapier = getInitializedTrackPhysicsRapier();
+    const bumpers = resources.fixedColliders.filter((collider) => collider.shapeType() === rapier.ShapeType.Cuboid || collider.shapeType() === rapier.ShapeType.Cylinder);
+    expect(bumpers).toHaveLength(devices.bumpers.length * 3);
+    for (let index = 0; index < devices.bumpers.length; index += 1) {
+      const bumper = devices.bumpers[index]!;
+      const shaft = bumpers[index * 3]!;
+      const firstCap = bumpers[index * 3 + 1]!;
+      const secondCap = bumpers[index * 3 + 2]!;
+      const body = shaft.parent();
+      expect(body).not.toBeNull();
+      if (!body) continue;
+      const worldX = rotate(body.rotation(), { x: 1, y: 0, z: 0 });
+      const worldY = rotate(body.rotation(), { x: 0, y: 1, z: 0 });
+      const worldZ = rotate(body.rotation(), { x: 0, y: 0, z: 1 });
+      const up = bumper.up; const axis = bumper.axis; const rightHanded = { x: up.y * axis.z - up.z * axis.y, y: up.z * axis.x - up.x * axis.z, z: up.x * axis.y - up.y * axis.x };
+      const alignment = (left: { x: number; y: number; z: number }, right: { x: number; y: number; z: number }) => left.x * right.x + left.y * right.y + left.z * right.z;
+      expect(alignment(worldX, up)).toBeCloseTo(1, 6);
+      expect(alignment(worldY, axis)).toBeCloseTo(1, 6);
+      expect(alignment(worldZ, rightHanded)).toBeCloseTo(1, 6);
+      const shaftExtents = shaft.halfExtents();
+      expect(shaftExtents.x).toBeCloseTo(bumper.height / 2, 6);
+      expect(shaftExtents.y).toBeCloseTo((bumper.length - bumper.thickness) / 2, 6);
+      expect(shaftExtents.z).toBeCloseTo(bumper.thickness / 2, 6);
+      for (const cap of [firstCap, secondCap]) {
+        expect(cap.shapeType()).toBe(rapier.ShapeType.Cylinder);
+        expect(cap.halfHeight()).toBeCloseTo(bumper.height / 2, 6);
+        expect(cap.radius()).toBeCloseTo(bumper.thickness / 2, 6);
+        expect(Math.abs(alignment(rotate(cap.rotation(), { x: 0, y: 1, z: 0 }), up))).toBeCloseTo(1, 6);
+      }
+    }
+    resources.dispose(); world.free();
   });
 
   it("boosts only positive forward velocity once and never brakes", () => {
@@ -48,13 +101,39 @@ describe("modular track physics", () => {
     }
   });
 
-  it("advances pinwheels by exactly two radians per second and resets", async () => {
+  it("keeps pinwheel capsule frames radial and advances the body by local-Y spin", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
-    const resources = createModularPhysics(world, buildModularTrack(createWorstCaseTrackDesign()));
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+    const pinwheel = devices.pinwheels[0]!;
+    const body = resources.pinwheelBodies[0]!;
+    const baseRotation = body.rotation();
+    expect(body.numColliders()).toBe(3);
+    for (let arm = 0; arm < 3; arm += 1) {
+      const radial = { x: Math.cos(arm * Math.PI * 2 / 3), y: 0, z: Math.sin(arm * Math.PI * 2 / 3) };
+      const collider = body.collider(arm);
+      expect(collider.shapeType()).toBe((getInitializedTrackPhysicsRapier()).ShapeType.Capsule);
+      const localTranslation = inverseRotate(baseRotation, {
+        x: collider.translation().x - body.translation().x,
+        y: collider.translation().y - body.translation().y,
+        z: collider.translation().z - body.translation().z,
+      });
+      expect(localTranslation.x).toBeCloseTo(radial.x * pinwheel.radius / 2, 6);
+      expect(localTranslation.y).toBeCloseTo(0, 6);
+      expect(localTranslation.z).toBeCloseTo(radial.z * pinwheel.radius / 2, 6);
+      const localLongAxis = inverseRotate(baseRotation, rotate(collider.rotation(), { x: 0, y: 1, z: 0 }));
+      expect(localLongAxis.x).toBeCloseTo(radial.x, 6);
+      expect(localLongAxis.y).toBeCloseTo(0, 6);
+      expect(localLongAxis.z).toBeCloseTo(radial.z, 6);
+    }
     const first = resources.stepBeforeWorld();
-    const second = resources.stepBeforeWorld();
-    expect(second.pinwheelAngles[0] - first.pinwheelAngles[0]).toBeCloseTo(2 / 60);
+    world.step();
+    const expectedRotation = multiplyQuaternion(baseRotation, rotationAroundY(first.pinwheelAngles[0]!));
+    const actualRotation = body.rotation();
+    const quaternionAlignment = Math.abs(expectedRotation.x * actualRotation.x + expectedRotation.y * actualRotation.y + expectedRotation.z * actualRotation.z + expectedRotation.w * actualRotation.w);
+    expect(quaternionAlignment).toBeCloseTo(1, 6);
     expect(resources.reset().pinwheelAngles[0]).toBe(0);
     resources.dispose(); world.free();
   });
@@ -97,7 +176,12 @@ describe("modular track physics", () => {
     const [body] = createMarbleBodies(world, [{ ...booster.center, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
     const at = (along: number): { x: number; y: number; z: number } => ({ x: booster.center.x + booster.forward.x * along, y: booster.center.y + booster.forward.y * along, z: booster.center.z + booster.forward.z * along });
     const outside = (booster.endDistance - booster.startDistance) / 2 + 1;
-    resources.reset(); body.setTranslation(at(-outside), true); resources.stepAfterWorld([body]);
+    resources.reset(); body.setTranslation(at(outside), true); body.setLinvel({ x: -booster.forward.x * 10, y: -booster.forward.y * 10, z: -booster.forward.z * 10 }, true); resources.stepAfterWorld([body]);
+    body.setTranslation(at(-outside), true);
+    const wrongWayVelocity = body.linvel();
+    expect(resources.stepAfterWorld([body])).toHaveLength(0);
+    const afterWrongWayVelocity = body.linvel();
+    expect(afterWrongWayVelocity).toEqual(wrongWayVelocity);
     body.setTranslation(at(outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
     expect(resources.stepAfterWorld([body])).toHaveLength(1);
     body.setTranslation(at(-outside), true); body.setLinvel({ x: -booster.forward.x * 10, y: -booster.forward.y * 10, z: -booster.forward.z * 10 }, true);

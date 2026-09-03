@@ -84,3 +84,37 @@ npm test -- --run src/react-app/game/modular/modularTrackPhysics.test.ts src/rea
 Raw result: `Test Files 2 passed (2)`; `Tests 18 passed (18)`. Rapier emitted only its existing deprecated initialization-parameter warning.
 
 The deferred 60-second/100-marble soak and qualification validation remain intentionally unimplemented and unrun.
+
+## Fix Round 3
+
+Added compact tests-only regression coverage without changing production behavior:
+
+- a fresh wrong-way booster sweep is asserted to produce no event and no velocity change, followed by a forward sweep of the same slot that still boosts; reset and skip-through coverage remain;
+- all three exposed pinwheel capsule colliders are checked for radial local translations and local-Y long axes, and the stepped body pose is checked against base rotation multiplied by the local-Y spin;
+- render and Rapier bumper instances are checked for the canonical right-handed basis and descriptor dimensions (height, core length, and thickness).
+
+Final focused verification raw results:
+
+```text
+npm test -- --run src/react-app/game/modular/modularTrackPhysics.test.ts
+```
+
+Raw result: `Test Files 1 passed (1)`; `Tests 10 passed (10)`. Rapier emitted only its existing deprecated initialization-parameter warning.
+
+```text
+npm test -- --run src/react-app/game/modular/modularTrackRender.test.ts
+```
+
+Raw result: `Test Files 1 passed (1)`; `Tests 5 passed (5)`.
+
+```text
+npm test -- --run src/react-app/game/track/trackPhysics.test.ts
+```
+
+Raw result: `Test Files 1 passed (1)`; `Tests 9 passed (9)`. Rapier emitted only its existing deprecated initialization-parameter warning.
+
+```text
+npx tsc -p tsconfig.app.json --noEmit
+```
+
+Raw result: exit 0.

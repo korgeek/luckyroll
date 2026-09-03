@@ -31,7 +31,8 @@ describe("modular track rendering", () => {
     rendered.devices.bumpers.forEach((bar, index) => {
       shafts.getMatrixAt(index, matrix); matrix.decompose(position, shaftQuaternion, scale);
       const center = new THREE.Vector3(bar.center.x, bar.center.y, bar.center.z); const axis = new THREE.Vector3(bar.axis.x, bar.axis.y, bar.axis.z);
-      expect(position.distanceTo(center)).toBeLessThan(1e-5); expect(new THREE.Vector3(0, 1, 0).applyQuaternion(shaftQuaternion).dot(axis)).toBeCloseTo(1, 5);
+      const up = new THREE.Vector3(bar.up.x, bar.up.y, bar.up.z); const rightHanded = up.clone().cross(axis);
+      expect(position.distanceTo(center)).toBeLessThan(1e-5); expect(new THREE.Vector3(1, 0, 0).applyQuaternion(shaftQuaternion).dot(up)).toBeCloseTo(1, 5); expect(new THREE.Vector3(0, 1, 0).applyQuaternion(shaftQuaternion).dot(axis)).toBeCloseTo(1, 5); expect(new THREE.Vector3(0, 0, 1).applyQuaternion(shaftQuaternion).dot(rightHanded)).toBeCloseTo(1, 5);
       expect(scale.x).toBeCloseTo(bar.height, 6); expect(scale.y).toBeCloseTo(bar.length - bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
       for (const [capIndex, sign] of [-1, 1].entries()) {
         caps.getMatrixAt(index * 2 + capIndex, matrix); matrix.decompose(position, new THREE.Quaternion(), scale);
