@@ -13,10 +13,13 @@ describe("modular track rendering", () => {
     expect(rendered.group.getObjectByName("booster-chevrons")?.userData.collider).toBe(false);
     const chevrons = rendered.group.getObjectByName("booster-chevrons");
     expect(chevrons?.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
-    const booster = rendered.devices.boosters[0];
-    const boosterChildren = chevrons?.children.slice(0, 3) ?? [];
+    expect(rendered.devices.boosters.length).toBeGreaterThan(0);
+    expect(chevrons?.children.length).toBe(rendered.devices.boosters.length * 3);
+    expect(chevrons?.children.length).toBeGreaterThan(0);
+    const booster = rendered.devices.boosters[0]!;
+    const boosterChildren = chevrons!.children.slice(0, 3);
     rendered.group.updateMatrixWorld(true);
-    if (booster) for (const [index, child] of boosterChildren.entries()) {
+    for (const [index, child] of boosterChildren.entries()) {
       const localNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(child.quaternion);
       expect(localNormal.dot(new THREE.Vector3(booster.up.x, booster.up.y, booster.up.z))).toBeCloseTo(1, 5);
       const projected = child.position.clone().sub(new THREE.Vector3(booster.center.x, booster.center.y, booster.center.z)).dot(new THREE.Vector3(booster.forward.x, booster.forward.y, booster.forward.z));
@@ -24,9 +27,11 @@ describe("modular track rendering", () => {
     }
     const shafts = rendered.group.getObjectByName("bumper-shafts") as THREE.InstancedMesh;
     const caps = rendered.group.getObjectByName("bumper-caps") as THREE.InstancedMesh;
-    const scale = new THREE.Vector3(); const matrix = new THREE.Matrix4(); const position = new THREE.Vector3();
+    const scale = new THREE.Vector3(); const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const shaftQuaternion = new THREE.Quaternion();
     rendered.devices.bumpers.forEach((bar, index) => {
-      shafts.getMatrixAt(index, matrix); matrix.decompose(position, new THREE.Quaternion(), scale);
+      shafts.getMatrixAt(index, matrix); matrix.decompose(position, shaftQuaternion, scale);
+      const center = new THREE.Vector3(bar.center.x, bar.center.y, bar.center.z); const axis = new THREE.Vector3(bar.axis.x, bar.axis.y, bar.axis.z);
+      expect(position.distanceTo(center)).toBeLessThan(1e-5); expect(new THREE.Vector3(0, 1, 0).applyQuaternion(shaftQuaternion).dot(axis)).toBeCloseTo(1, 5);
       expect(scale.x).toBeCloseTo(bar.thickness, 6); expect(scale.y).toBeCloseTo(bar.length - bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
       for (const [capIndex, sign] of [-1, 1].entries()) {
         caps.getMatrixAt(index * 2 + capIndex, matrix); matrix.decompose(position, new THREE.Quaternion(), scale);
@@ -60,16 +65,28 @@ describe("modular track rendering", () => {
     expect((gate.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.gate.width); expect((gate.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.gate.height); expect((gate.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.gate.depth);
     const agitatorBase = rendered.group.getObjectByName("modular-start-agitator")!;
     const agitatorSpin = rendered.group.getObjectByName("modular-start-agitator-spin")!;
+    const pinwheelLayout = rendered.devices.pinwheels[0]!;
+    const pinwheel = rendered.group.getObjectByName(`pinwheel-${pinwheelLayout.cellIndex}`)!;
     const baseQuaternion = agitatorBase.quaternion.clone();
     const agitatorX = new THREE.Vector3(1, 0, 0).applyQuaternion(agitatorBase.quaternion); const agitatorY = new THREE.Vector3(0, 1, 0).applyQuaternion(agitatorBase.quaternion); const agitatorZ = new THREE.Vector3(0, 0, 1).applyQuaternion(agitatorBase.quaternion);
     expect(agitatorBase.position.toArray()).toEqual([rendered.devices.start.agitator.center.x, rendered.devices.start.agitator.center.y, rendered.devices.start.agitator.center.z]);
     expect(agitatorX.dot(new THREE.Vector3(rendered.devices.start.agitator.side.x, rendered.devices.start.agitator.side.y, rendered.devices.start.agitator.side.z))).toBeCloseTo(1, 5); expect(agitatorY.dot(new THREE.Vector3(rendered.devices.start.agitator.up.x, rendered.devices.start.agitator.up.y, rendered.devices.start.agitator.up.z))).toBeCloseTo(1, 5); expect(agitatorX.clone().cross(agitatorY).dot(agitatorZ)).toBeCloseTo(1, 5);
     const armParameters = (agitatorSpin.children[0] as THREE.Mesh).geometry as THREE.BoxGeometry;
     expect(armParameters.parameters.width).toBe(rendered.devices.start.agitator.width); expect(armParameters.parameters.height).toBe(rendered.devices.start.agitator.height); expect(armParameters.parameters.depth).toBe(rendered.devices.start.agitator.depth);
+    setModularDevicePose(rendered, { elapsedSeconds: 0, gateOpen: false, agitatorAngle: 0, pinwheelAngles: [0] });
+    expect(gate.visible).toBe(true);
+    rendered.group.updateMatrixWorld(true);
+    const agitatorBeforePose = agitatorSpin.getWorldQuaternion(new THREE.Quaternion()); const pinwheelBeforePose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
     setModularDevicePose(rendered, { elapsedSeconds: 1, gateOpen: true, agitatorAngle: 0.5, pinwheelAngles: [1] });
+    expect(gate.visible).toBe(false);
     expect(rendered.group.userData.pinwheelAngles).toEqual([1]);
     expect(agitatorBase.quaternion.equals(baseQuaternion)).toBe(true);
     expect(agitatorSpin.rotation.y).toBeCloseTo(0.5, 8);
+    rendered.group.updateMatrixWorld(true);
+    const agitatorAfterPose = agitatorSpin.getWorldQuaternion(new THREE.Quaternion()); const pinwheelAfterPose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
+    expect(agitatorAfterPose.equals(agitatorBeforePose)).toBe(false); expect(pinwheelAfterPose.equals(pinwheelBeforePose)).toBe(false);
+    expect(new THREE.Vector3(0, 1, 0).applyQuaternion(agitatorAfterPose).dot(new THREE.Vector3(rendered.devices.start.agitator.up.x, rendered.devices.start.agitator.up.y, rendered.devices.start.agitator.up.z))).toBeCloseTo(1, 5);
+    expect(new THREE.Vector3(0, 1, 0).applyQuaternion(pinwheelAfterPose).dot(new THREE.Vector3(pinwheelLayout.axis.x, pinwheelLayout.axis.y, pinwheelLayout.axis.z))).toBeCloseTo(1, 5);
     disposeModularTrackRender(rendered);
     expect(() => disposeModularTrackRender(rendered)).not.toThrow();
   });
@@ -81,13 +98,17 @@ describe("modular track rendering", () => {
     expect(zeroDevice.group.getObjectByName("booster-chevrons")).toBeUndefined();
     const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>(); zeroDevice.group.traverse((object) => { const renderable = object as THREE.Mesh; if (renderable.geometry instanceof THREE.BufferGeometry) geometries.add(renderable.geometry); if (renderable.material instanceof THREE.Material) materials.add(renderable.material); });
     const geometrySpies = [...geometries].map((geometry) => vi.spyOn(geometry, "dispose")); const materialSpies = [...materials].map((material) => vi.spyOn(material, "dispose"));
-    disposeModularTrackRender(zeroDevice); disposeModularTrackRender(zeroDevice);
-    expect(geometrySpies.every((spy) => spy.mock.calls.length === 1)).toBe(true); expect(materialSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
+    disposeModularTrackRender(zeroDevice);
+    const geometryDisposeCounts = geometrySpies.map((spy) => spy.mock.calls.length); const materialDisposeCounts = materialSpies.map((spy) => spy.mock.calls.length);
+    disposeModularTrackRender(zeroDevice);
+    expect(geometrySpies.map((spy) => spy.mock.calls.length)).toEqual(geometryDisposeCounts); expect(materialSpies.map((spy) => spy.mock.calls.length)).toEqual(materialDisposeCounts);
+    expect(geometryDisposeCounts.every((count) => count === 1)).toBe(true); expect(materialDisposeCounts.every((count) => count === 1)).toBe(true);
   });
 
   it("keeps every chevron vertex inside its trigger band and flat on the channel", () => {
     const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign())); rendered.group.updateMatrixWorld(true);
     const chevrons = rendered.group.getObjectByName("booster-chevrons")!;
+    expect(rendered.devices.boosters.length).toBeGreaterThan(0); expect(chevrons.children.length).toBe(rendered.devices.boosters.length * 3); expect(chevrons.children.length).toBeGreaterThan(0);
     rendered.devices.boosters.forEach((booster, boosterIndex) => {
       const children = chevrons.children.slice(boosterIndex * 3, boosterIndex * 3 + 3); const up = new THREE.Vector3(booster.up.x, booster.up.y, booster.up.z); const forward = new THREE.Vector3(booster.forward.x, booster.forward.y, booster.forward.z); const center = new THREE.Vector3(booster.center.x, booster.center.y, booster.center.z); const midpoint = (booster.startDistance + booster.endDistance) / 2;
       children.forEach((child) => { const positions = child instanceof THREE.Mesh ? child.geometry.getAttribute("position") : undefined; expect(positions).toBeDefined(); if (positions) for (let vertex = 0; vertex < positions.count; vertex += 1) { const world = new THREE.Vector3().fromBufferAttribute(positions, vertex).applyMatrix4(child.matrixWorld); const relative = world.clone().sub(center); const along = midpoint + relative.dot(forward); expect(along).toBeGreaterThanOrEqual(booster.startDistance - 1e-5); expect(along).toBeLessThanOrEqual(booster.endDistance + 1e-5); expect(relative.dot(up)).toBeCloseTo(0.03, 5); } });
@@ -98,7 +119,10 @@ describe("modular track rendering", () => {
   it("disposes every unique nested geometry and material once", () => {
     const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign())); const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>(); rendered.group.traverse((object) => { const renderable = object as THREE.Mesh; if (renderable.geometry instanceof THREE.BufferGeometry) geometries.add(renderable.geometry); if (renderable.material instanceof THREE.Material) materials.add(renderable.material); });
     const geometrySpies = [...geometries].map((geometry) => vi.spyOn(geometry, "dispose")); const materialSpies = [...materials].map((material) => vi.spyOn(material, "dispose"));
-    disposeModularTrackRender(rendered); disposeModularTrackRender(rendered);
-    expect(geometrySpies.every((spy) => spy.mock.calls.length === 1)).toBe(true); expect(materialSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
+    disposeModularTrackRender(rendered);
+    const geometryDisposeCounts = geometrySpies.map((spy) => spy.mock.calls.length); const materialDisposeCounts = materialSpies.map((spy) => spy.mock.calls.length);
+    disposeModularTrackRender(rendered);
+    expect(geometrySpies.map((spy) => spy.mock.calls.length)).toEqual(geometryDisposeCounts); expect(materialSpies.map((spy) => spy.mock.calls.length)).toEqual(materialDisposeCounts);
+    expect(geometryDisposeCounts.every((count) => count === 1)).toBe(true); expect(materialDisposeCounts.every((count) => count === 1)).toBe(true);
   });
 });
