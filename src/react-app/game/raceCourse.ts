@@ -55,8 +55,8 @@ export const createBuiltInTrackResources = (debug = false): SceneBuiltInTrackRes
   return Object.freeze({ built, renderGroup: createTrackRenderGroup(built.geometry, { debug, checkpointNodes: built.spec.nodes }) });
 };
 
-const createBuiltInCourse = (): RaceCourse => {
-  const resources = createBuiltInTrackResources();
+const createBuiltInCourse = (debug = false): RaceCourse => {
+  const resources = createBuiltInTrackResources(debug);
   let activeWorld: RapierWorld | undefined;
   let activeCollider: unknown;
   let activeObstacle: ObstaclePhysicsResources | undefined;
@@ -97,7 +97,8 @@ const createBuiltInCourse = (): RaceCourse => {
         stepAfterWorld: () => { setDeviceRenderPose(obstacleGroup, pose); return []; },
         reset: (restart) => {
           if (runDisposed) throw new Error("Race course run has been disposed.");
-          setDeviceRenderPose(obstacleGroup, physics.reset(restart ? { gateOpen: true } : {}));
+          pose = physics.reset(restart ? { gateOpen: true } : {});
+          setDeviceRenderPose(obstacleGroup, pose);
         },
         dispose: () => {
           if (runDisposed) return;
@@ -121,9 +122,9 @@ const createBuiltInCourse = (): RaceCourse => {
   };
 };
 
-const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }): RaceCourse => {
+const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, debug = false): RaceCourse => {
   const built: BuiltModularTrack = buildModularTrack(track.track);
-  const rendered: ModularRenderResources = createModularTrackRender(built);
+  const rendered: ModularRenderResources = createModularTrackRender(built, { debug });
   let activeWorld: RapierWorld | undefined;
   let physics: ModularPhysicsResources | undefined;
   let disposed = false;
@@ -158,7 +159,8 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }): Ra
         stepAfterWorld: (bodies) => { setModularDevicePose(rendered, pose); return currentPhysics.stepAfterWorld(bodies); },
         reset: (restart) => {
           if (runDisposed) throw new Error("Race course run has been disposed.");
-          setModularDevicePose(rendered, currentPhysics.reset(restart));
+          pose = currentPhysics.reset(restart);
+          setModularDevicePose(rendered, pose);
         },
         dispose: () => {
           if (runDisposed) return;
@@ -179,5 +181,5 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }): Ra
   };
 };
 
-export const createRaceCourse = (selection: RaceCourseSelection = { kind: "builtin" }): RaceCourse =>
-  selection.kind === "builtin" ? createBuiltInCourse() : createCustomCourse(selection);
+export const createRaceCourse = (selection: RaceCourseSelection = { kind: "builtin" }, options: Readonly<{ debug?: boolean }> = {}): RaceCourse =>
+  selection.kind === "builtin" ? createBuiltInCourse(options.debug === true) : createCustomCourse(selection, options.debug === true);

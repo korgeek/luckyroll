@@ -14,6 +14,12 @@ describe("race-course adapters", () => {
     course.dispose();
   });
 
+  it("forwards debug rendering to the selected course", () => {
+    const course = createRaceCourse({ kind: "builtin" }, { debug: true });
+    expect(course.renderGroup.getObjectByName("track-debug-zones")).toBeDefined();
+    course.dispose();
+  });
+
   it("builds a custom course from validated shared cells", () => {
     const course = createRaceCourse({ kind: "custom", track: createValidTrackDesign("Course") });
     expect(course.kind).toBe("custom");

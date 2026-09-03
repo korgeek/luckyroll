@@ -220,15 +220,15 @@ export const evaluateRaceBody = (
 };
 
 export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void, selection: import("../designer/trackDesign").RaceCourseSelection = { kind: "builtin" }): RaceScene {
+  const debugEnabled = isTrackDebugEnabled(window.location.search);
   let course: RaceCourse;
   try {
-    course = createRaceCourse(selection);
+    course = createRaceCourse(selection, { debug: debugEnabled });
   } catch (error) {
     emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
     return { start: () => undefined, restartRemaining: () => undefined, setPaused: () => undefined, reset: () => undefined, dispose: () => undefined };
   }
   const profile = selectQualityProfile({ width: window.innerWidth, devicePixelRatio: window.devicePixelRatio });
-  const debugEnabled = isTrackDebugEnabled(window.location.search);
   const debug = createDebugCameraState(debugEnabled);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.pixelRatioCap));
@@ -255,6 +255,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const rankedCameraBalls: Ball[] = [];
   let running = false; let timedOut = false; let last = performance.now(); let fixedAccumulator = 0; let disposed = false;
   let manualPaused = false; let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
+  let frameId: number | undefined;
   let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
   const dummy = new THREE.Object3D();
   const raceFocus = createRaceFocusDirector();
@@ -271,9 +272,30 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   canvas.addEventListener("pointerdown", onPointerDown); canvas.addEventListener("pointermove", onPointerMove); canvas.addEventListener("pointerup", onPointerUp); canvas.addEventListener("pointercancel", onPointerUp); canvas.addEventListener("wheel", onWheel, { passive: false });
   const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
 
+  type SceneStartRequest = { marbles: Marble[]; seed: number; remainingRestart?: boolean };
+  let starts: ReturnType<typeof createSceneStartLifecycle<SceneStartRequest>> | undefined;
+  const stopRace = () => {
+    raceRun?.dispose(); raceRun = undefined;
+    world?.free(); world = undefined;
+    running = false;
+    balls = []; liveBalls.length = 0; rankedCameraBalls.length = 0; renderMeshes = [];
+    clearMarbles(); track.visible = false;
+  };
+  const teardown = () => {
+    if (disposed) return;
+    disposed = true;
+    starts?.dispose();
+    stopRace();
+    course.dispose();
+    trackDebug?.dispose();
+    if (frameId !== undefined) { cancelAnimationFrame(frameId); frameId = undefined; }
+    window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);
+    renderer.dispose();
+  };
+
   const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
     raceRun?.dispose(); raceRun = undefined;
-    world?.free();
+    world?.free(); world = undefined;
     world = createTrackPhysicsWorld();
     course.attach(world);
     raceRun = course.createRun(world, marbles.length, seed, remainingRestart);
@@ -324,7 +346,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   const loop = (now: number) => {
     if (disposed) return;
-    requestAnimationFrame(loop);
+    frameId = requestAnimationFrame(loop);
     const delta = Math.min(33, now - last); last = now;
     const paused = manualPaused || debug.isPaused();
     if (running && paused && !debugWasPaused) pauseStarted = now;
@@ -364,7 +386,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       refreshCameraRankView(liveBalls, rankedCameraBalls);
       const leader = rankedCameraBalls[0]; const trailer = rankedCameraBalls[rankedCameraBalls.length - 1];
       updateCamera(elapsedMs, leader?.progress ?? 0); emit({ type: "tick", elapsedMs, finishedCount: balls.length - liveBalls.length, remaining: liveBalls.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
-      if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
+      if (course.kind === "builtin" && elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
     if (paused) updateCamera(raceClock.elapsedMs(now, pausedDuration, pauseStarted, true), rankedCameraBalls[0]?.progress ?? 0);
@@ -375,28 +397,25 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     }, now);
   };
 
-  const starts = createSceneStartLifecycle({
+  starts = createSceneStartLifecycle<SceneStartRequest>({
     initialize: initializeScenePhysics,
     onReady: () => { world = createTrackPhysicsWorld(); },
-    onStart: ({ marbles, seed, remainingRestart = false }: { marbles: Marble[]; seed: number; remainingRestart?: boolean }) => {
+    onStart: ({ marbles, seed, remainingRestart = false }) => {
       try {
         begin(marbles, seed, remainingRestart);
       } catch (error) {
-        raceRun?.dispose(); raceRun = undefined; course.dispose(); world?.free(); world = undefined; running = false;
+        teardown();
         emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
       }
     },
-    onError: (error) => { emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); },
+    onError: (error) => { teardown(); emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); },
   });
-  requestAnimationFrame(loop);
+  frameId = requestAnimationFrame(loop);
   return {
-    start: (marbles, seed) => starts.requestStart({ marbles, seed }),
-    restartRemaining: (marbles) => starts.requestStart({ marbles, seed: Date.now(), remainingRestart: true }),
+    start: (marbles, seed) => starts?.requestStart({ marbles, seed }),
+    restartRemaining: (marbles) => starts?.requestStart({ marbles, seed: Date.now(), remainingRestart: true }),
     setPaused: (paused) => { manualPaused = paused; },
-    reset: () => { starts.reset(); raceFocus.reset(); raceClock.reset(); running = false; raceRun?.dispose(); raceRun = undefined; world?.free(); world = undefined; balls = []; liveBalls.length = 0; rankedCameraBalls.length = 0; renderMeshes = []; clearMarbles(); track.visible = false; },
-    dispose: () => {
-      disposed = true; starts.dispose(); running = false; raceRun?.dispose(); raceRun = undefined; course.dispose(); world?.free(); trackDebug?.dispose(); clearMarbles(); renderer.dispose();
-      window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);
-    },
+    reset: () => { starts?.reset(); raceFocus.reset(); raceClock.reset(); stopRace(); },
+    dispose: teardown,
   };
 }
