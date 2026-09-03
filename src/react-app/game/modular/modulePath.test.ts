@@ -113,7 +113,7 @@ describe("canonical modular module paths", () => {
     const maxTurn = Math.max(...turns);
     const chordErrors = samples.slice(1).map((sample, index) => {
       const previous = samples[index];
-      if (previous.cellIndex !== sample.cellIndex || previous.localU <= 0.1 || sample.localU >= 0.9) return 0;
+      if (previous.cellIndex !== sample.cellIndex || previous.localU < 0.1 || sample.localU > 0.9) return 0;
       const step = route.route.find((candidate) => candidate.cellIndex === sample.cellIndex);
       const kind = track.cells[sample.cellIndex]?.kind;
       if (step === undefined || kind !== "curve" && kind !== "wave") return 0;
