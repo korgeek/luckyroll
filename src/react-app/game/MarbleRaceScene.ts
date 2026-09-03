@@ -221,6 +221,7 @@ export const evaluateRaceBody = (
 
 export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void, selection: import("../designer/trackDesign").RaceCourseSelection = { kind: "builtin" }): RaceScene {
   const debugEnabled = isTrackDebugEnabled(window.location.search);
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   let course: RaceCourse;
   try {
     course = createRaceCourse(selection, { debug: debugEnabled });
@@ -318,7 +319,10 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   const updateCamera = (elapsedMs: number, leaderProgress: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
-    if (debug.isPaused()) {
+    if (reducedMotion) {
+      activeShot = "overview";
+      writeCameraShot(cameraShot, activeShot, bounds);
+    } else if (debug.isPaused()) {
       activeShot = debug.activeShot();
       writeCameraShot(cameraShot, activeShot, bounds);
     } else {
