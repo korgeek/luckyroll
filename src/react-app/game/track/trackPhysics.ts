@@ -1,5 +1,7 @@
 import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import { buildValidatedTrack } from "./trackBuild";
+import { buildObstacleGeometry } from "./obstacleGeometry";
+import { createBowlLaunchPositions, createObstaclePhysics } from "./obstaclePhysics";
 import { createLaunchSlots } from "./trackSpec";
 import { projectToTrack } from "./trackSampler";
 import type { LaunchSlot, PhysicalLaunchPosition, TrackFeatureLayout, TrackGeometry, TrackSample, Vec3 } from "./trackTypes";
@@ -328,4 +330,55 @@ export const runValidationSuite = async (
     }));
   }
   return Object.freeze(results);
+};
+
+export const runObstacleValidationRace = async (options: Readonly<{ seed: number; durationSeconds: number }>): Promise<ValidationRaceResult> => {
+  await initializeTrackPhysics();
+  const built = buildValidatedTrack({ features: true });
+  const world = createTrackPhysicsWorld();
+  world.timestep = TIMESTEP_SECONDS;
+  createTrackCollider(world, built.geometry);
+  const obstacles = createObstaclePhysics(world, buildObstacleGeometry(built.geometry, built.obstacleLayout));
+  const bodies = createMarbleBodies(world, createBowlLaunchPositions(100, built.obstacleLayout.start, options.seed));
+  const stationaryMs = new Array<number>(bodies.length).fill(0);
+  const finished = new Set<number>(); const failed = new Set<number>(); const finishOrder: number[] = []; const finishTimesMs: number[] = [];
+  const escapes: MarbleFailure[] = []; const stalls: MarbleFailure[] = [];
+  const durationSteps = Math.floor(options.durationSeconds / TIMESTEP_SECONDS);
+  let raceElapsedMs = 0;
+  try {
+    for (let step = 1; step <= durationSteps; step += 1) {
+      const pose = obstacles.stepFixed();
+      world.step();
+      if (pose.raceClockStarted) raceElapsedMs += TIMESTEP_SECONDS * 1_000;
+      for (let index = 0; index < bodies.length; index += 1) {
+        const marbleId = index + 1;
+        if (finished.has(marbleId) || failed.has(marbleId)) continue;
+        const body = bodies[index]; const position = toVec3(body.translation()); const projection = projectToTrack(position, built.samples); const nearestSample = built.samples[projection.sampleIndex];
+        if (distanceSquaredToSample(position, nearestSample) > ESCAPE_RADIUS ** 2) {
+          escapes.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity: toVec3(body.linvel()), nearestSampleIndex: projection.sampleIndex, category: "escape" }); failed.add(marbleId); continue;
+        }
+        if (pose.raceClockStarted) {
+          stationaryMs[index] = speed(toVec3(body.linvel())) < STALL_SPEED ? stationaryMs[index] + TIMESTEP_SECONDS * 1_000 : 0;
+          if (stationaryMs[index] >= STALL_DURATION_MS) {
+            stalls.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity: toVec3(body.linvel()), nearestSampleIndex: projection.sampleIndex, category: "stall" }); failed.add(marbleId); continue;
+          }
+        }
+        if (projection.progress >= FINISH_PROGRESS && insideFinishVolume(position, built.samples[built.samples.length - 1])) {
+          finishOrder.push(marbleId); finishTimesMs.push(raceElapsedMs); finished.add(marbleId); body.setEnabled(false);
+        }
+      }
+      if (finished.size + failed.size === bodies.length) break;
+    }
+  } finally {
+    obstacles.dispose();
+    world.free();
+  }
+  return Object.freeze({ seed: options.seed, finishOrder: Object.freeze(finishOrder), finishTimesMs: Object.freeze(finishTimesMs), escapes: Object.freeze(escapes), stalls: Object.freeze(stalls) });
+};
+
+export const validateObstacleQualificationSeeds = (seeds: readonly number[], recordedSeeds: readonly number[] = []): readonly number[] => {
+  if (seeds.length !== FIXED_VALIDATION_SEEDS.length || seeds.some((seed, index) => seed !== FIXED_VALIDATION_SEEDS[index])) throw new Error("Obstacle qualification must use the ten fixed seeds exactly once in canonical order.");
+  if (new Set(seeds).size !== seeds.length) throw new Error("Obstacle qualification seeds must be unique.");
+  if (recordedSeeds.length > 0) throw new Error("Obstacle qualification ledger already records stepped seeds; do not start another race.");
+  return Object.freeze([...seeds]);
 };

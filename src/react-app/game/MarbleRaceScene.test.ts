@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverlay, createSceneStartLifecycle, createSceneTrackResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, projectRaceBody, refreshCameraRankView } from "./MarbleRaceScene";
+import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, stepSceneObstacleResources } from "./MarbleRaceScene";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -180,6 +180,88 @@ describe("continuous-track scene seams", () => {
     expect(projections).toBe(1);
     expect(state.projection.progress).toBe(0);
     expect(state.projection.sampleIndex).toBe(0);
+  });
+
+  it("exposes bounded dark-neon production styling without a post-processing hook", () => {
+    expect(productionSceneStyle.background).toBe("#050713");
+    expect(productionSceneStyle.pointLightCount).toBe(2);
+    expect(productionSceneStyle.bloom).toBe(false);
+  });
+
+  it("builds the canonical obstacle render and physics bundle for the production scene", async () => {
+    await initializeScenePhysics();
+    const track = createSceneTrackResources();
+    const world = createTrackPhysicsWorld();
+    const obstacles = createSceneObstacleResources(world, track);
+
+    try {
+      expect(obstacles.geometry.layout).toBe(track.built.obstacleLayout);
+      expect(obstacles.renderGroup.getObjectByName("start-bowl")).toBeDefined();
+      expect(obstacles.renderGroup.getObjectByName("peg-shuffler")).toBeDefined();
+      expect(obstacles.renderGroup.getObjectByName("alternating-pushers")).toBeDefined();
+      expect(obstacles.renderGroup.getObjectByName("vortex-catch-channel")).toBeDefined();
+      expect(obstacles.physics.fixedColliders.length).toBeGreaterThan(0);
+    } finally {
+      disposeSceneObstacleResources(obstacles);
+      world.free();
+    }
+  });
+
+  it("steps obstacle kinematics before Rapier and applies that shared pose after the world step", async () => {
+    await initializeScenePhysics();
+    const track = createSceneTrackResources();
+    const world = createTrackPhysicsWorld();
+    const obstacles = createSceneObstacleResources(world, track);
+    const originalStep = world.step.bind(world);
+    let renderedDuringWorldStep = false;
+    world.step = () => {
+      renderedDuringWorldStep = obstacles.renderGroup.getObjectByName("release-gate")!.position.y !== obstacles.physics.controller.initialPose().gate.translation.y;
+      return originalStep();
+    };
+
+    try {
+      const pose = stepSceneObstacleResources(world, obstacles);
+      expect(pose.elapsedMs).toBeCloseTo(1000 / 60);
+      expect(renderedDuringWorldStep).toBe(false);
+      expect(obstacles.renderGroup.getObjectByName("release-gate")!.position.y).toBeCloseTo(pose.gate.translation.y);
+    } finally {
+      disposeSceneObstacleResources(obstacles);
+      world.free();
+    }
+  });
+
+  it("starts displayed race time only after the shuffle gate opens and resets remaining marbles with an open gate", async () => {
+    await initializeScenePhysics();
+    const track = createSceneTrackResources();
+    const world = createTrackPhysicsWorld();
+    const obstacles = createSceneObstacleResources(world, track);
+    const clock = createSceneRaceClock();
+
+    try {
+      expect(clock.elapsedMs(1_000)).toBe(0);
+      for (let step = 0; step < 90; step += 1) clock.consumeAfterWorldStep(stepSceneObstacleResources(world, obstacles), 1_000 + step * 1000 / 60);
+      expect(clock.elapsedMs(2_600)).toBeCloseTo(700 / 6);
+      const open = obstacles.reset({ gateOpen: true });
+      expect(open.gateOpen).toBe(true);
+      expect(open.raceClockStarted).toBe(true);
+    } finally {
+      disposeSceneObstacleResources(obstacles);
+      world.free();
+    }
+  });
+
+  it("disposes obstacle physics before callers free the replay world", async () => {
+    await initializeScenePhysics();
+    const track = createSceneTrackResources();
+    const world = createTrackPhysicsWorld();
+    const obstacles = createSceneObstacleResources(world, track);
+    const gate = obstacles.physics.gate;
+
+    disposeSceneObstacleResources(obstacles);
+
+    expect(gate.isValid()).toBe(false);
+    expect(() => disposeSceneObstacleResources(obstacles)).not.toThrow();
+    world.free();
   });
 
   it("keeps the race camera clock paused while a debug view is held", () => {

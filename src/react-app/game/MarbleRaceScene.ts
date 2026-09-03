@@ -6,6 +6,9 @@ import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
 import { buildValidatedTrack, type BuiltTrack } from "./track/trackBuild";
+import { buildObstacleGeometry, type ObstacleGeometryResources } from "./track/obstacleGeometry";
+import { createObstaclePhysics, createBowlLaunchPositions, type DevicePose, type ObstaclePhysicsResources } from "./track/obstaclePhysics";
+import { createObstacleRenderGroup, disposeObstacleRenderGroup, setDeviceRenderPose } from "./track/obstacleRender";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, initializeTrackPhysics, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { createTrackRenderGroup, disposeTrackRenderGroup } from "./track/trackRender";
 import { projectToTrack } from "./track/trackSampler";
@@ -22,8 +25,17 @@ type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 export type CameraRankItem = Readonly<{ done: boolean; progress: number }>;
 
 const FINISH_PROGRESS = 0.995;
+export const productionSceneStyle = Object.freeze({ background: "#050713", pointLightCount: 2, bloom: false });
 
 export type SceneTrackResources = Readonly<{ built: BuiltTrack; renderGroup: THREE.Group }>;
+export type SceneObstacleResources = Readonly<{
+  geometry: ObstacleGeometryResources;
+  physics: ObstaclePhysicsResources;
+  renderGroup: THREE.Group;
+  reset: (options?: Readonly<{ gateOpen?: boolean }>) => DevicePose;
+  dispose: () => void;
+}>;
+export type SceneRaceClock = Readonly<{ consumeAfterWorldStep: (pose: DevicePose, now: number) => void; elapsedMs: (now: number, pausedDuration?: number, pauseStarted?: number, paused?: boolean) => number; reset: () => void }>;
 type SceneTrackColliderCreator = (world: any, geometry: BuiltTrack["geometry"]) => unknown;
 type SceneStartLifecycleOptions<Request> = Readonly<{
   initialize: () => Promise<void>;
@@ -102,6 +114,50 @@ export const attachSceneTrackCollider = (
 
 export const initializeScenePhysics = (): Promise<void> => initializeTrackPhysics().then(() => undefined);
 
+export const createSceneObstacleResources = (world: any, track: SceneTrackResources): SceneObstacleResources => {
+  const geometry = buildObstacleGeometry(track.built.geometry, track.built.obstacleLayout);
+  const physics = createObstaclePhysics(world, geometry);
+  const renderGroup = createObstacleRenderGroup(geometry, physics.controller.initialPose());
+  let disposed = false;
+  return Object.freeze({
+    geometry,
+    physics,
+    renderGroup,
+    reset: (options = {}) => {
+      if (disposed) throw new Error("Obstacle scene resources have been disposed.");
+      const pose = physics.reset(options);
+      setDeviceRenderPose(renderGroup, pose);
+      return pose;
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      physics.dispose();
+      renderGroup.removeFromParent();
+      disposeObstacleRenderGroup(renderGroup);
+    },
+  });
+};
+
+export const disposeSceneObstacleResources = (resources: SceneObstacleResources): void => resources.dispose();
+
+export const stepSceneObstacleResources = (world: { timestep: number; step: () => void }, resources: SceneObstacleResources): DevicePose => {
+  const pose = resources.physics.stepFixed();
+  world.timestep = 1 / 60;
+  world.step();
+  setDeviceRenderPose(resources.renderGroup, pose);
+  return pose;
+};
+
+export const createSceneRaceClock = (): SceneRaceClock => {
+  let startedAt: number | undefined;
+  return Object.freeze({
+    consumeAfterWorldStep: (pose, now) => { if (startedAt === undefined && pose.raceClockStarted) startedAt = now; },
+    elapsedMs: (now, pausedDuration = 0, pauseStarted = 0, paused = false) => startedAt === undefined ? 0 : getRaceElapsedMs(now, startedAt, pausedDuration, pauseStarted, paused),
+    reset: () => { startedAt = undefined; },
+  });
+};
+
 export const createSceneStartLifecycle = <Request,>(options: SceneStartLifecycleOptions<Request>) => {
   let status: SceneStartLifecycleStatus = "initializing";
   let requested: Request | undefined;
@@ -172,29 +228,30 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color("#d9f7f4");
+  scene.background = new THREE.Color(productionSceneStyle.background);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 500);
   const cameraLook = new THREE.Vector3(0, 10, 4);
   camera.position.set(24, 58, 105); camera.lookAt(cameraLook);
-  scene.add(new THREE.AmbientLight("#fff6db", 3.2));
-  scene.add(new THREE.HemisphereLight("#f5ffff", "#7eb6c7", 3));
-  const key = new THREE.DirectionalLight("#ffffff", 3.2); key.position.set(12, 42, 36); scene.add(key);
-  const cyan = new THREE.PointLight("#75eee2", 72, 96, 1.3); cyan.position.set(0, 27, 38); scene.add(cyan);
-  const gold = new THREE.PointLight("#ffc860", 60, 76, 1.2); gold.position.set(4, 8, -58); scene.add(gold);
+  scene.add(new THREE.AmbientLight("#ced8ff", 1.35));
+  scene.add(new THREE.HemisphereLight("#7bb9ff", "#060915", 1.8));
+  const key = new THREE.DirectionalLight("#dce8ff", 2.3); key.position.set(12, 42, 36); scene.add(key);
+  const cyan = new THREE.PointLight("#19d7e7", 30, 58, 1.3); cyan.position.set(0, 27, 38); scene.add(cyan);
+  const magenta = new THREE.PointLight("#e73da7", 24, 46, 1.2); magenta.position.set(4, 8, -58); scene.add(magenta);
   const sceneTrack = createSceneTrackResources(debugEnabled);
   const bounds = getTrackBounds(sceneTrack.built.samples);
   const trackDebug = debugEnabled ? createSceneDebugOverlay(canvas.parentElement ?? document.body, debug) : undefined;
   const track = sceneTrack.renderGroup;
   const marbleGroup = new THREE.Group();
   scene.add(track, marbleGroup);
-  let world: any; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
+  let world: any; let obstacles: SceneObstacleResources | undefined; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
   const liveBalls: Ball[] = [];
   const rankedCameraBalls: Ball[] = [];
-  let running = false; let timedOut = false; let startedAt = 0; let last = performance.now(); let disposed = false;
+  let running = false; let timedOut = false; let last = performance.now(); let fixedAccumulator = 0; let disposed = false;
   let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
   let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
   const dummy = new THREE.Object3D();
   const raceFocus = createRaceFocusDirector();
+  const raceClock = createSceneRaceClock();
   const cameraFocus = new THREE.Vector3(); const cameraTarget = new THREE.Vector3(); const cameraUpTarget = new THREE.Vector3(0, 1, 0);
   const cameraShot: CameraShot = { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 };
   const controlledCameraShot: CameraShot = { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 };
@@ -207,11 +264,15 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   canvas.addEventListener("pointerdown", onPointerDown); canvas.addEventListener("pointermove", onPointerMove); canvas.addEventListener("pointerup", onPointerUp); canvas.addEventListener("pointercancel", onPointerUp); canvas.addEventListener("wheel", onWheel, { passive: false });
   const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
 
-  const begin = (marbles: Marble[], seed: number) => {
-    if (!world) return;
+  const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
+    if (!world) world = createTrackPhysicsWorld();
+    obstacles?.dispose(); obstacles = undefined;
     world.free();
     world = createTrackPhysicsWorld();
     attachSceneTrackCollider(world, sceneTrack);
+    obstacles = createSceneObstacleResources(world, sceneTrack);
+    scene.add(obstacles.renderGroup);
+    if (remainingRestart) obstacles.reset({ gateOpen: true });
     track.visible = true;
     clearMarbles();
     const renderBindings = new Map<number, { mesh: THREE.InstancedMesh; renderIndex: number }>(); renderMeshes = [];
@@ -220,13 +281,15 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       colorMesh.frustumCulled = false; colorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); marbleGroup.add(colorMesh); renderMeshes.push(colorMesh);
       batch.sourceIndexes.forEach((sourceIndex, renderIndex) => renderBindings.set(sourceIndex, { mesh: colorMesh, renderIndex }));
     });
-    const launchPositions = launchPositionsFor(createLaunchSlots(marbles.length), sceneTrack.built.geometry, seed);
+    const launchPositions = remainingRestart
+      ? launchPositionsFor(createLaunchSlots(marbles.length), sceneTrack.built.geometry, seed)
+      : createBowlLaunchPositions(marbles.length, obstacles.geometry.layout.start, seed);
     const bodies = createMarbleBodies(
       world,
       launchPositions,
     );
     balls = marbles.map((marble, index) => ({ id: marble.id, marble, body: bodies[index], done: false, progress: 0, sampleIndex: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
-    liveBalls.length = 0; rankedCameraBalls.length = 0; raceFocus.reset(); running = true; timedOut = false; startedAt = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? startedAt : 0;
+    liveBalls.length = 0; rankedCameraBalls.length = 0; raceFocus.reset(); raceClock.reset(); running = true; timedOut = false; fixedAccumulator = 0; last = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? last : 0;
   };
 
   const updateCamera = (elapsedMs: number, leaderProgress: number) => {
@@ -265,8 +328,14 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (running && paused && !debugWasPaused) pauseStarted = now;
     if (running && !paused && debugWasPaused) pausedDuration += now - pauseStarted;
     debugWasPaused = paused;
-    if (running && world && renderMeshes.length && !paused) {
-      world.timestep = delta / 1000; world.step(); const elapsedMs = getRaceElapsedMs(now, startedAt, pausedDuration, pauseStarted, false);
+    if (running && world && obstacles && renderMeshes.length && !paused) {
+      fixedAccumulator += delta;
+      while (fixedAccumulator >= 1000 / 60) {
+        const pose = stepSceneObstacleResources(world, obstacles);
+        raceClock.consumeAfterWorldStep(pose, now);
+        fixedAccumulator -= 1000 / 60;
+      }
+      const elapsedMs = raceClock.elapsedMs(now, pausedDuration, pauseStarted, false);
       balls.forEach((ball) => {
         if (ball.done) return;
         const raceState = evaluateRaceBody(ball.body, sceneTrack.built.samples);
@@ -285,7 +354,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
-    if (paused) updateCamera(getRaceElapsedMs(now, startedAt, pausedDuration, pauseStarted, true), rankedCameraBalls[0]?.progress ?? 0);
+    if (paused) updateCamera(raceClock.elapsedMs(now, pausedDuration, pauseStarted, true), rankedCameraBalls[0]?.progress ?? 0);
     renderer.render(scene, camera);
     if (trackDebug) trackDebug.update({
       fps: 1_000 / Math.max(1, delta), drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
@@ -296,16 +365,16 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const starts = createSceneStartLifecycle({
     initialize: initializeScenePhysics,
     onReady: () => { world = createTrackPhysicsWorld(); },
-    onStart: ({ marbles, seed }: { marbles: Marble[]; seed: number }) => begin(marbles, seed),
+    onStart: ({ marbles, seed, remainingRestart = false }: { marbles: Marble[]; seed: number; remainingRestart?: boolean }) => begin(marbles, seed, remainingRestart),
     onError: (error) => { console.error("Lucky Roll physics initialization failed.", error); },
   });
   requestAnimationFrame(loop);
   return {
     start: (marbles, seed) => starts.requestStart({ marbles, seed }),
-    restartRemaining: (marbles) => starts.requestStart({ marbles, seed: Date.now() }),
-    reset: () => { starts.reset(); raceFocus.reset(); running = false; balls = []; liveBalls.length = 0; rankedCameraBalls.length = 0; renderMeshes = []; clearMarbles(); track.visible = false; },
+    restartRemaining: (marbles) => starts.requestStart({ marbles, seed: Date.now(), remainingRestart: true }),
+    reset: () => { starts.reset(); raceFocus.reset(); raceClock.reset(); running = false; obstacles?.dispose(); obstacles = undefined; balls = []; liveBalls.length = 0; rankedCameraBalls.length = 0; renderMeshes = []; clearMarbles(); track.visible = false; },
     dispose: () => {
-      disposed = true; starts.dispose(); running = false; world?.free(); trackDebug?.dispose(); disposeTrackRenderGroup(track); clearMarbles(); renderer.dispose();
+      disposed = true; starts.dispose(); running = false; obstacles?.dispose(); obstacles = undefined; world?.free(); trackDebug?.dispose(); disposeTrackRenderGroup(track); clearMarbles(); renderer.dispose();
       window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);
     },
   };
