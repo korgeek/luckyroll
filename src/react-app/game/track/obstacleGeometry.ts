@@ -9,6 +9,7 @@ export type ObstacleGeometryResources = Readonly<{
   pegHallSurface: IndexedGeometry;
   pusherHallSurface: IndexedGeometry;
   pegs: readonly ResolvedPeg[];
+  branchFloors: readonly IndexedGeometry[];
   branchRails: BranchGeometry;
   vortex: IndexedGeometry;
   catchChannel: IndexedGeometry;
@@ -59,19 +60,22 @@ const wideHall = (frame: ResolvedFrame, width: number, length: number): IndexedG
   return indexed(positions, [0, 2, 1, 1, 2, 3, 0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5]);
 };
 
-const annularFloor = (frame: ResolvedFrame, outerRadius: number, innerRadius: number, drop: number, innerAlong: number, segments = 32): IndexedGeometry => {
-  const positions: number[] = []; const indices: number[] = [];
-  for (const [radius, along, height] of [[innerRadius, innerAlong, -drop], [outerRadius, 0, 0]] as const) for (let i = 0; i < segments; i += 1) {
-    const angle = i / segments * Math.PI * 2; write(positions, inFrame(frame, along + Math.cos(angle) * radius, Math.sin(angle) * radius, height));
+const walledBowl = (frame: ResolvedFrame, outerRadius: number, innerRadius: number, drop: number, innerAlong: number, wallHeight: number, segments = 32): IndexedGeometry => {
+  const positions: number[] = []; const indices: number[] = []; const radial = [innerRadius, innerRadius + 0.16, (innerRadius + outerRadius) / 2, outerRadius];
+  const heights = [-drop, -drop + 0.12, -drop * 0.28, 0];
+  radial.forEach((radius, ring) => {
+    const taper = 1 - ring / (radial.length - 1);
+    for (let i = 0; i < segments; i += 1) { const angle = i / segments * Math.PI * 2; write(positions, inFrame(frame, innerAlong * taper + Math.cos(angle) * radius, Math.sin(angle) * radius, heights[ring])); }
+  });
+  for (let ring = 0; ring < radial.length - 1; ring += 1) for (let i = 0; i < segments; i += 1) { const next = (i + 1) % segments; const a = ring * segments + i; const b = ring * segments + next; const c = a + segments; const d = b + segments; indices.push(a, b, c, b, d, c); }
+  const floorOuter = (radial.length - 1) * segments; const innerTop = floorOuter + segments; const outerTop = innerTop + segments; const outerBottom = outerTop + segments;
+  for (const [radius, height] of [[outerRadius, wallHeight], [outerRadius + 0.42, wallHeight], [outerRadius + 0.42, 0]] as const) for (let i = 0; i < segments; i += 1) { const angle = i / segments * Math.PI * 2; write(positions, inFrame(frame, Math.cos(angle) * radius, Math.sin(angle) * radius, height)); }
+  const aperture = (i: number): boolean => i <= 2 || i >= segments - 2;
+  for (let i = 0; i < segments; i += 1) if (!aperture(i)) {
+    const next = (i + 1) % segments;
+    for (const [from, to] of [[floorOuter, innerTop], [innerTop, outerTop], [outerTop, outerBottom], [outerBottom, floorOuter]] as const) { const a = from + i; const b = from + next; const c = to + i; const d = to + next; indices.push(a, c, b, b, c, d); }
   }
-  for (let i = 0; i < segments; i += 1) { const next = (i + 1) % segments; indices.push(i, next, segments + i, next, segments + next, segments + i); }
-  return indexed(positions, indices);
-};
-
-const closedOuterWall = (frame: ResolvedFrame, radius: number, height: number, segments = 32): IndexedGeometry => {
-  const positions: number[] = []; const indices: number[] = []; const rings: readonly (readonly [number, number])[] = [[radius, 0], [radius, height], [radius + 0.42, height], [radius + 0.42, 0]];
-  for (const [r, y] of rings) for (let i = 0; i < segments; i += 1) { const angle = i / segments * Math.PI * 2; write(positions, inFrame(frame, Math.cos(angle) * r, Math.sin(angle) * r, y)); }
-  for (let ring = 0; ring < rings.length; ring += 1) for (let i = 0; i < segments; i += 1) { const next = (i + 1) % segments; const a = ring * segments + i; const b = ring * segments + next; const c = ((ring + 1) % rings.length) * segments + i; const d = ((ring + 1) % rings.length) * segments + next; indices.push(a, c, b, b, c, d); }
+  for (const at of [3, segments - 2]) { const a = floorOuter + at; const b = innerTop + at; const c = outerTop + at; const d = outerBottom + at; indices.push(a, b, c, a, c, d); }
   return indexed(positions, indices);
 };
 
@@ -82,14 +86,21 @@ const channelThroat = (frame: ResolvedFrame, centerAlong: number, width: number,
   return indexed(positions, indices);
 };
 
-const sampleBranchPath = (frame: ResolvedFrame, merge: ResolvedFrame, kind: "left" | "middle" | "right"): Float32Array => {
+const sampleBranchPath = (samples: readonly TrackGeometry["samples"][number][], kind: "left" | "middle" | "right"): Float32Array => {
   const values: number[] = []; const count = 17;
   for (let i = 0; i < count; i += 1) {
-    const t = i / (count - 1); const base = add(frame.position, scale(sub(merge.position, frame.position), t)); const sine = Math.sin(Math.PI * 2 * t);
+    const t = i / (count - 1); const sample = samples[Math.round(t * (samples.length - 1))]; const base = sample.position; const sine = Math.sin(Math.PI * 2 * t);
     const lateral = kind === "left" ? -5 + 1.8 * t - 0.18 * sine : kind === "right" ? 5 - 1.8 * t - 0.18 * sine : 0.75 * sine;
-    write(values, add(base, scale(frame.side, lateral)));
+    write(values, add(base, scale(sample.side, lateral)));
   }
   return new Float32Array(values);
+};
+
+const branchFloor = (left: Float32Array, right: Float32Array): IndexedGeometry => {
+  const positions: number[] = []; const indices: number[] = []; const count = left.length / 3;
+  for (let i = 0; i < count; i += 1) { positions.push(left[i * 3], left[i * 3 + 1], left[i * 3 + 2], right[i * 3], right[i * 3 + 1], right[i * 3 + 2]); }
+  for (let i = 0; i < count - 1; i += 1) { const a = i * 2; indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  return indexed(positions, indices);
 };
 
 const tube = (centers: Float32Array, radius: number, frame: ResolvedFrame): IndexedGeometry => {
@@ -110,25 +121,30 @@ const tube = (centers: Float32Array, radius: number, frame: ResolvedFrame): Inde
   return indexed(positions, indices);
 };
 
-const branch = (layout: ValidResolvedObstacleLayout): BranchGeometry => {
-  const centerlines = [sampleBranchPath(layout.branch.start, layout.branch.merge, "left"), sampleBranchPath(layout.branch.start, layout.branch.merge, "middle"), sampleBranchPath(layout.branch.start, layout.branch.merge, "right")];
-  return Object.freeze({ ...join(centerlines.map((line) => tube(line, 0.28, layout.branch.start))), centerlines: Object.freeze(centerlines), radius: 0.28 });
+const branch = (track: TrackGeometry, layout: ValidResolvedObstacleLayout): Readonly<{ rails: BranchGeometry; floors: readonly IndexedGeometry[] }> => {
+  const samples = track.samples.slice(layout.branch.start.sampleIndex, layout.branch.end.sampleIndex + 1);
+  const centerlines = [sampleBranchPath(samples, "left"), sampleBranchPath(samples, "middle"), sampleBranchPath(samples, "right")];
+  return Object.freeze({ rails: Object.freeze({ ...join(centerlines.map((line) => tube(line, 0.28, layout.branch.start))), centerlines: Object.freeze(centerlines), radius: 0.28 }), floors: Object.freeze([branchFloor(centerlines[0], centerlines[1]), branchFloor(centerlines[1], centerlines[2])]) });
 };
 
-const catchChannel = (frame: ResolvedFrame, outletAlong: number, radius: number): IndexedGeometry => {
-  const positions: number[] = []; const indices: number[] = []; const cross = 12; const length = 4.4;
-  for (const along of [0, length]) for (let i = 0; i <= cross; i += 1) { const angle = i / cross * Math.PI; write(positions, inFrame(frame, outletAlong + along + Math.cos(angle) * radius, Math.sin(angle) * radius, -1.36)); }
-  for (let i = 0; i < cross; i += 1) { const a = i; const b = i + 1; const c = a + cross + 1; const d = b + cross + 1; indices.push(a, c, b, b, c, d); }
-  return indexed(positions, indices);
+const catchChannel = (samples: readonly TrackGeometry["samples"][number][], frame: ResolvedFrame, outletAlong: number, radius: number): IndexedGeometry => {
+  const cross = 12;
+  const collar: number[] = []; const collarIndices: number[] = [];
+  for (const down of [0, 0.22]) for (let i = 0; i < cross; i += 1) { const angle = i / cross * Math.PI * 2; write(collar, inFrame(frame, outletAlong + Math.cos(angle) * radius, Math.sin(angle) * radius, -1.36 - down)); }
+  for (let i = 0; i < cross; i += 1) { const next = (i + 1) % cross; collarIndices.push(i, cross + i, next, next, cross + i, cross + next); }
+  const route = samples.slice(frame.sampleIndex, frame.sampleIndex + 6); const tunnel: number[] = []; const tunnelIndices: number[] = [];
+  route.forEach((sample, row) => { const base = row === 0 ? inFrame(frame, outletAlong, 0, -1.36) : add(sample.position, scale(sample.up, -1.58)); for (let i = 0; i <= cross; i += 1) { const angle = Math.PI + i / cross * Math.PI; write(tunnel, add(base, add(scale(sample.side, Math.cos(angle) * radius), scale(sample.up, Math.sin(angle) * radius)))); } });
+  for (let row = 0; row < route.length - 1; row += 1) for (let i = 0; i < cross; i += 1) { const a = row * (cross + 1) + i; const b = a + 1; const c = a + cross + 1; const d = c + 1; tunnelIndices.push(a, c, b, b, c, d); }
+  return join([indexed(collar, collarIndices), indexed(tunnel, tunnelIndices)]);
 };
 
 export const buildObstacleGeometry = (track: TrackGeometry, layout: ValidResolvedObstacleLayout): ObstacleGeometryResources => {
   const outletRadius = layout.vortex.outletDiameter / 2; const outletAlong = 0.28;
-  const startFloor = annularFloor(layout.start.frame, layout.start.radius, 1.55, 0.72, 6.05); const startThroat = channelThroat(layout.start.frame, 7.5, 3.4, 4.2, 0.72);
+  const startThroat = channelThroat(layout.start.frame, 7.5, 3.4, 4.2, 0.72); const branchResources = branch(track, layout);
   return Object.freeze({
-    shell: buildTrackShell(track), startBowl: join([startFloor, closedOuterWall(layout.start.frame, layout.start.radius, layout.start.wallHeight)]), startThroat,
+    shell: buildTrackShell(track), startBowl: walledBowl(layout.start.frame, layout.start.radius, 1.55, 0.72, 6.05, layout.start.wallHeight), startThroat,
     pegHallSurface: wideHall(layout.pegHall.frame, layout.pegHall.width, 10), pusherHallSurface: wideHall(layout.pushers.frame, layout.pushers.hallWidth, 9), pegs: layout.pegs,
-    branchRails: branch(layout), vortex: join([annularFloor(layout.vortex.frame, layout.vortex.radius, outletRadius, layout.vortex.verticalDrop, outletAlong), closedOuterWall(layout.vortex.frame, layout.vortex.radius, 1.85)]),
-    catchChannel: catchChannel(layout.vortex.frame, outletAlong, outletRadius), layout,
+    branchFloors: branchResources.floors, branchRails: branchResources.rails, vortex: walledBowl(layout.vortex.frame, layout.vortex.radius, outletRadius, layout.vortex.verticalDrop, outletAlong, 1.85),
+    catchChannel: catchChannel(track.samples, layout.vortex.frame, outletAlong, outletRadius), layout,
   });
 };

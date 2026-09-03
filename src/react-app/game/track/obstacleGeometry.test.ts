@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildObstacleGeometry } from "./obstacleGeometry";
 import { MIN_DEVICE_CLEARANCE } from "./obstacleLayout";
 import { buildValidatedTrack } from "./trackBuild";
+import { projectToTrack } from "./trackSampler";
 
 type Geometry = Readonly<{ positions: Float32Array; indices: Uint32Array }>;
 const point = (g: Geometry, i: number): readonly [number, number, number] => [g.positions[i * 3], g.positions[i * 3 + 1], g.positions[i * 3 + 2]];
@@ -19,7 +20,7 @@ const boundaryLoops = (g: Geometry): readonly (readonly number[])[] => {
   const adjacent = new Map<number, number[]>();
   for (const edge of edges.values()) if (edge.count === 1) { const [a, b] = edge.pair; adjacent.set(a, [...(adjacent.get(a) ?? []), b]); adjacent.set(b, [...(adjacent.get(b) ?? []), a]); }
   const seen = new Set<number>(); const loops: number[][] = [];
-  for (const start of adjacent.keys()) if (!seen.has(start)) { const loop: number[] = []; let current = start; let prior = -1; while (!seen.has(current)) { seen.add(current); loop.push(current); const next = adjacent.get(current)!.find((v) => v !== prior); if (next === undefined) break; prior = current; current = next; } loops.push(loop); }
+  for (const start of adjacent.keys()) if (!seen.has(start)) { const loop: number[] = []; const pending = [start]; seen.add(start); while (pending.length > 0) { const current = pending.pop()!; loop.push(current); for (const next of adjacent.get(current)!) if (!seen.has(next)) { seen.add(next); pending.push(next); } } loops.push(loop); }
   return loops;
 };
 const twiceArea = (g: Geometry, i: number): number => {
@@ -45,16 +46,27 @@ describe("neon obstacle geometry", () => {
       const geometry = (positions: Float32Array): Geometry => ({ positions, indices: new Uint32Array() }); const left = point(geometry(paths[0]), i); const middle = point(geometry(paths[1]), i); const right = point(geometry(paths[2]), i);
       expect(distance(left, middle) - r.branchRails.radius * 2).toBeGreaterThanOrEqual(MIN_DEVICE_CLEARANCE); expect(distance(middle, right) - r.branchRails.radius * 2).toBeGreaterThanOrEqual(MIN_DEVICE_CLEARANCE);
     }
-    const centralLateral = Array.from({ length: paths[1].length / 3 }, (_, i) => { const p = point({ positions: paths[1], indices: new Uint32Array() }, i); return dot([p[0] - resolved.branch.start.position.x, p[1] - resolved.branch.start.position.y, p[2] - resolved.branch.start.position.z], resolved.branch.start.side); });
+    const centralLateral = Array.from({ length: paths[1].length / 3 }, (_, i) => { const p = point({ positions: paths[1], indices: new Uint32Array() }, i); const sample = track.samples[projectToTrack({ x: p[0], y: p[1], z: p[2] }, track.samples).sampleIndex]; return dot([p[0] - sample.position.x, p[1] - sample.position.y, p[2] - sample.position.z], sample.side); });
     expect(Math.min(...centralLateral)).toBeLessThan(-0.2); expect(Math.max(...centralLateral)).toBeGreaterThan(0.2);
   });
+  it("attaches both generated branch floors to canonical branch samples without vertical drift", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved);
+    expect(r.branchFloors).toHaveLength(2);
+    for (const floor of r.branchFloors) for (let i = 0; i < floor.positions.length / 3; i += 1) {
+      const current = point(floor, i); const sampleIndex = projectToTrack({ x: current[0], y: current[1], z: current[2] }, track.samples).sampleIndex; const sample = track.samples[sampleIndex];
+      expect(Math.abs(dot([current[0] - sample.position.x, current[1] - sample.position.y, current[2] - sample.position.z], sample.up))).toBeLessThan(0.08);
+    }
+  });
   it("derives the only vortex entry and outlet loops from topology and measures outlet/drop from vertices", () => {
-    const r = buildObstacleGeometry(track.geometry, resolved); const loops = [...boundaryLoops(r.vortex)].sort((a, b) => a.length - b.length); expect(loops).toHaveLength(2);
-    const outletCenter = centroid(r.vortex, loops[0]); const entryCenter = centroid(r.vortex, loops[1]); const outlet = loops[0].map((i) => point(r.vortex, i));
+    const r = buildObstacleGeometry(track.geometry, resolved); const loops = [...boundaryLoops(r.vortex)]; expect(loops).toHaveLength(2);
+    const outletAnchor = { x: resolved.vortex.frame.position.x + resolved.vortex.frame.tangent.x * 0.28 - resolved.vortex.frame.up.x * 1.36, y: resolved.vortex.frame.position.y + resolved.vortex.frame.tangent.y * 0.28 - resolved.vortex.frame.up.y * 1.36, z: resolved.vortex.frame.position.z + resolved.vortex.frame.tangent.z * 0.28 - resolved.vortex.frame.up.z * 1.36 };
+    const outletLoop = loops.reduce((nearest, loop) => loop.reduce((sum, i) => { const p = point(r.vortex, i); return sum + Math.hypot(p[0] - outletAnchor.x, p[1] - outletAnchor.y, p[2] - outletAnchor.z); }, 0) < nearest.reduce((sum, i) => { const p = point(r.vortex, i); return sum + Math.hypot(p[0] - outletAnchor.x, p[1] - outletAnchor.y, p[2] - outletAnchor.z); }, 0) ? loop : nearest);
+    const outletCenter = centroid(r.vortex, outletLoop); const outlet = outletLoop.map((i) => point(r.vortex, i));
     expect(outlet.reduce((sum, p) => sum + distance(p, outletCenter), 0) / outlet.length * 2).toBeCloseTo(1.36, 2);
+    const rim = Array.from({ length: r.vortex.positions.length / 3 }, (_, i) => point(r.vortex, i)).filter((p) => Math.abs(Math.hypot(p[0] - resolved.vortex.frame.position.x, p[1] - resolved.vortex.frame.position.y, p[2] - resolved.vortex.frame.position.z) - resolved.vortex.radius) < 0.05 && Math.abs(dot([p[0] - resolved.vortex.frame.position.x, p[1] - resolved.vortex.frame.position.y, p[2] - resolved.vortex.frame.position.z], resolved.vortex.frame.up)) < 0.05);
+    const entryCenter = [rim.reduce((sum, p) => sum + p[0], 0) / rim.length, rim.reduce((sum, p) => sum + p[1], 0) / rim.length, rim.reduce((sum, p) => sum + p[2], 0) / rim.length] as const;
     expect(dot([entryCenter[0] - outletCenter[0], entryCenter[1] - outletCenter[1], entryCenter[2] - outletCenter[2]], resolved.vortex.frame.up)).toBeCloseTo(1.36, 2);
-    const d = [outletCenter[0] - entryCenter[0], outletCenter[1] - entryCenter[1], outletCenter[2] - entryCenter[2]]; const v = dot(d, resolved.vortex.frame.up);
-    expect(Math.sqrt(Math.max(0, distance(outletCenter, entryCenter) ** 2 - v ** 2))).toBeGreaterThan(0.1);
+    const d = [outletCenter[0] - entryCenter[0], outletCenter[1] - entryCenter[1], outletCenter[2] - entryCenter[2]]; const v = dot(d, resolved.vortex.frame.up); expect(Math.sqrt(Math.max(0, distance(outletCenter, entryCenter) ** 2 - v ** 2))).toBeGreaterThan(0.1);
   });
   it("builds high containment walls, an open start throat, and a catch collar that overlaps the outlet", () => {
     const r = buildObstacleGeometry(track.geometry, resolved); const heights = Array.from({ length: r.startBowl.positions.length / 3 }, (_, i) => dot(point(r.startBowl, i), resolved.start.frame.up));
@@ -62,8 +74,22 @@ describe("neon obstacle geometry", () => {
     const outlet = boundaryLoops(r.vortex)[0].map((i) => point(r.vortex, i)); const catchPoints = Array.from({ length: r.catchChannel.positions.length / 3 }, (_, i) => point(r.catchChannel, i));
     expect(Math.min(...outlet.flatMap((a) => catchPoints.map((b) => distance(a, b))))).toBeLessThan(0.35);
   });
+  it("cuts localized wall apertures and derives only the intended bowl openings from welded topology", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); const startLoops = boundaryLoops(r.startBowl); const vortexLoops = boundaryLoops(r.vortex);
+    expect(startLoops).toHaveLength(2); expect(vortexLoops).toHaveLength(2);
+    expect(Math.min(...startLoops.map((loop) => loop.length))).toBeLessThan(24); expect(Math.min(...vortexLoops.map((loop) => loop.length))).toBeLessThan(24);
+    const throatPoints = Array.from({ length: r.startThroat.positions.length / 3 }, (_, i) => point(r.startThroat, i)); const startAperture = startLoops.flatMap((loop) => loop.map((i) => point(r.startBowl, i)));
+    expect(Math.min(...throatPoints.flatMap((a) => startAperture.map((b) => distance(a, b))))).toBeLessThan(0.5);
+  });
+  it("forms a route-oriented, enclosed catch half-tunnel with a rounded multi-ring bowl and outlet lip", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); const up = resolved.vortex.frame.up;
+    const bowlHeights = new Set(Array.from({ length: r.vortex.positions.length / 3 }, (_, i) => dot(point(r.vortex, i), up).toFixed(3))); expect(bowlHeights.size).toBeGreaterThan(4);
+    const catchPoints = Array.from({ length: r.catchChannel.positions.length / 3 }, (_, i) => point(r.catchChannel, i)); const side = resolved.vortex.frame.side;
+    expect(Math.max(...catchPoints.map((p) => dot(p, side))) - Math.min(...catchPoints.map((p) => dot(p, side)))).toBeGreaterThan(1.2);
+    expect(Math.max(...catchPoints.map((p) => dot(p, up))) - Math.min(...catchPoints.map((p) => dot(p, up)))).toBeGreaterThan(0.6);
+  });
   it("has finite non-degenerate indexed triangles in every generated static buffer", () => {
     const r = buildObstacleGeometry(track.geometry, resolved);
-    for (const g of [r.shell, r.startBowl, r.startThroat, r.pegHallSurface, r.pusherHallSurface, r.branchRails, r.vortex, r.catchChannel]) { expect(Array.from(g.positions).every(Number.isFinite)).toBe(true); for (let i = 0; i < g.indices.length; i += 3) expect(twiceArea(g, i)).toBeGreaterThan(1e-6); }
+    for (const g of [r.shell, r.startBowl, r.startThroat, r.pegHallSurface, r.pusherHallSurface, ...r.branchFloors, r.branchRails, r.vortex, r.catchChannel]) { expect(Array.from(g.positions).every(Number.isFinite)).toBe(true); for (let i = 0; i < g.indices.length; i += 3) expect(twiceArea(g, i)).toBeGreaterThan(1e-6); }
   });
 });
