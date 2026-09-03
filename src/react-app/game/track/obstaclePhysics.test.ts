@@ -102,6 +102,33 @@ describe("obstacle physics", () => {
     expect(controller.pose().agitator.rotation).toEqual(shuffleEnd);
   });
 
+  it("binds factory, fixed-step, and render device transforms to one authoritative pose", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld(); const physics = createObstaclePhysics(world, geometry);
+    const initial = physics.controller.initialPose(); const group = createObstacleRenderGroup(geometry, initial);
+    const bindings = [["start-agitator", physics.agitator, initial.agitator], ["release-gate", physics.gate, initial.gate], ["pusher-left-mesh", physics.pushers[0], initial.pusherTransforms.left], ["pusher-right-mesh", physics.pushers[1], initial.pusherTransforms.right]] as const;
+    const assertTransform = (object: { position: { x: number; y: number; z: number }; quaternion: { x: number; y: number; z: number; w: number } }, transform: { translation: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number; w: number } }) => {
+      expect(vectorDistance(object.position, transform.translation)).toBeLessThan(0.000_002);
+      for (const component of ["x", "y", "z", "w"] as const) expect(object.quaternion[component]).toBeCloseTo(transform.rotation[component], 6);
+    };
+    for (const [name, body, transform] of bindings) { assertTransform(group.getObjectByName(name)!, transform); assertTransform({ position: body.translation(), quaternion: body.rotation() }, transform); }
+
+    const pose = physics.stepFixed(); world.step(); setDeviceRenderPose(group, pose);
+    const updated = [["start-agitator", physics.agitator, pose.agitator], ["release-gate", physics.gate, pose.gate], ["pusher-left-mesh", physics.pushers[0], pose.pusherTransforms.left], ["pusher-right-mesh", physics.pushers[1], pose.pusherTransforms.right]] as const;
+    for (const [name, body, transform] of updated) { assertTransform({ position: body.translation(), quaternion: body.rotation() }, transform); assertTransform(group.getObjectByName(name)!, transform); }
+
+    const renderArms = group.getObjectByName("start-agitator")!.children;
+    for (let index = 0; index < 3; index += 1) {
+      const arm = renderArms[index]; const collider = physics.agitator.collider(index);
+      const radial = { x: Math.cos(index / 3 * Math.PI * 2) * 2.35, y: 0, z: Math.sin(index / 3 * Math.PI * 2) * 2.35 };
+      expect(vectorDistance(arm.position, radial)).toBeLessThan(0.000_001);
+      expect(arm.rotation.y).toBeCloseTo(-index / 3 * Math.PI * 2, 6);
+      const colliderCenter = collider.translation(); const bodyCenter = physics.agitator.translation(); const worldRadial = rotate(physics.agitator.rotation(), radial);
+      expect(vectorDistance(colliderCenter, { x: bodyCenter.x + worldRadial.x, y: bodyCenter.y + worldRadial.y, z: bodyCenter.z + worldRadial.z })).toBeLessThan(0.000_002);
+    }
+    physics.dispose(); world.free();
+  });
+
   it("creates static obstacle colliders and writes each kinematic pose once per fixed step", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
