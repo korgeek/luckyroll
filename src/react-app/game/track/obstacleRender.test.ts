@@ -2,30 +2,31 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { buildObstacleGeometry } from "./obstacleGeometry";
 import { createObstacleRenderGroup, disposeObstacleRenderGroup, setDeviceRenderPose } from "./obstacleRender";
-import { resolvePusherPose } from "./obstacleLayout";
+import { createDeviceController } from "./obstaclePhysics";
 import { buildValidatedTrack } from "./trackBuild";
 
 describe("neon obstacle renderer", () => {
   const track = buildValidatedTrack({ features: true }); const resources = buildObstacleGeometry(track.geometry, track.obstacleLayout);
+  const initial = createDeviceController(resources.layout).initialPose();
   it("renders obstacle roots, frame-aligned lifted pegs, and emissive mesh rim accents", () => {
-    const group = createObstacleRenderGroup(resources); for (const name of ["start-bowl", "start-outlet-throat", "peg-shuffler", "alternating-pushers", "pusher-left-mesh", "pusher-right-mesh", "branch-rails", "vortex-bowl", "vortex-catch-channel", "neon-rim-accents"]) expect(group.getObjectByName(name)).toBeDefined();
+    const group = createObstacleRenderGroup(resources, initial); for (const name of ["start-bowl", "start-outlet-throat", "peg-shuffler", "alternating-pushers", "pusher-left-mesh", "pusher-right-mesh", "start-agitator", "release-gate", "branch-rails", "vortex-bowl", "vortex-catch-channel", "neon-rim-accents"]) expect(group.getObjectByName(name)).toBeDefined();
     const pegs = group.getObjectByName("peg-shuffler") as THREE.InstancedMesh; const matrix = new THREE.Matrix4(); pegs.getMatrixAt(0, matrix);
     const up = new THREE.Vector3(resources.layout.pegHall.frame.up.x, resources.layout.pegHall.frame.up.y, resources.layout.pegHall.frame.up.z); const lifted = new THREE.Vector3().setFromMatrixPosition(matrix).sub(new THREE.Vector3(resources.pegs[0].center.x, resources.pegs[0].center.y, resources.pegs[0].center.z));
     expect(lifted.dot(up)).toBeCloseTo(0.575, 5); expect(new THREE.Vector3(0, 1, 0).transformDirection(matrix).dot(up)).toBeCloseTo(1, 5);
     group.getObjectByName("neon-rim-accents")!.traverse((object) => { if (object instanceof THREE.Mesh) expect(object.material).toBeInstanceOf(THREE.MeshStandardMaterial); });
   });
   it("initializes and updates cached pusher meshes from the full frame-oriented pose", () => {
-    const group = createObstacleRenderGroup(resources); const initial = resolvePusherPose(resources.layout.pushers, 0); const left = group.getObjectByName("pusher-left-mesh") as THREE.Mesh; const right = group.getObjectByName("pusher-right-mesh") as THREE.Mesh;
-    expect(left.position.toArray()).toEqual([initial.left.center.x, initial.left.center.y, initial.left.center.z]); expect(right.position.toArray()).toEqual([initial.right.center.x, initial.right.center.y, initial.right.center.z]);
+    const group = createObstacleRenderGroup(resources, initial); const left = group.getObjectByName("pusher-left-mesh") as THREE.Mesh; const right = group.getObjectByName("pusher-right-mesh") as THREE.Mesh;
+    expect(left.position.toArray()).toEqual([initial.pushers.left.center.x, initial.pushers.left.center.y, initial.pushers.left.center.z]); expect(right.position.toArray()).toEqual([initial.pushers.right.center.x, initial.pushers.right.center.y, initial.pushers.right.center.z]);
     const side = new THREE.Vector3(resources.layout.pushers.frame.side.x, resources.layout.pushers.frame.side.y, resources.layout.pushers.frame.side.z); expect(Math.abs(new THREE.Vector3(0, 1, 0).applyQuaternion(left.quaternion).dot(side))).toBeCloseTo(1, 5);
-    const search = vi.spyOn(group, "getObjectByName"); const pose = resolvePusherPose(resources.layout.pushers, 0.25); setDeviceRenderPose(group, pose); expect(search).not.toHaveBeenCalled();
+    const search = vi.spyOn(group, "getObjectByName"); const controller = createDeviceController(resources.layout); const pose = controller.advanceMs(600); setDeviceRenderPose(group, pose); expect(search).not.toHaveBeenCalled();
   });
   it("gives each pusher its requested total axial span without stretching its rounded caps", () => {
-    const group = createObstacleRenderGroup(resources); const span = (root: THREE.Object3D): number => { root.updateWorldMatrix(true, true); const side = new THREE.Vector3(resources.layout.pushers.frame.side.x, resources.layout.pushers.frame.side.y, resources.layout.pushers.frame.side.z); const values: number[] = []; root.traverse((object) => { if (!(object instanceof THREE.Mesh)) return; const positions = object.geometry.getAttribute("position"); for (let i = 0; i < positions.count; i += 1) values.push(new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld).dot(side)); }); return Math.max(...values) - Math.min(...values); };
-    for (const phase of [0, 0.25, 0.5]) { const pose = resolvePusherPose(resources.layout.pushers, phase); setDeviceRenderPose(group, pose); expect(span(group.getObjectByName("pusher-left-mesh")!)).toBeCloseTo(pose.left.depth, 2); expect(span(group.getObjectByName("pusher-right-mesh")!)).toBeCloseTo(pose.right.depth, 2); }
+    const group = createObstacleRenderGroup(resources, initial); const span = (root: THREE.Object3D): number => { root.updateWorldMatrix(true, true); const side = new THREE.Vector3(resources.layout.pushers.frame.side.x, resources.layout.pushers.frame.side.y, resources.layout.pushers.frame.side.z); const values: number[] = []; root.traverse((object) => { if (!(object instanceof THREE.Mesh)) return; const positions = object.geometry.getAttribute("position"); for (let i = 0; i < positions.count; i += 1) values.push(new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld).dot(side)); }); return Math.max(...values) - Math.min(...values); };
+    for (const milliseconds of [0, 600, 1_200]) { const controller = createDeviceController(resources.layout); const pose = controller.advanceMs(milliseconds); setDeviceRenderPose(group, pose); expect(span(group.getObjectByName("pusher-left-mesh")!)).toBeCloseTo(pose.pushers.left.depth, 2); expect(span(group.getObjectByName("pusher-right-mesh")!)).toBeCloseTo(pose.pushers.right.depth, 2); }
   });
   it("uses shared standard materials and disposes each unique geometry and material once", () => {
-    const group = createObstacleRenderGroup(resources); const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>(); group.traverse((object) => { const mesh = object as THREE.Mesh; if (mesh.geometry instanceof THREE.BufferGeometry) geometries.add(mesh.geometry); if ("material" in mesh) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material); });
+    const group = createObstacleRenderGroup(resources, initial); const geometries = new Set<THREE.BufferGeometry>(); const materials = new Set<THREE.Material>(); group.traverse((object) => { const mesh = object as THREE.Mesh; if (mesh.geometry instanceof THREE.BufferGeometry) geometries.add(mesh.geometry); if ("material" in mesh) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material); });
     const gd = [...geometries].map((g) => vi.spyOn(g, "dispose")); const md = [...materials].map((m) => vi.spyOn(m, "dispose")); disposeObstacleRenderGroup(group); gd.forEach((d) => expect(d).toHaveBeenCalledTimes(1)); md.forEach((d) => expect(d).toHaveBeenCalledTimes(1));
   });
 });

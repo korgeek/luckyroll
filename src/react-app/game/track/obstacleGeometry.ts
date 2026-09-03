@@ -1,4 +1,4 @@
-import type { ResolvedFrame, ResolvedPeg, ValidResolvedObstacleLayout, TrackGeometry, Vec3 } from "./trackTypes";
+import type { ResolvedFrame, ResolvedPeg, ResolvedStart, ValidResolvedObstacleLayout, TrackGeometry, Vec3 } from "./trackTypes";
 
 export type IndexedGeometry = Readonly<{ positions: Float32Array; normals: Float32Array; indices: Uint32Array }>;
 type BranchGeometry = IndexedGeometry & Readonly<{ centerlines: readonly Float32Array[]; radius: number }>;
@@ -19,9 +19,34 @@ export type ObstacleGeometryResources = Readonly<{
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
 const sub = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const scale = (v: Vec3, n: number): Vec3 => ({ x: v.x * n, y: v.y * n, z: v.z * n });
+const cross = (a: Vec3, b: Vec3): Vec3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
 const normalize = (v: Vec3): Vec3 => { const n = Math.hypot(v.x, v.y, v.z); return n === 0 ? { x: 0, y: 1, z: 0 } : scale(v, 1 / n); };
 const inFrame = (f: ResolvedFrame, along: number, side: number, up = 0): Vec3 => add(f.position, add(scale(f.tangent, along), add(scale(f.side, side), scale(f.up, up))));
 const write = (target: number[], p: Vec3): void => { target.push(p.x, p.y, p.z); };
+
+export type BowlSurfaceSample = Readonly<{ position: Vec3; normal: Vec3; centerAlong: number; height: number }>;
+type BowlProfilePoint = Readonly<{ radius: number; height: number; centerAlong: number }>;
+const bowlProfile = (outerRadius: number, innerRadius: number, drop: number, innerAlong: number): readonly BowlProfilePoint[] => Object.freeze([
+  Object.freeze({ radius: innerRadius, height: -drop, centerAlong: innerAlong }),
+  Object.freeze({ radius: innerRadius + 0.16, height: -drop + 0.12, centerAlong: innerAlong * 2 / 3 }),
+  Object.freeze({ radius: (innerRadius + outerRadius) / 2, height: -drop * 0.28, centerAlong: innerAlong / 3 }),
+  Object.freeze({ radius: outerRadius, height: 0, centerAlong: 0 }),
+]);
+const sampleProfile = (profile: readonly BowlProfilePoint[], radius: number): Readonly<{ height: number; centerAlong: number; heightSlope: number; centerSlope: number }> => {
+  const limited = Math.max(profile[0].radius, Math.min(profile[profile.length - 1].radius, radius));
+  const upperIndex = Math.min(profile.length - 1, Math.max(1, profile.findIndex((point) => limited <= point.radius)));
+  const lower = profile[upperIndex - 1]; const upper = profile[upperIndex]; const fraction = (limited - lower.radius) / (upper.radius - lower.radius);
+  return Object.freeze({ height: lower.height + (upper.height - lower.height) * fraction, centerAlong: lower.centerAlong + (upper.centerAlong - lower.centerAlong) * fraction, heightSlope: (upper.height - lower.height) / (upper.radius - lower.radius), centerSlope: (upper.centerAlong - lower.centerAlong) / (upper.radius - lower.radius) });
+};
+const sampleWalledBowlSurface = (frame: ResolvedFrame, outerRadius: number, innerRadius: number, drop: number, innerAlong: number, radius: number, angle: number): BowlSurfaceSample => {
+  const profile = sampleProfile(bowlProfile(outerRadius, innerRadius, drop, innerAlong), radius);
+  const radialDerivative = add(scale(frame.tangent, profile.centerSlope + Math.cos(angle)), add(scale(frame.side, Math.sin(angle)), scale(frame.up, profile.heightSlope)));
+  const angleDerivative = add(scale(frame.tangent, -Math.sin(angle) * radius), scale(frame.side, Math.cos(angle) * radius));
+  let normal = normalize(cross(angleDerivative, radialDerivative)); if (normal.x * frame.up.x + normal.y * frame.up.y + normal.z * frame.up.z < 0) normal = scale(normal, -1);
+  return Object.freeze({ position: inFrame(frame, profile.centerAlong + Math.cos(angle) * radius, Math.sin(angle) * radius, profile.height), normal, centerAlong: profile.centerAlong, height: profile.height });
+};
+export const sampleStartBowlSurface = (start: ResolvedStart, radius: number, angle: number): BowlSurfaceSample =>
+  sampleWalledBowlSurface(start.frame, start.radius, 1.55, 0.72, 6.05, radius, angle);
 
 const normalsFor = (positions: Float32Array, indices: Uint32Array): Float32Array => {
   const normals = new Float32Array(positions.length);
@@ -62,10 +87,8 @@ const wideHall = (frame: ResolvedFrame, width: number, length: number): IndexedG
 
 const walledBowl = (frame: ResolvedFrame, outerRadius: number, innerRadius: number, drop: number, innerAlong: number, wallHeight: number, entryAngle = 0, segments = 32): IndexedGeometry => {
   const positions: number[] = []; const indices: number[] = []; const radial = [innerRadius, innerRadius + 0.16, (innerRadius + outerRadius) / 2, outerRadius];
-  const heights = [-drop, -drop + 0.12, -drop * 0.28, 0];
-  radial.forEach((radius, ring) => {
-    const taper = 1 - ring / (radial.length - 1);
-    for (let i = 0; i < segments; i += 1) { const angle = i / segments * Math.PI * 2; write(positions, inFrame(frame, innerAlong * taper + Math.cos(angle) * radius, Math.sin(angle) * radius, heights[ring])); }
+  radial.forEach((radius) => {
+    for (let i = 0; i < segments; i += 1) { const angle = i / segments * Math.PI * 2; write(positions, sampleWalledBowlSurface(frame, outerRadius, innerRadius, drop, innerAlong, radius, angle).position); }
   });
   for (let ring = 0; ring < radial.length - 1; ring += 1) for (let i = 0; i < segments; i += 1) { const next = (i + 1) % segments; const a = ring * segments + i; const b = ring * segments + next; const c = a + segments; const d = b + segments; indices.push(a, b, c, b, d, c); }
   const floorOuter = (radial.length - 1) * segments; const innerTop = floorOuter + segments; const outerTop = innerTop + segments; const outerBottom = outerTop + segments;

@@ -1,6 +1,6 @@
 import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import { MARBLE_DIAMETER, MARBLE_RADIUS } from "./obstacleLayout";
-import type { ObstacleGeometryResources } from "./obstacleGeometry";
+import { sampleStartBowlSurface, type ObstacleGeometryResources } from "./obstacleGeometry";
 import { resolvePusherPose } from "./obstacleLayout";
 import { getInitializedTrackPhysicsRapier } from "./trackPhysics";
 import type { PhysicalLaunchPosition, ResolvedFrame, ResolvedStart, ValidResolvedObstacleLayout, Vec3 } from "./trackTypes";
@@ -8,8 +8,8 @@ import type { PhysicalLaunchPosition, ResolvedFrame, ResolvedStart, ValidResolve
 const FIXED_TIMESTEP_SECONDS = 1 / 60;
 const SURFACE_CLEARANCE = MARBLE_RADIUS + 0.01;
 const MAX_BOWL_MARBLES = 100;
-const BOWL_RING_INCREMENT = 0.8;
-const BOWL_MIN_RING_RADIUS = 2.1;
+const BOWL_RING_INCREMENT = 1.8;
+const BOWL_MIN_RING_RADIUS = 2.3;
 const BOWL_SLOT_SPACING = MARBLE_DIAMETER + 0.14;
 const PUSHER_CYCLE_MS = 2_400;
 const FRICTION = 0.24;
@@ -40,13 +40,16 @@ export type DeviceController = Readonly<{
   reset: (options?: Readonly<{ gateOpen?: boolean }>) => DevicePose;
   raceClockStarted: () => boolean;
 }>;
+export type BowlLaunchPosition = PhysicalLaunchPosition & Readonly<{ bowlRadius: number; bowlAngle: number }>;
 
 export type ObstaclePhysicsResources = Readonly<{
   fixedColliders: readonly RapierCollider[];
   pegColliders: readonly RapierCollider[];
+  pegBodies: readonly RapierBody[];
   agitator: RapierBody;
   gate: RapierBody;
   pushers: readonly [RapierBody, RapierBody];
+  pusherColliders: readonly [RapierCollider, RapierCollider];
   controller: DeviceController;
   stepFixed: (seconds?: number) => DevicePose;
   reset: (options?: Readonly<{ gateOpen?: boolean }>) => DevicePose;
@@ -132,11 +135,6 @@ const rotationFromFrame = (frame: ResolvedFrame): DeviceQuaternion => {
   return normalizeQuaternion({ w: (m10 - m01) / factor, x: (m02 + m20) / factor, y: (m12 + m21) / factor, z: 0.25 * factor });
 };
 
-const bowlSurface = (start: ResolvedStart, radius: number): Readonly<{ height: number; slope: number }> => {
-  const normalized = Math.max(0, Math.min(1, radius / start.radius));
-  return Object.freeze({ height: -0.72 * (1 - normalized), slope: 0.72 / start.radius });
-};
-
 const deterministicAngle = (seed: number, ring: number): number => {
   let value = (seed >>> 0) ^ Math.imul(ring + 1, 0x9e3779b1);
   value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
@@ -148,12 +146,12 @@ export const createBowlLaunchPositions = (
   count: number,
   start: ResolvedStart,
   seed: number,
-): readonly PhysicalLaunchPosition[] => {
+): readonly BowlLaunchPosition[] => {
   if (!Number.isInteger(count) || count <= 0) throw new BowlLaunchError("invalid-count", "Bowl launch count must be a positive integer.");
   if (!Number.isFinite(seed)) throw new BowlLaunchError("invalid-seed", "Bowl launch seed must be finite.");
   if (count > MAX_BOWL_MARBLES) throw new BowlLaunchError("capacity", `Bowl launch capacity is ${MAX_BOWL_MARBLES} marbles.`);
 
-  const positions: PhysicalLaunchPosition[] = [];
+  const positions: BowlLaunchPosition[] = [];
   for (let ring = 0; positions.length < count; ring += 1) {
     const radius = BOWL_MIN_RING_RADIUS + ring * BOWL_RING_INCREMENT;
     if (radius > start.radius - MARBLE_RADIUS - 0.2) throw new BowlLaunchError("capacity", `Bowl cannot place ${count} marbles with safe wall clearance.`);
@@ -161,10 +159,8 @@ export const createBowlLaunchPositions = (
     const angleOffset = deterministicAngle(seed, ring);
     for (let slot = 0; slot < slots && positions.length < count; slot += 1) {
       const angle = angleOffset + slot / slots * Math.PI * 2;
-      const surface = bowlSurface(start, radius);
-      const radial = add(scale(start.frame.tangent, Math.cos(angle)), scale(start.frame.side, Math.sin(angle)));
-      const normal = normalize(add(start.frame.up, scale(radial, -surface.slope)));
-      const point = add(inFrame(start.frame, Math.cos(angle) * radius, Math.sin(angle) * radius, surface.height), scale(normal, SURFACE_CLEARANCE));
+      const surface = sampleStartBowlSurface(start, radius, angle);
+      const point = add(surface.position, scale(surface.normal, SURFACE_CLEARANCE));
       positions.push(Object.freeze({
         x: point.x,
         y: point.y,
@@ -172,6 +168,8 @@ export const createBowlLaunchPositions = (
         crossOffset: Math.sin(angle) * radius,
         row: ring,
         column: slot,
+        bowlRadius: radius,
+        bowlAngle: angle,
         physicalLaunchPosition: true,
       }));
     }
@@ -184,10 +182,10 @@ const poseAt = (layout: ValidResolvedObstacleLayout, elapsedMs: number, forceGat
   const localPhase = (elapsedMs % PUSHER_CYCLE_MS) / PUSHER_CYCLE_MS;
   const pushers = resolvePusherPose(layout.pushers, localPhase);
   const startRotation = rotationFromFrame(layout.start.frame);
-  const pusherRotation = rotationAround(layout.pushers.frame.side, Math.PI / 2);
+  const pusherRotation = rotationFromUp(layout.pushers.frame.side);
   const agitator = freezeTransform(
     inFrame(layout.start.frame, 0, 0, -0.14),
-    multiplyQuaternion(startRotation, rotationAround({ x: 0, y: 1, z: 0 }, elapsedMs / layout.start.shuffleMs * Math.PI * 6)),
+    multiplyQuaternion(startRotation, rotationAround({ x: 0, y: 1, z: 0 }, Math.min(elapsedMs, layout.start.shuffleMs) / layout.start.shuffleMs * Math.PI * 6)),
   );
   const gate = freezeTransform(
     inFrame(layout.start.frame, 6.8, 0, gateOpen ? 3.4 : 0.65),
@@ -237,8 +235,9 @@ export const createDeviceController = (layout: ValidResolvedObstacleLayout): Dev
 const colliderSettings = <T extends { setFriction: (value: number) => T; setRestitution: (value: number) => T }>(descriptor: T): T =>
   descriptor.setFriction(FRICTION).setRestitution(RESTITUTION);
 
-const createFixedTrimesh = (world: RapierWorld, module: RapierModule, geometry: ObstacleGeometryResources["startBowl"]): Readonly<{ body: RapierBody; collider: RapierCollider }> => {
+const createFixedTrimesh = (world: RapierWorld, module: RapierModule, ownedBodies: RapierBody[], geometry: ObstacleGeometryResources["startBowl"]): Readonly<{ body: RapierBody; collider: RapierCollider }> => {
   const body = world.createRigidBody(module.RigidBodyDesc.fixed());
+  ownedBodies.push(body);
   const collider = world.createCollider(colliderSettings(module.ColliderDesc.trimesh(geometry.positions, geometry.indices)), body);
   return Object.freeze({ body, collider });
 };
@@ -255,25 +254,33 @@ const writeKinematicPose = (body: RapierBody, transform: DeviceTransform): void 
 
 export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeometryResources): ObstaclePhysicsResources => {
   const module = getInitializedTrackPhysicsRapier();
+  const ownedBodies: RapierBody[] = [];
+  try {
   const fixed: ReadonlyArray<Readonly<{ body: RapierBody; collider: RapierCollider }>> = [
     resources.startBowl, resources.startThroat, resources.pegHallSurface, resources.pusherHallSurface,
     ...resources.branchFloors, resources.branchRails, resources.vortex, resources.catchChannel,
-  ].map((geometry) => createFixedTrimesh(world, module, geometry));
+  ].map((geometry) => createFixedTrimesh(world, module, ownedBodies, geometry));
   const pegBodies: RapierBody[] = [];
   const pegColliders: RapierCollider[] = [];
   const pegRotation = rotationFromUp(resources.layout.pegHall.frame.up);
   for (const peg of resources.pegs) {
-    const body = world.createRigidBody(module.RigidBodyDesc.fixed().setTranslation(peg.center.x, peg.center.y, peg.center.z).setRotation(pegRotation));
-    const collider = world.createCollider(colliderSettings(module.ColliderDesc.cylinder(0.575, peg.radius)), body);
+    const center = add(peg.center, scale(resources.layout.pegHall.frame.up, 0.575));
+    const body = world.createRigidBody(module.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z).setRotation(pegRotation));
+    ownedBodies.push(body);
+    const collider = world.createCollider(colliderSettings(module.ColliderDesc.roundCylinder(0.575, peg.radius, Math.min(0.12, peg.radius / 2))), body);
     pegBodies.push(body);
     pegColliders.push(collider);
   }
   const controller = createDeviceController(resources.layout);
   const initial = controller.initialPose();
   const agitator = world.createRigidBody(module.RigidBodyDesc.kinematicPositionBased());
+  ownedBodies.push(agitator);
   const gate = world.createRigidBody(module.RigidBodyDesc.kinematicPositionBased());
+  ownedBodies.push(gate);
   const leftPusher = world.createRigidBody(module.RigidBodyDesc.kinematicPositionBased());
+  ownedBodies.push(leftPusher);
   const rightPusher = world.createRigidBody(module.RigidBodyDesc.kinematicPositionBased());
+  ownedBodies.push(rightPusher);
   setBodyPose(agitator, initial.agitator);
   setBodyPose(gate, initial.gate);
   setBodyPose(leftPusher, initial.pusherTransforms.left);
@@ -286,10 +293,11 @@ export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeo
     world.createCollider(descriptor, agitator);
   }
   world.createCollider(colliderSettings(module.ColliderDesc.cuboid(0.18, 0.62, 4.1)), gate);
-  world.createCollider(colliderSettings(module.ColliderDesc.capsule(0.8, resources.layout.pushers.radius)), leftPusher);
-  world.createCollider(colliderSettings(module.ColliderDesc.capsule(0.8, resources.layout.pushers.radius)), rightPusher);
+  const pusherColliders: readonly [RapierCollider, RapierCollider] = [
+    world.createCollider(colliderSettings(module.ColliderDesc.capsule(Math.max(0, (initial.pushers.left.depth - resources.layout.pushers.radius * 2) / 2), resources.layout.pushers.radius)), leftPusher),
+    world.createCollider(colliderSettings(module.ColliderDesc.capsule(Math.max(0, (initial.pushers.right.depth - resources.layout.pushers.radius * 2) / 2), resources.layout.pushers.radius)), rightPusher),
+  ];
 
-  const kinematicBodies: readonly [RapierBody, RapierBody, RapierBody, RapierBody] = [agitator, gate, leftPusher, rightPusher];
   let disposed = false;
   const ensureLive = (): void => { if (disposed) throw new Error("Obstacle physics resources have been disposed."); };
   const apply = (pose: DevicePose, next: boolean): DevicePose => {
@@ -298,14 +306,18 @@ export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeo
     setter(gate, pose.gate);
     setter(leftPusher, pose.pusherTransforms.left);
     setter(rightPusher, pose.pusherTransforms.right);
+    pusherColliders[0].setHalfHeight(Math.max(0, (pose.pushers.left.depth - resources.layout.pushers.radius * 2) / 2));
+    pusherColliders[1].setHalfHeight(Math.max(0, (pose.pushers.right.depth - resources.layout.pushers.radius * 2) / 2));
     return pose;
   };
   return Object.freeze({
     fixedColliders: Object.freeze(fixed.map(({ collider }) => collider)),
     pegColliders: Object.freeze(pegColliders),
+    pegBodies: Object.freeze(pegBodies),
     agitator,
     gate,
     pushers: Object.freeze([leftPusher, rightPusher]) as readonly [RapierBody, RapierBody],
+    pusherColliders,
     controller,
     stepFixed: (seconds = FIXED_TIMESTEP_SECONDS): DevicePose => {
       ensureLive();
@@ -319,9 +331,11 @@ export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeo
     dispose: (): void => {
       if (disposed) return;
       disposed = true;
-      for (const { body } of fixed) world.removeRigidBody(body);
-      for (const body of pegBodies) world.removeRigidBody(body);
-      for (const body of kinematicBodies) world.removeRigidBody(body);
+      for (const body of ownedBodies) world.removeRigidBody(body);
     },
   });
+  } catch (error) {
+    for (const body of ownedBodies.reverse()) if (body.isValid()) world.removeRigidBody(body);
+    throw error;
+  }
 };
