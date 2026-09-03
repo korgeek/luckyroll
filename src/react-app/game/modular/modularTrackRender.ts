@@ -34,7 +34,7 @@ const toGeometry = (resource: IndexedGeometry): THREE.BufferGeometry => {
 const toVector = (value: Vec3): THREE.Vector3 => new THREE.Vector3(value.x, value.y, value.z);
 const orient = (object: THREE.Object3D, axis: Vec3): void => { object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(axis).normalize()); };
 const frameQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
-  const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.up), toVector(frame.tangent));
+  const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.up), toVector(frame.tangent).negate());
   return new THREE.Quaternion().setFromRotationMatrix(basis);
 };
 const planeQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
@@ -70,15 +70,17 @@ const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THRE
 };
 
 const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMaterial: THREE.Material): void => {
+  if (devices.bumpers.length === 0) return;
   const shafts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), bumperMaterial, devices.bumpers.length);
   shafts.name = "bumper-shafts";
   const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), bumperMaterial, devices.bumpers.length * 2);
   caps.name = "bumper-caps";
   const transform = new THREE.Object3D();
   devices.bumpers.forEach((bar, index) => {
-    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(bar.thickness, bar.length, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
+    const coreLength = bar.length - bar.thickness;
+    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(bar.thickness, coreLength, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
     for (const [capIndex, sign] of [-1, 1].entries()) {
-      transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * bar.length / 2);
+      transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * coreLength / 2);
       transform.scale.setScalar(bar.thickness); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);
     }
   });
@@ -87,6 +89,7 @@ const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMateria
 };
 
 const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMaterial: THREE.Material, refs: ModularDeviceRefs): void => {
+  if (devices.pinwheels.length === 0) return;
   const armGeometry = new THREE.CapsuleGeometry(0.5 * 0.68 / 2, 0.28 * 12 - 0.5 * 0.68, 4, 8);
   devices.pinwheels.forEach((layout) => {
     const rotor = new THREE.Group(); rotor.name = `pinwheel-${layout.cellIndex}`; rotor.position.copy(toVector(layout.center)); orient(rotor, layout.axis);
@@ -101,14 +104,16 @@ const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMat
   });
 };
 
-const createBoosters = (_built: BuiltModularTrack, devices: ModuleDevices, group: THREE.Group, boosterMaterial: THREE.Material): void => {
+const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMaterial: THREE.Material): void => {
+  if (devices.boosters.length === 0) return;
   const chevrons = new THREE.Group(); chevrons.name = "booster-chevrons"; chevrons.userData.collider = false;
-  const geometry = new THREE.PlaneGeometry(1.8, 0.9);
+  const shape = new THREE.Shape(); shape.moveTo(-0.7, -0.45); shape.lineTo(0.7, 0); shape.lineTo(-0.7, 0.45); shape.closePath();
+  const geometry = new THREE.ShapeGeometry(shape);
   devices.boosters.forEach((booster) => {
     const midpointDistance = (booster.startDistance + booster.endDistance) / 2;
-    for (const [index, offset] of [-1.1, 0, 1.1].entries()) {
+    for (const [index, offset] of [-2, 0, 2].entries()) {
       const mesh = new THREE.Mesh(geometry, boosterMaterial);
-      const distance = booster.startDistance + index * (booster.endDistance - booster.startDistance) / 2;
+      const distance = booster.startDistance + (index + 1) * (booster.endDistance - booster.startDistance) / 4;
       mesh.position.copy(toVector(booster.center)).addScaledVector(toVector(booster.forward), distance - midpointDistance).addScaledVector(toVector(booster.up), 0.03).addScaledVector(toVector(booster.side), offset);
       mesh.quaternion.copy(planeQuaternion({ tangent: booster.forward, side: booster.side, up: booster.up }));
       chevrons.add(mesh);
@@ -119,11 +124,12 @@ const createBoosters = (_built: BuiltModularTrack, devices: ModuleDevices, group
 
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, accent: THREE.Material, refs: ModularDeviceRefs): void => {
   const bowl = new THREE.Mesh(toGeometry(buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight)), dark); bowl.name = "modular-start-bowl"; group.add(bowl);
-  const agitator = new THREE.Group(); agitator.name = "modular-start-agitator"; agitator.quaternion.copy(frameQuaternion(devices.start.agitator));
-  const armGeometry = new THREE.BoxGeometry(4.7, 0.24, 0.32);
-  for (let index = 0; index < 3; index += 1) { const arm = new THREE.Mesh(armGeometry, accent); arm.position.x = 2.35; arm.rotation.y = index * Math.PI * 2 / 3; agitator.add(arm); }
-  agitator.position.copy(toVector(devices.start.agitator.position)); group.add(agitator);
-  const gate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.24, 8.2), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.position)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
+  const agitatorBase = new THREE.Group(); agitatorBase.name = "modular-start-agitator"; agitatorBase.position.copy(toVector(devices.start.agitator.center)); agitatorBase.quaternion.copy(frameQuaternion(devices.start.agitator));
+  const agitator = new THREE.Group(); agitator.name = "modular-start-agitator-spin";
+  const armGeometry = new THREE.BoxGeometry(devices.start.agitator.width, devices.start.agitator.height, devices.start.agitator.depth);
+  for (let index = 0; index < 3; index += 1) { const arm = new THREE.Mesh(armGeometry, accent); arm.position.x = devices.start.agitator.width / 2; arm.rotation.y = index * Math.PI * 2 / 3; agitator.add(arm); }
+  agitatorBase.add(agitator); group.add(agitatorBase);
+  const gate = new THREE.Mesh(new THREE.BoxGeometry(devices.start.gate.width, devices.start.gate.height, devices.start.gate.depth), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.center)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
   refs.agitator = agitator; refs.gate = gate;
 };
 
@@ -140,13 +146,14 @@ const disposeGroup = (group: THREE.Group): void => {
 
 export const createModularTrackRender = (built: BuiltModularTrack, _options: ModularRenderOptions = {}): ModularRenderResources => {
   const group = new THREE.Group(); group.name = "modular-track";
-  const dark = material("#090b12"); const channel = material("#171b25"); const rim = material("#19d7e7", "#064b57"); const device = material("#e73da7", "#5f0a40"); const booster = material("#ffe25a", "#6d5900");
+  const dark = material("#090b12"); const channel = material("#171b25"); const rim = material("#19d7e7", "#064b57"); const device = material("#e73da7", "#5f0a40");
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#171b25"; group.add(surface);
   const shell = new THREE.Mesh(toGeometry(buildTrackShell(built.geometry)), dark); shell.name = "modular-channel-shell"; group.add(shell);
   group.add(createRims(built, rim));
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), agitator: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
-  createStart(devices, group, dark, device, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs); createBoosters(built, devices, group, booster);
+  createStart(devices, group, dark, device, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
+  if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
   group.userData[REFS] = refs;
   let disposed = false;
   const resources: ModularRenderResources = { group, devices, dispose: () => { if (disposed) return; disposed = true; disposeGroup(group); delete group.userData[REFS]; } };

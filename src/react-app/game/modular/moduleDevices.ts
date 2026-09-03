@@ -68,7 +68,10 @@ export type PinwheelLayout = Readonly<{
 }>;
 
 export type ModuleDevices = Readonly<{
-  start: ResolvedStart & Readonly<{ gate: ResolvedFrame; agitator: ResolvedFrame }>;
+  start: ResolvedStart & Readonly<{
+    gate: StartDeviceDescriptor;
+    agitator: StartDeviceDescriptor;
+  }>;
   boosters: readonly BoosterTrigger[];
   bumpers: readonly BumperBar[];
   pinwheels: readonly PinwheelLayout[];
@@ -87,6 +90,16 @@ export type ModularDevicePose = Readonly<{
   gateOpen: boolean;
   agitatorAngle: number;
   pinwheelAngles: readonly number[];
+}>;
+
+export type StartDeviceDescriptor = Readonly<{
+  center: Vec3;
+  tangent: Vec3;
+  side: Vec3;
+  up: Vec3;
+  width: number;
+  height: number;
+  depth: number;
 }>;
 
 export const resolveModulePreview = (_cell: Exclude<TrackCell, null>, travel?: Direction): ModulePreviewDescriptor => Object.freeze({
@@ -141,7 +154,16 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
   const first = samples[0];
   if (first === undefined) throw new Error("A modular device layout requires a sampled route.");
   const startFrame = frameFromSample(first);
-  const start = Object.freeze({ frame: startFrame, gate: startFrame, agitator: startFrame, radius: 8.5, shuffleMs: 700, wallHeight: 4 });
+  const gateFrame = Object.freeze({
+    center: add(add(startFrame.position, scale(startFrame.tangent, 6.05)), scale(startFrame.up, 1.24 / 2)),
+    tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
+    width: 8.2, height: 1.24, depth: 0.36,
+  });
+  const agitatorFrame = Object.freeze({
+    center: startFrame.position, tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
+    width: 4.7, height: 0.24, depth: 0.32,
+  });
+  const start = Object.freeze({ frame: startFrame, gate: gateFrame, agitator: agitatorFrame, radius: 8.5, shuffleMs: 700, wallHeight: 4 });
   const boosters: BoosterTrigger[] = [];
   const bumpers: BumperBar[] = [];
   const pinwheels: PinwheelLayout[] = [];

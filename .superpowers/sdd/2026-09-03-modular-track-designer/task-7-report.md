@@ -51,3 +51,22 @@ npx tsc -p tsconfig.app.json --noEmit
 ```
 
 Raw result: `Test Files 3 passed (3)`, `Tests 19 passed (19)`; TypeScript exited 0. The fix interpolates exact device frames, derives booster `[+8,+12]` from the first sampled row, uses descriptor-sized bumper instances/caps, rounded instanced pinwheel arms, descriptor-oriented start devices, flat in-band chevrons, and preserved rim lengths.
+
+## Fix round 2
+
+RED command:
+
+```text
+npm test -- --run src/react-app/game/modular/moduleDevices.test.ts src/react-app/game/modular/modularTrackRender.test.ts src/react-app/game/track/obstacleGeometry.test.ts
+```
+
+Raw result: the new render assertions failed on the prior plane chevron type and zero-device fixture; the implementation changes were then exercised by the corrected focused fixture.
+
+GREEN commands:
+
+```text
+npm test -- --run src/react-app/game/modular/moduleDevices.test.ts src/react-app/game/modular/modularTrackRender.test.ts src/react-app/game/track/obstacleGeometry.test.ts
+npx tsc -p tsconfig.app.json --noEmit
+```
+
+Raw result: `Test Files 3 passed (3)`, `Tests 20 passed (20)`; TypeScript exited 0. Bumper capsules now use total descriptor length, start gate/agitator descriptors carry oriented bases and dimensions, chevrons are shared flat triangle geometry at 25/50/75% of the trigger band, and zero-device paths allocate no detached device geometry.
