@@ -177,14 +177,17 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
 
 const turnBetween = (a: Vec3, b: Vec3): number => Math.acos(clamp(dot(normalize(a), normalize(b)), -1, 1));
 const chordError = (a: Vec3, b: Vec3, midpoint: Vec3): number => length(subtract(midpoint, lerp(a, b, 0.5)));
-const adaptiveParameters = (path: CellPath): readonly number[] => {
+const adaptiveParameters = (path: CellPath, kind: ModuleKind | "start" | "finish"): readonly number[] => {
   const output: number[] = [];
   const visit = (start: number, end: number, depth: number): void => {
     const first = path.pointAt(start);
     const last = path.pointAt(end);
     const middleU = (start + end) / 2;
     const middle = path.pointAt(middleU);
-    const needsSplit = depth < 14 && (chordError(first.position, last.position, middle.position) > MIN_CHORD_ERROR || turnBetween(first.derivative, last.derivative) > MAX_TURN);
+    const needsSplit = depth < 14 && (chordError(first.position, last.position, middle.position) > MIN_CHORD_ERROR
+      || turnBetween(first.derivative, last.derivative) > MAX_TURN
+      || turnBetween(first.derivative, middle.derivative) > MAX_TURN
+      || turnBetween(middle.derivative, last.derivative) > MAX_TURN);
     if (needsSplit) {
       visit(start, middleU, depth + 1);
       visit(middleU, end, depth + 1);
@@ -192,7 +195,8 @@ const adaptiveParameters = (path: CellPath): readonly number[] => {
       output.push(start, end);
     }
   };
-  for (const [start, end] of [[0, 0.1], [0.1, 0.9], [0.9, 1]] as const) visit(start, end, 0);
+  const seeds = kind === "funnel" ? [0, 0.1, 0.45, 0.5, 0.55, 0.9, 1] : [0, 0.1, 0.9, 1];
+  for (let index = 0; index < seeds.length - 1; index += 1) visit(seeds[index], seeds[index + 1], 0);
   return [...new Set(output)].sort((a, b) => a - b);
 };
 
@@ -219,10 +223,9 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
     const entry = step.entry ?? opposite(step.exit ?? "west");
     const exit = step.exit ?? opposite(step.entry ?? "east");
     const path = makeCellPath(cell.kind, entry, exit, step.cellIndex);
-    const parameters = adaptiveParameters(path);
+    const parameters = adaptiveParameters(path, cell.kind);
     const widthAt = (localU: number): number => cell.kind === "funnel" ? moduleWidthAt(cell.kind, localU) : CHANNEL_WIDTH;
     for (const localU of parameters) {
-      if (routeIndex > 0 && localU === 0) continue;
       const analytic = path.pointAt(localU);
       const tangent = toWorldDirection(analytic.derivative);
       const canonicalSide = normalize({ x: -analytic.derivative.z, y: 0, z: analytic.derivative.x });
@@ -236,6 +239,13 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
       const port = isPort
         ? createPort(step.cellIndex, localU === 0 ? entry : exit, widthAt(localU))
         : undefined;
+      if (routeIndex > 0 && localU === 0) {
+        const previous = result[result.length - 1];
+        if (previous === undefined || port === undefined) throw new Error("A modular seam is missing its reciprocal port.");
+        const previousPorts = previous.ports === undefined ? (previous.port === undefined ? [] : [previous.port]) : previous.ports;
+        result[result.length - 1] = freeze({ ...previous, ports: freeze([...previousPorts, port]) });
+        continue;
+      }
       result.push(freeze({
         index: result.length,
         distance,
@@ -250,7 +260,7 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
         cellIndex: step.cellIndex,
         localU,
         centerlineCurvature: freeze(boardToWorld(curvature(analytic))),
-        ...(port === undefined ? {} : { port }),
+        ...(port === undefined ? {} : { port, ports: freeze([port]) }),
       }));
     }
   }

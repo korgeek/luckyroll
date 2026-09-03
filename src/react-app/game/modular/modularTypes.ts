@@ -17,6 +17,7 @@ export type ModulePathSample = TrackSample & Readonly<{
   localU: number;
   centerlineCurvature: Vec3;
   port?: ModulePort;
+  ports?: readonly ModulePort[];
 }>;
 
 export type { Direction, ModuleKind, TrackSample, Vec3 };
