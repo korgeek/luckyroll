@@ -102,10 +102,20 @@ describe("race scene lifecycle boundary", () => {
     const scene = await startScene(); const now = performance.now(); seams.badBody = true; seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17); seams.frames.shift()?.(now + 34);
     expect(seams.emitted.filter((event) => event === "dnf")).toHaveLength(1); scene.dispose();
 
-    seams.failRun = true; const failedStart = await startScene(); expect(seams.emitted.filter((event) => event === "error")).toHaveLength(1); expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("renderer-dispose")); failedStart.dispose();
-    seams.failRun = false; seams.failWorld = true; const failedInit = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event.type); seams.order.push(`emit:${event.type}`); }, { kind: "custom", track: createValidTrackDesign("Init") }); await settle();
-    const errorIndexes = seams.order.flatMap((entry, index) => entry === "emit:error" ? [index] : []);
-    const rendererIndexes = seams.order.flatMap((entry, index) => entry === "renderer-dispose" ? [index] : []);
-    expect(seams.emitted.filter((event) => event === "error")).toHaveLength(2); expect(errorIndexes).toHaveLength(2); expect(errorIndexes[0]).toBeGreaterThan(rendererIndexes[0]); expect(errorIndexes[1]).toBeGreaterThan(rendererIndexes[1]); failedInit.dispose();
+    seams.order.length = 0; seams.emitted.length = 0; seams.failRun = true;
+    const failedStart = await startScene();
+    expect(seams.emitted).toEqual(["error"]);
+    const lastWorldFree = seams.order.reduce((last, entry, index) => entry.startsWith("world-free:") ? index : last, -1);
+    expect(lastWorldFree).toBeGreaterThan(-1); expect(seams.order.indexOf("emit:error")).toBeGreaterThan(lastWorldFree);
+    expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("course-dispose"));
+    expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("renderer-dispose"));
+    const startCleanup = [...seams.order]; failedStart.dispose(); expect(seams.order).toEqual(startCleanup);
+
+    seams.order.length = 0; seams.emitted.length = 0; seams.failRun = false; seams.failWorld = true;
+    const failedInit = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event.type); seams.order.push(`emit:${event.type}`); }, { kind: "custom", track: createValidTrackDesign("Init") }); await settle();
+    expect(seams.emitted).toEqual(["error"]);
+    expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("course-dispose"));
+    expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("renderer-dispose"));
+    const initCleanup = [...seams.order]; failedInit.dispose(); expect(seams.order).toEqual(initCleanup);
   });
 });
