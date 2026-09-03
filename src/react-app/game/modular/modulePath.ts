@@ -177,14 +177,29 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
 
 const turnBetween = (a: Vec3, b: Vec3): number => Math.acos(clamp(dot(normalize(a), normalize(b)), -1, 1));
 const chordError = (a: Vec3, b: Vec3, midpoint: Vec3): number => length(subtract(midpoint, lerp(a, b, 0.5)));
-const adaptiveParameters = (path: CellPath, kind: ModuleKind | "start" | "finish"): readonly number[] => {
+const adaptiveParameters = (
+  path: CellPath,
+  kind: ModuleKind | "start" | "finish",
+  widthAt: (localU: number) => number,
+): readonly number[] => {
   const output: number[] = [];
   const visit = (start: number, end: number, depth: number): void => {
     const first = path.pointAt(start);
     const last = path.pointAt(end);
     const middleU = (start + end) / 2;
     const middle = path.pointAt(middleU);
-    const needsSplit = depth < 14 && (chordError(first.position, last.position, middle.position) > MIN_CHORD_ERROR
+    const quarterStartU = (start + middleU) / 2;
+    const quarterEndU = (middleU + end) / 2;
+    const startWidth = widthAt(start);
+    const endWidth = widthAt(end);
+    const profileAt = (localU: number): number => startWidth + (endWidth - startWidth) * ((localU - start) / (end - start));
+    const profileError = Math.max(
+      Math.abs(widthAt(quarterStartU) - profileAt(quarterStartU)),
+      Math.abs(widthAt(middleU) - profileAt(middleU)),
+      Math.abs(widthAt(quarterEndU) - profileAt(quarterEndU)),
+    );
+    const needsSplit = depth < 14 && (profileError > MIN_CHORD_ERROR
+      || chordError(first.position, last.position, middle.position) > MIN_CHORD_ERROR
       || turnBetween(first.derivative, last.derivative) > MAX_TURN
       || turnBetween(first.derivative, middle.derivative) > MAX_TURN
       || turnBetween(middle.derivative, last.derivative) > MAX_TURN);
@@ -223,8 +238,8 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
     const entry = step.entry ?? opposite(step.exit ?? "west");
     const exit = step.exit ?? opposite(step.entry ?? "east");
     const path = makeCellPath(cell.kind, entry, exit, step.cellIndex);
-    const parameters = adaptiveParameters(path, cell.kind);
     const widthAt = (localU: number): number => cell.kind === "funnel" ? moduleWidthAt(cell.kind, localU) : CHANNEL_WIDTH;
+    const parameters = adaptiveParameters(path, cell.kind, widthAt);
     for (const localU of parameters) {
       const analytic = path.pointAt(localU);
       const tangent = toWorldDirection(analytic.derivative);
@@ -234,8 +249,8 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
       const position = boardToWorld(analytic.position);
       const previous = result[result.length - 1];
       if (previous !== undefined) distance += length(subtract(position, previous.position));
-      const isPort = (localU === 0 && step.entry !== undefined) || (localU === 1 && step.exit !== undefined)
-        || (routeIndex === 0 && localU === 1) || (routeIndex === route.route.length - 1 && localU === 0);
+      const isPort = (localU === 0 && (step.entry !== undefined || routeIndex === 0))
+        || (localU === 1 && (step.exit !== undefined || routeIndex === route.route.length - 1));
       const port = isPort
         ? createPort(step.cellIndex, localU === 0 ? entry : exit, widthAt(localU))
         : undefined;
