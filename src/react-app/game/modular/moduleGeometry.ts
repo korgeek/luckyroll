@@ -155,14 +155,18 @@ const failure = (code: ModularGeometryFailure["code"], message: string, sampleIn
   Object.freeze(sampleIndex === undefined ? { code, message } : { code, sampleIndex, message });
 
 const triangleNormal = (geometry: ModularTrackGeometry, triangle: number): Vec3 => {
+  return normalize(triangleCross(geometry, triangle));
+};
+
+const triangleCross = (geometry: ModularTrackGeometry, triangle: number): Vec3 => {
   const offset = triangle * 3;
   const a = geometry.indices[offset] * 3;
   const b = geometry.indices[offset + 1] * 3;
   const c = geometry.indices[offset + 2] * 3;
-  return normalize(cross(
+  return cross(
     { x: geometry.positions[b] - geometry.positions[a], y: geometry.positions[b + 1] - geometry.positions[a + 1], z: geometry.positions[b + 2] - geometry.positions[a + 2] },
     { x: geometry.positions[c] - geometry.positions[a], y: geometry.positions[c + 1] - geometry.positions[a + 1], z: geometry.positions[c + 2] - geometry.positions[a + 2] },
-  ));
+  );
 };
 
 export const validateModuleGeometry = (geometry: ModularTrackGeometry): readonly ModularGeometryFailure[] => {
@@ -186,7 +190,7 @@ export const validateModuleGeometry = (geometry: ModularTrackGeometry): readonly
     if (seen.has(key)) failures.push(failure("duplicate", "Modular geometry contains a duplicate triangle."));
     seen.add(key);
     addEdge(a, b); addEdge(b, c); addEdge(c, a);
-    if (a === b || b === c || a === c || magnitude(triangleNormal(geometry, triangle)) * 0.5 <= 1e-6) failures.push(failure("degenerate", "Modular geometry contains a degenerate triangle."));
+    if (a === b || b === c || a === c || magnitude(triangleCross(geometry, triangle)) <= 1e-6) failures.push(failure("degenerate", "Modular geometry contains a degenerate triangle."));
     adjacency[a]?.add(b); adjacency[a]?.add(c); adjacency[b]?.add(a); adjacency[b]?.add(c); adjacency[c]?.add(a); adjacency[c]?.add(b);
   }
   if (vertexCount > 0) {
