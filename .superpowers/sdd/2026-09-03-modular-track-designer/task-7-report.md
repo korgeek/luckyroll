@@ -70,3 +70,14 @@ npx tsc -p tsconfig.app.json --noEmit
 ```
 
 Raw result: `Test Files 3 passed (3)`, `Tests 20 passed (20)`; TypeScript exited 0. Bumper capsules now use total descriptor length, start gate/agitator descriptors carry oriented bases and dimensions, chevrons are shared flat triangle geometry at 25/50/75% of the trigger band, and zero-device paths allocate no detached device geometry.
+
+## Fix round 3
+
+Focused command:
+
+```text
+npm test -- --run src/react-app/game/modular/moduleDevices.test.ts src/react-app/game/modular/modularTrackRender.test.ts src/react-app/game/track/obstacleGeometry.test.ts
+npx tsc -p tsconfig.app.json --noEmit
+```
+
+Raw result: `Test Files 3 passed (3)`, `Tests 22 passed (22)`; app TypeScript exited 0. Tests now cover every bumper shaft/cap instance, canonical gate/agitator basis and dimensions plus pose composition, every chevron vertex's trigger-band projection/flatness, every rim chord scale, and unique nested/shared geometry/material disposal with idempotent second disposal. No production files changed in this round.
