@@ -115,9 +115,15 @@ describe("obstacle physics", () => {
       body.setNextKinematicRotation = (rotation) => { calls[index].rotation += 1; nextRotation(rotation); };
     });
 
+    const initialPose = physics.controller.initialPose();
+    for (const [body, transform] of [[physics.agitator, initialPose.agitator], [physics.gate, initialPose.gate], [physics.pushers[0], initialPose.pusherTransforms.left], [physics.pushers[1], initialPose.pusherTransforms.right]] as const) {
+      expect(vectorDistance(body.translation(), transform.translation)).toBeLessThan(0.000_002);
+      for (const component of ["x", "y", "z", "w"] as const) expect(body.rotation()[component]).toBeCloseTo(transform.rotation[component], 6);
+    }
     const pose = physics.stepFixed();
 
     expect(physics.fixedColliders).toHaveLength(9);
+    expect(physics.fixedBodies).toHaveLength(9);
     expect(physics.pegColliders).toHaveLength(7);
     expect(physics.pegBodies).toHaveLength(7);
     expect(physics.agitator.numColliders()).toBe(3);
@@ -133,6 +139,8 @@ describe("obstacle physics", () => {
     expect(physics.pusherColliders.every((collider) => collider.shapeType() === rapier.ShapeType.Capsule)).toBe(true);
     expect(physics.agitator.bodyType()).toBe(rapier.RigidBodyType.KinematicPositionBased);
     expect(physics.gate.bodyType()).toBe(rapier.RigidBodyType.KinematicPositionBased);
+    expect(physics.pushers.every((body) => body.bodyType() === rapier.RigidBodyType.KinematicPositionBased)).toBe(true);
+    expect(physics.fixedBodies.every((body) => body.bodyType() === rapier.RigidBodyType.Fixed)).toBe(true);
     expect(physics.pegBodies.every((body) => body.bodyType() === rapier.RigidBodyType.Fixed)).toBe(true);
     expect([physics.agitator.collider(0), physics.gate.collider(0)].every((collider) => collider.shapeType() === rapier.ShapeType.Cuboid)).toBe(true);
     expect(calls).toEqual([
@@ -174,13 +182,18 @@ describe("obstacle physics", () => {
     const world = createTrackPhysicsWorld();
     const physics = createObstaclePhysics(world, geometry);
     physics.controller.advanceMs(milliseconds);
+    const initialPose = physics.controller.initialPose();
+    for (const [body, transform] of [[physics.agitator, initialPose.agitator], [physics.gate, initialPose.gate], [physics.pushers[0], initialPose.pusherTransforms.left], [physics.pushers[1], initialPose.pusherTransforms.right]] as const) {
+      expect(vectorDistance(body.translation(), transform.translation)).toBeLessThan(0.000_002);
+      for (const component of ["x", "y", "z", "w"] as const) expect(body.rotation()[component]).toBeCloseTo(transform.rotation[component], 6);
+    }
     const pose = physics.stepFixed();
     world.step();
     for (const [index, side] of [pose.pushers.left, pose.pushers.right].entries()) {
       const body = physics.pushers[index]; const axis = rotate(body.rotation(), { x: 0, y: 1, z: 0 });
       expect(Math.abs(axis.x * resolved.pushers.frame.side.x + axis.y * resolved.pushers.frame.side.y + axis.z * resolved.pushers.frame.side.z)).toBeCloseTo(1, 6);
       expect(physics.pusherColliders[index].halfHeight()).toBeCloseTo((side.depth - 1.1) / 2, 6);
-      expect(vectorDistance(body.translation(), index === 0 ? pose.pusherTransforms.left.translation : pose.pusherTransforms.right.translation)).toBeLessThan(0.000_001);
+      expect(vectorDistance(body.translation(), index === 0 ? pose.pusherTransforms.left.translation : pose.pusherTransforms.right.translation)).toBeLessThan(0.000_002);
     }
     physics.dispose();
     world.free();

@@ -11,6 +11,7 @@ describe("neon obstacle renderer", () => {
   it("renders obstacle roots, frame-aligned lifted pegs, and emissive mesh rim accents", () => {
     const group = createObstacleRenderGroup(resources, initial); for (const name of ["start-bowl", "start-outlet-throat", "peg-shuffler", "alternating-pushers", "pusher-left-mesh", "pusher-right-mesh", "start-agitator", "release-gate", "branch-rails", "vortex-bowl", "vortex-catch-channel", "neon-rim-accents"]) expect(group.getObjectByName(name)).toBeDefined();
     const pegs = group.getObjectByName("peg-shuffler") as THREE.InstancedMesh; const matrix = new THREE.Matrix4(); pegs.getMatrixAt(0, matrix);
+    expect(pegs.geometry).toBeInstanceOf(THREE.CapsuleGeometry);
     const up = new THREE.Vector3(resources.layout.pegHall.frame.up.x, resources.layout.pegHall.frame.up.y, resources.layout.pegHall.frame.up.z); const lifted = new THREE.Vector3().setFromMatrixPosition(matrix).sub(new THREE.Vector3(resources.pegs[0].center.x, resources.pegs[0].center.y, resources.pegs[0].center.z));
     expect(lifted.dot(up)).toBeCloseTo(0.575, 5); expect(new THREE.Vector3(0, 1, 0).transformDirection(matrix).dot(up)).toBeCloseTo(1, 5);
     group.getObjectByName("neon-rim-accents")!.traverse((object) => { if (object instanceof THREE.Mesh) expect(object.material).toBeInstanceOf(THREE.MeshStandardMaterial); });

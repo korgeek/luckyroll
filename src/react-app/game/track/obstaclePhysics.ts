@@ -44,6 +44,7 @@ export type BowlLaunchPosition = PhysicalLaunchPosition & Readonly<{ bowlRadius:
 
 export type ObstaclePhysicsResources = Readonly<{
   fixedColliders: readonly RapierCollider[];
+  fixedBodies: readonly RapierBody[];
   pegColliders: readonly RapierCollider[];
   pegBodies: readonly RapierBody[];
   agitator: RapierBody;
@@ -312,6 +313,7 @@ export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeo
   };
   return Object.freeze({
     fixedColliders: Object.freeze(fixed.map(({ collider }) => collider)),
+    fixedBodies: Object.freeze(fixed.map(({ body }) => body)),
     pegColliders: Object.freeze(pegColliders),
     pegBodies: Object.freeze(pegBodies),
     agitator,
