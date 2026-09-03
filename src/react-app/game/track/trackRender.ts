@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { buildTrackShell } from "./obstacleGeometry";
 import { projectToTrack } from "./trackSampler";
 import type { TrackGeometry, TrackNode, TrackSample, Vec3 } from "./trackTypes";
 
@@ -19,8 +20,8 @@ const createRimLines = (geometry: TrackGeometry): THREE.LineSegments => {
   const positions: number[] = [];
   const colors: number[] = [];
   const lastColumn = geometry.profileSegments;
-  const deepRim = new THREE.Color("#18334a");
-  const softRim = new THREE.Color("#2c5b67");
+  const deepRim = new THREE.Color("#16d7e8");
+  const softRim = new THREE.Color("#ffe25a");
 
   for (let index = 1; index < geometry.samples.length; index += 1) {
     for (const column of [0, lastColumn]) {
@@ -43,26 +44,15 @@ const createRimLines = (geometry: TrackGeometry): THREE.LineSegments => {
   return rims;
 };
 
-const createSupports = (samples: readonly TrackSample[]): THREE.InstancedMesh => {
-  const supportCount = Math.ceil(samples.length / 15);
-  const supports = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.34, 0.54, 1, 12),
-    new THREE.MeshStandardMaterial({ color: "#62452d", roughness: 0.72, metalness: 0.08 }),
-    supportCount,
-  );
-  const transform = new THREE.Object3D();
-
-  samples.forEach((sample, index) => {
-    if (index % 15 !== 0) return;
-    const height = Math.max(2.5, Math.abs(sample.position.y) + sample.channelDepth);
-    transform.position.set(sample.position.x, sample.position.y - height / 2, sample.position.z);
-    transform.scale.set(1, height, 1);
-    transform.updateMatrix();
-    supports.setMatrixAt(Math.floor(index / 15), transform.matrix);
-  });
-  supports.instanceMatrix.needsUpdate = true;
-  supports.name = "u-channel-supports";
-  return supports;
+const createShell = (track: TrackGeometry): THREE.Mesh => {
+  const resource = buildTrackShell(track);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(resource.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(resource.normals, 3));
+  geometry.setIndex(new THREE.BufferAttribute(resource.indices, 1));
+  const shell = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: "#090b12", roughness: 0.7, metalness: 0.5, side: THREE.DoubleSide }));
+  shell.name = "continuous-track-shell";
+  return shell;
 };
 
 const createDividerMesh = (geometry: TrackGeometry): THREE.Mesh | undefined => {
@@ -212,11 +202,12 @@ export const createTrackRenderGroup = (
   surfaceGeometry.computeBoundingSphere();
   const surface = new THREE.Mesh(
     surfaceGeometry,
-    new THREE.MeshStandardMaterial({ color: "#45d8ca", roughness: 0.48, metalness: 0.06, side: THREE.DoubleSide }),
+    new THREE.MeshStandardMaterial({ color: "#171b25", roughness: 0.58, metalness: 0.3, side: THREE.DoubleSide }),
   );
   surface.name = "continuous-u-channel";
+  surface.userData.surfaceColor = "#171b25";
   const divider = createDividerMesh(geometry);
-  group.add(surface, createRimLines(geometry), createSupports(geometry.samples));
+  group.add(createShell(geometry), surface, createRimLines(geometry));
   if (divider !== undefined) group.add(divider);
   if (options.debug === true) group.add(createTrackDebugGroup(geometry.samples, options.checkpointNodes));
   return group;

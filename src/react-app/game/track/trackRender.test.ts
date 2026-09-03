@@ -16,13 +16,14 @@ describe("track renderer", () => {
     expect(trackMesh!.geometry.index!.array).toBe(built.geometry.indices);
   });
 
-  it("uses one instanced support mesh instead of a mesh per support", () => {
+  it("renders a thick dark shell without decorative structural supports", () => {
     const group = createTrackRenderGroup(buildValidatedTrack().geometry);
-    const supports = group.children.filter((child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh);
+    const shell = group.getObjectByName("continuous-track-shell") as THREE.Mesh;
+    const surface = group.getObjectByName("continuous-u-channel") as THREE.Mesh;
 
-    expect(supports).toHaveLength(1);
-    expect(supports[0].count).toBeGreaterThan(1);
-    expect(group.children.filter((child) => child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh))).toHaveLength(1);
+    expect(group.getObjectByName("u-channel-supports")).toBeUndefined();
+    expect(shell).toBeDefined();
+    expect(surface.userData.surfaceColor).toBe("#171b25");
   });
 
   it("renders readable striped dark rim accents without adding another track mesh", () => {
