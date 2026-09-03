@@ -49,6 +49,7 @@ describe("TrackEditor", () => {
 	it("moves by arrow, rotates occupied cells, and shows kind plus direction", async () => {
 		const user = userEvent.setup(); render(<ControlledEditor track={createDefaultTrackDesign("Course")} />);
 		const cell = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); cell.focus(); await user.keyboard("{ArrowRight}");
+		expect(document.activeElement).toHaveAttribute("aria-label", expect.stringMatching(/row 1 column 3/i));
 		const occupied = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); await user.click(occupied);
 		expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i })).toHaveTextContent(/STR/);
 		expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i })).toHaveTextContent(/90°/);
@@ -57,13 +58,17 @@ describe("TrackEditor", () => {
 	it("opens long-press actions and cancels pending presses on movement, up, and cancel", () => {
 		vi.useFakeTimers();
 		try {
-			render(<TrackEditor state={createEditorState(createEmptyTrackDesign("Course"))} {...props()} />);
+			render(<ControlledEditor track={createEmptyTrackDesign("Course")} />);
 			const cell = screen.getByRole("gridcell", { name: /row 1 column 2, empty/i });
 			expect(screen.getByRole("button", { name: "Replace" })).toBeVisible(); expect(screen.getByRole("button", { name: "Clear" })).toBeVisible();
 			fireEvent.pointerDown(cell); fireEvent.pointerMove(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); fireEvent.pointerUp(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); fireEvent.pointerCancel(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.getByRole("dialog")).toBeInTheDocument();
+			fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+			expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i })).toHaveTextContent(/STR/);
+			fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+			expect(screen.getByRole("gridcell", { name: /row 1 column 2, empty/i })).toHaveTextContent("+");
 		} finally { vi.useRealTimers(); }
 	});
 });
