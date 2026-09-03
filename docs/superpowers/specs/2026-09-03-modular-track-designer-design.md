@@ -158,18 +158,39 @@ The canonical starting scale is:
 - start bowl radius `8.5` world units;
 - fixed physics timestep `1/60` second.
 
-The board therefore occupies five modules across and eight modules down before tilt. Every cell-edge connector uses the same center, clear width, floor height, rail profile, and seam tolerance. Adjacent floor and rail geometry shares canonical endpoints or a sub-diameter overlap so no marble-sized gap exists.
+The board therefore occupies five modules across and eight modules down before tilt. Every cell-edge connector uses the same center, clear width, floor height, rail profile, and seam tolerance.
 
 Repeated module geometry and materials are shared or instanced. Decorative surfaces add no snag-prone collider detail. One canonical layout supplies transforms to rendering, physics, editor previews, and validation so visible and physical modules cannot drift apart.
+
+### Channel seam contract
+
+Every open module edge implements one canonical port. In board-local coordinates, a port has:
+
+- its center exactly at the middle of the cell edge;
+- floor height exactly `0` relative to the board surface;
+- clear width exactly `W` and rail height exactly `4`;
+- a centerline tangent perpendicular to the cell edge;
+- a straight landing `0.10S` long inside the cell;
+- zero centerline, floor-edge, and rail curvature at the seam plane.
+
+Port tangent means the unit tangent pointing outward from its owning cell. Two reciprocal connected ports therefore have equal positions and heights, opposite outward tangents, and zero longitudinal arc-length curvature vectors. Curvature applies to the centerline and every corresponding longitudinal floor edge and lower/upper rail boundary curve.
+
+The straight landing makes every legal straight, curve, funnel, wave, pinwheel, booster, and bumper connection geometrically `G2`-continuous at the boundary: position, height, traversal tangent, and curvature match before the module's internal shape begins. No obstacle, taper, banking change, raised decoration, end cap, or moving part may enter the landing.
+
+All port coordinates are calculated from integer row/column indices and the same canonical constants rather than copied transforms. During board assembly, adjacent static channel vertices at reciprocal ports are welded to one indexed board geometry. Connected port end faces are omitted. Every module uses identical cross-section topology and winding. Longitudinal tessellation must keep centerline/floor/rail chord error at or below `0.02D`. Along each longitudinal floor or rail strip, the dihedral angle between adjacent triangles must be at most 2 degrees; intentional angles across the channel's fixed cross-section are excluded from this bound.
+
+The welded geometry supplies the track floor and containment-rail trimesh collider with Rapier `TriMeshFlags.FIX_INTERNAL_EDGES`. A seam therefore contains neither an open gap, overlapping coplanar collider faces, duplicate triangles, an exposed internal edge, nor a step that can snag or launch a marble. Bumpers remain separate fixed primitive colliders and pinwheels remain separate kinematic bodies.
+
+Disconnected editor previews may render capped module ends for clarity, but caps are preview-only and never enter a validated race board.
 
 ### Module catalog
 
 The approved catalog contains seven editable module kinds plus the fixed start and finish:
 
 1. **Straight** — canonical two-edge U-channel; two distinct rotations.
-2. **90-degree curve** — tangent-continuous quarter turn with a wide radius and containment rail; four rotations.
-3. **Gentle funnel straight** — standard-width connectors, smooth symmetric taper to `max(0.80W, 6D)`, a waist no longer than 10 percent of the module, then a smooth return to full width.
-4. **Wave straight** — a smooth S centerline whose offset and tangent return to zero at both seams. Its centerline is `0.15W × sin(2πt) × sin²(πt)`, which keeps the complete channel and rails inside the square module.
+2. **90-degree curve** — a quintic Hermite 90-degree centerline between the ends of the two canonical straight landings. Its endpoint positions and tangents match the landings and its endpoint second derivatives are zero. The interior curve has a wide radius and containment rail; four rotations are available. It is not a constant-curvature quarter circle because curvature must return to zero at both landing joins.
+3. **Gentle funnel straight** — full standard width `W` throughout both canonical landings. Over the interior `0.80S`, it uses a symmetric fifth-order smootherstep taper to `max(0.80W, 6D)`, holds that waist for at most 10 percent of the whole module, and uses the mirrored smootherstep expansion back to `W` before the exit landing. Width, first derivative, and second derivative equal the straight channel at both landing joins.
+4. **Wave straight** — zero offset throughout both canonical landings. On only the interior `0.80S`, normalized parameter `u` runs from `0` to `1` and lateral offset is `0.15W × sin(2πu) × sin²(πu)`. Position, first derivative, and second derivative match the straight landings at both joins, and the complete channel and rails remain inside the square module.
 5. **Pinwheel straight** — a deterministic fixed-step kinematic rotor with rounded capsule arms, radius `0.28W`, arm thickness `0.5D`, and angular speed `2` radians per second. Every rotor phase retains at least `3D` of open passage; the module has two rotations.
 6. **Booster straight** — standard straight collision geometry plus a flush, render-only activation panel and neon directional chevrons; two rotations.
 7. **Diagonal bumper straight** — three fixed rounded bars alternating from the channel walls and angled downstream; two rotations. The runtime mirrors the bar layout from the validated travel direction so eastbound and westbound traversal always points bumper tips downstream. An invalid or disconnected editor preview uses symmetric neutral bars and no direction arrow.
@@ -253,8 +274,11 @@ A non-finite or escaped marble becomes DNF without crashing or teleporting. Trac
 ### Geometry and physics
 
 - Every generated buffer and transform is finite.
-- Visual and collider transforms, board tilt, module seams, connector widths, and finish volume agree.
+- Every legal reciprocal port pairing matches position and floor height within `1e-6` world units, has outward tangent dot product within `1e-6` of `-1`, matches the complete floor/rail cross-section within `1e-6`, and has every longitudinal seam curvature-vector component within `1e-6` of zero.
+- Welded board geometry contains one shared boundary vertex set per connected port, no connected-port end caps, no duplicate or overlapping seam triangles, no open boundary at a connected floor or rail, and no collider step.
+- Visual and collider transforms, board tilt, welded module seams, connector widths, and finish volume agree.
 - Funnel width/profile, bumper clearances, rounded exposed ends, wave seam tangents, curve containment, and pinwheel passage pass static checks.
+- A marble rolling across every legal module pairing is tested at incoming speeds `8`, `18`, and `42` world units per second and lateral offsets `0` and `±(W/2 - 1.5D)`. At `0.05S` beyond the seam, still inside the downstream straight landing, compare it with an equal-length seamless straight baseline: the surface-normal velocity difference must be at most `0.05` world units per second and additional forward-speed loss attributable to the seam must be at most 1 percent of incoming speed. No run may snag or escape.
 - Booster tests cover the 1.20 multiplier, positive-only tangent delta, cap, swept crossing, backward entry, once-only behavior, and restart reset.
 - Fixed-seed physics tests cover a maximum legal horizontal run, dense funnel entry, pinwheel contact, obstacle-to-curve transitions, booster-to-bumper, and bumper-to-booster.
 - One consolidated worst-case valid design runs 100 marbles across the existing ten fixed seeds. Record these as a new track-designer qualification budget and ledger, separate from the completed canonical-track ledger, and consume each seed at most once without user approval for additional runs. Require zero non-finite velocities, escapes, duplicate finish IDs, and booster cap violations, where a violation means the booster adds positive forward speed that leaves the result above `18`; natural incoming speed above `18` is allowed and is never reduced. A marble is stalled when its total speed remains below `0.12` world units per second continuously for `3,000` milliseconds after gate release. Do not add hidden recovery behavior to make qualification pass.
@@ -283,6 +307,7 @@ A non-finite or escaped marble becomes DNF without crashing or teleporting. Trac
 - Duplicate names remain independent and never overwrite one another.
 - Opening a valid share link loads the shared name and design as an unsaved playable preview; invalid data is non-destructive.
 - The 5×8 board enforces fixed start/finish directions and one left/right/down, unbranched, gap-free path containing every non-empty module.
+- Connected channels match position, height, tangent, curvature, width, and rail profile with no visible gap, collider seam, step, overlap, or interference.
 - All seven procedural square module kinds render and collide consistently on the shared 20-degree board.
 - Boosters, gentle funnels, pinwheels, waves, curves, and diagonal bumpers change order without violating containment and speed limits.
 - The client uses no database or runtime application API, persists only to browser storage, and runs loaded workflows without external network access.
