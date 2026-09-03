@@ -91,6 +91,7 @@ describe("obstacle physics", () => {
     expect(vectorDistance(group.getObjectByName("pusher-left-mesh")!.position, pose.pusherTransforms.left.translation)).toBeLessThan(0.000_001);
     expect(vectorDistance(group.getObjectByName("release-gate")!.position, pose.gate.translation)).toBeLessThan(0.000_001);
     expect(vectorDistance(group.getObjectByName("start-agitator")!.position, pose.agitator.translation)).toBeLessThan(0.000_001);
+    for (const [object, transform] of [[group.getObjectByName("pusher-left-mesh")!, pose.pusherTransforms.left], [group.getObjectByName("pusher-right-mesh")!, pose.pusherTransforms.right], [group.getObjectByName("release-gate")!, pose.gate], [group.getObjectByName("start-agitator")!, pose.agitator]] as const) expect(object.quaternion.toArray()).toEqual([transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w]);
   });
 
   it("holds the agitator at its exact shuffle-end pose after the gate opens", () => {
@@ -123,14 +124,17 @@ describe("obstacle physics", () => {
     expect(physics.gate.numColliders()).toBe(1);
     expect(physics.pushers.map((body) => body.numColliders())).toEqual([1, 1]);
     const rapier = getInitializedTrackPhysicsRapier();
-    expect(physics.pegColliders.every((collider) => collider.shapeType() === rapier.ShapeType.RoundCylinder)).toBe(true);
+    expect(physics.fixedColliders.every((collider) => collider.shapeType() === rapier.ShapeType.TriMesh)).toBe(true);
+    expect(physics.pegColliders.every((collider) => collider.shapeType() === rapier.ShapeType.Capsule)).toBe(true);
     physics.pegColliders.forEach((collider) => {
-      expect(collider.radius() + collider.roundRadius()).toBeCloseTo(0.42, 6);
-      expect(collider.halfHeight() + collider.roundRadius()).toBeCloseTo(0.575, 6);
+      expect(collider.radius()).toBeCloseTo(0.42, 6);
+      expect(collider.halfHeight()).toBeCloseTo(0.155, 6);
     });
     expect(physics.pusherColliders.every((collider) => collider.shapeType() === rapier.ShapeType.Capsule)).toBe(true);
     expect(physics.agitator.bodyType()).toBe(rapier.RigidBodyType.KinematicPositionBased);
+    expect(physics.gate.bodyType()).toBe(rapier.RigidBodyType.KinematicPositionBased);
     expect(physics.pegBodies.every((body) => body.bodyType() === rapier.RigidBodyType.Fixed)).toBe(true);
+    expect([physics.agitator.collider(0), physics.gate.collider(0)].every((collider) => collider.shapeType() === rapier.ShapeType.Cuboid)).toBe(true);
     expect(calls).toEqual([
       { translation: 1, rotation: 1 }, { translation: 1, rotation: 1 },
       { translation: 1, rotation: 1 }, { translation: 1, rotation: 1 },
