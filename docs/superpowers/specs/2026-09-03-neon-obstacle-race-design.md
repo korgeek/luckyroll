@@ -143,13 +143,15 @@ The scene builds one track resource bundle containing the base track and obstacl
 
 ### Dynamic checks
 
-- run 100 marbles across the existing ten fixed seeds;
+- run 100 marbles once across each of the existing ten fixed seeds, for at most ten full end-to-end physics races;
 - require zero escapes;
 - require zero marbles stationary below the stall threshold for the stall window;
 - require unique finish IDs for marbles that finish;
 - record finish count and elapsed distribution for observation only;
 - do not fail a run solely because one or more moving marbles exceed 60 seconds;
 - verify the start gate, agitator, pushers, branch, vortex, reset, and remaining-marble restart lifecycle.
+
+Static/unit tests and compilation are not full-race attempts. No eleventh 100-marble end-to-end physics race may be run without stopping and asking the user to perform or authorize the additional validation.
 
 The headless harness receives the same fixed-step device controller as production. No test-only guide forces, impulses, teleportation, or recovery rails are permitted.
 
