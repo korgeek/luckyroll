@@ -128,6 +128,13 @@ export const resolveRoute = (cells: readonly TrackCell[]): RouteResult => {
     exit = exits[0];
     if (exit === "north") {
       failures.push(failure("upward", next, "Route traversal may not move upward."));
+      const [rowDelta, columnDelta] = delta[exit];
+      const targetRow = Math.floor(next / COLUMNS) + rowDelta;
+      const targetColumn = next % COLUMNS + columnDelta;
+      const target = targetRow * COLUMNS + targetColumn;
+      if (targetRow >= 0 && targetRow < ROWS && targetColumn >= 0 && targetColumn < COLUMNS && visited.has(target)) {
+        failures.push(failure("loop", target, "Route revisits a cell."));
+      }
       visited.add(next);
       route.push({ cellIndex: next, entry, exit });
       directions.set(next, exit);
