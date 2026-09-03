@@ -78,6 +78,7 @@ describe("atomic local track library", () => {
     expect(storage.getItem("luckyroll.tracks")).toBe("existing");
     expect(library).toEqual({ version: 1, tracks: [] });
     expect(() => resetTrackLibrary(storage)).toThrow("quota");
+    expect(storage.getItem("luckyroll.tracks")).toBe("existing");
   });
 
   it("returns a non-destructive failure when getItem throws", () => {
