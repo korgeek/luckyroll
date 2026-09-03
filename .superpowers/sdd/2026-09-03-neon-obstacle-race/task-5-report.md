@@ -47,6 +47,10 @@ It stepped seed `11`, then stopped at its required containment assertion:
 
 The escape/stall events occur while the race elapsed clock is still zero, during the 1500 ms bowl shuffle. The likely root cause is high-energy interaction between the dense bowl field and the three-arm agitator before gate opening. The command's failure assertion prevented seeds `23, 37, 41, 53, 67, 71, 83, 97, 101` from stepping.
 
+### Focused post-blocker fix
+
+A one-marble pre-gate probe reproduced the issue without consuming a full-race attempt: the original three-turn agitator reached `47.02335557499136` units/s, exceeding the test's `8`-unit safety cap. The shared controller's command was reduced to a quarter-turn over the same 1500 ms interval; the one-marble regression now passes. No geometry, launch placement, base track, or lifecycle path was changed. The focused scene/obstacle/ledger suite passed `46` tests with `1` intentionally skipped qualification test, and `npm run build` completed successfully (retaining only Vite's existing chunk-size advisory).
+
 Budget is therefore **1/10 consumed**, not 10/10. Per the hard instruction, no additional 100-marble world was started and the validation command was not rerun. The ledger is updated with the observed row. A controller/user must authorize any future completion of the remaining seed plan after an agitator/launch safety fix is reviewed with focused/static tests.
 
 ## Manual/mobile checks not performed

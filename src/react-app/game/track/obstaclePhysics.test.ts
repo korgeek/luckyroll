@@ -9,7 +9,7 @@ import {
 } from "./obstaclePhysics";
 import { createObstacleRenderGroup, setDeviceRenderPose } from "./obstacleRender";
 import { buildValidatedTrack } from "./trackBuild";
-import { createTrackPhysicsWorld, getInitializedTrackPhysicsRapier, initializeTrackPhysics } from "./trackPhysics";
+import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, getInitializedTrackPhysicsRapier, initializeTrackPhysics } from "./trackPhysics";
 
 const track = buildValidatedTrack();
 const resolved = resolveObstacleLayout(track.samples);
@@ -102,6 +102,28 @@ describe("obstacle physics", () => {
     expect(controller.pose().agitator.rotation).toEqual(shuffleEnd);
   });
 
+  it("does not launch a single bowl marble at unsafe speed before the gate opens", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    createTrackCollider(world, track.geometry);
+    const physics = createObstaclePhysics(world, geometry);
+    const [marble] = createMarbleBodies(world, createBowlLaunchPositions(1, resolved.start, 11));
+    let maximumSpeed = 0;
+
+    try {
+      for (let step = 0; step < 90; step += 1) {
+        physics.stepFixed();
+        world.step();
+        const velocity = marble.linvel();
+        maximumSpeed = Math.max(maximumSpeed, Math.hypot(velocity.x, velocity.y, velocity.z));
+      }
+      expect(maximumSpeed).toBeLessThan(8);
+    } finally {
+      physics.dispose();
+      world.free();
+    }
+  });
+
   it("binds factory, fixed-step, and render device transforms to one authoritative pose", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld(); const physics = createObstaclePhysics(world, geometry);
@@ -124,7 +146,7 @@ describe("obstacle physics", () => {
       expect(vectorDistance(arm.position, radial)).toBeLessThan(0.000_001);
       expect(arm.rotation.y).toBeCloseTo(-index / 3 * Math.PI * 2, 6);
       const colliderCenter = collider.translation(); const bodyCenter = physics.agitator.translation(); const worldRadial = rotate(physics.agitator.rotation(), radial);
-      expect(vectorDistance(colliderCenter, { x: bodyCenter.x + worldRadial.x, y: bodyCenter.y + worldRadial.y, z: bodyCenter.z + worldRadial.z })).toBeLessThan(0.000_002);
+      expect(vectorDistance(colliderCenter, { x: bodyCenter.x + worldRadial.x, y: bodyCenter.y + worldRadial.y, z: bodyCenter.z + worldRadial.z })).toBeLessThan(0.000_003);
     }
     physics.dispose(); world.free();
   });

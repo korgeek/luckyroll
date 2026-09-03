@@ -186,7 +186,7 @@ const poseAt = (layout: ValidResolvedObstacleLayout, elapsedMs: number, forceGat
   const pusherRotation = rotationFromUp(layout.pushers.frame.side);
   const agitator = freezeTransform(
     inFrame(layout.start.frame, 0, 0, -0.14),
-    multiplyQuaternion(startRotation, rotationAround({ x: 0, y: 1, z: 0 }, Math.min(elapsedMs, layout.start.shuffleMs) / layout.start.shuffleMs * Math.PI * 6)),
+    multiplyQuaternion(startRotation, rotationAround({ x: 0, y: 1, z: 0 }, Math.min(elapsedMs, layout.start.shuffleMs) / layout.start.shuffleMs * Math.PI / 2)),
   );
   const gate = freezeTransform(
     inFrame(layout.start.frame, 6.8, 0, gateOpen ? 3.4 : 0.65),
