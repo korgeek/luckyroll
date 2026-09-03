@@ -1,6 +1,3 @@
-import { Hono } from "hono";
-const app = new Hono<{ Bindings: Env }>();
-
-app.get("/api/", (c) => c.json({ name: "Cloudflare" }));
-
-export default app;
+export default {
+	fetch: () => new Response("Not Found", { status: 404 }),
+} satisfies ExportedHandler<Env>;

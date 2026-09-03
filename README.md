@@ -9,6 +9,12 @@ An instant, offline-friendly neon pinball marble party game. The last marble to 
 
 Race sessions use a continuous three-level downhill track with a shuffled neon start bowl, staggered pegs, alternating pushers, a two-path merge, and a vortex catch channel. The directed camera follows the early leader, then moves toward the trailing marble. Drag or touch-drag to orbit and use the wheel to zoom.
 
+## Track Designer
+
+The 5×8 modular editor starts with a valid 36-block course. Tap a block to rotate it or hold it to replace or clear it. Valid tracks can be saved in this browser, selected, deleted, tested with the existing 100-marble race, or shared as a Base64URL token or link. Opening a shared link loads an unsaved playable preview; saving creates a local browser entry.
+
+The race engine and physics are loaded before the setup screen is ready. After that Ready point, editing, saving, raw-token importing, and racing use no application API or database. A cold offline reload is not supported; installable PWA caching can be added if that becomes necessary.
+
 The 60-second dialog remains a player-facing control for rerunning only the remaining marbles, restarting, or showing results. Physics safety qualification uses zero escapes, zero genuine stalls, and unique finisher identities; marbles still moving after 60 seconds are observed rather than rejected. The tracked ten-seed budget is documented in `.superpowers/sdd/2026-09-03-neon-obstacle-race/physics-run-ledger.md`.
 
 ## Run locally
@@ -44,9 +50,8 @@ The scene uses instanced marbles and pegs, shared device materials, bounded poin
 
 ## Sound
 
-The bundled 90s-style start, finish, and timeout effects are synthesized with the Web Audio API so the game remains entirely offline and does not need an audio download. The selected future sample-library option is [Pixabay's “Arcade” by SoundReality](https://pixabay.com/sound-effects/film-special-effects-arcade-280345/), available under the [Pixabay Content License](https://pixabay.com/service/license-summary/). It is not bundled in this repository.
+The bundled 90s-style start, finish, and timeout effects are synthesized with the Web Audio API, so the game needs no audio download.
 
 ## Deployment
 
 This repository retains its Cloudflare Workers configuration. Pushes to the connected branch are handled by the existing Cloudflare Git integration.
-- [Hono Documentation](https://hono.dev/)
