@@ -66,6 +66,11 @@ describe("modular route validation", () => {
     const track = createWorstCaseTrackDesign();
     expect(track.cells.length).toBe(40);
     expect(track.cells.filter((cell) => cell !== null)).toHaveLength(36);
+    const substitutions = [1, 2, 3, 6, 8, 11, 12, 16, 18, 21, 23, 26, 28, 36, 38];
+    expect(track.cells).not.toEqual(createDefaultTrackDesign("Qualification Track").cells);
+    expect(substitutions.map((index) => track.cells[index]?.kind)).toEqual([
+      "booster", "bumper", "bumper", "pinwheel", "wave", "bumper", "booster", "wave", "pinwheel", "booster", "bumper", "pinwheel", "wave", "bumper", "booster",
+    ]);
     const result = resolveRoute(track.cells);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.route.map((step) => step.cellIndex)).toEqual([
