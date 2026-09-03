@@ -58,6 +58,105 @@ export type TrackSample = Readonly<{
   zone: TrackZone;
 }>;
 
+export type ObstacleLayout = Readonly<{
+  start: Readonly<{ progress: number; radius: number; shuffleMs: number; wallHeight: number }>;
+  pegHall: Readonly<{
+    progress: number;
+    hallWidth: number;
+    pegRadius: number;
+    pegs: readonly Readonly<{ along: number; lateral: number }>[];
+  }>;
+  pushers: Readonly<{
+    progress: number;
+    hallWidth: number;
+    radius: number;
+    reach: number;
+    travel: number;
+    phaseOffset: number;
+  }>;
+  branch: Readonly<{ startProgress: number; endProgress: number; mergeProgress: number }>;
+  vortex: Readonly<{ progress: number; radius: number; outletDiameter: number; verticalDrop: number }>;
+}>;
+
+export type ResolvedFrame = Readonly<{
+  sampleIndex: number;
+  position: Vec3;
+  tangent: Vec3;
+  side: Vec3;
+  up: Vec3;
+}>;
+
+export type ResolvedStart = Readonly<{
+  frame: ResolvedFrame;
+  radius: number;
+  shuffleMs: number;
+  wallHeight: number;
+}>;
+
+export type ResolvedHall = Readonly<{
+  frame: ResolvedFrame;
+  width: number;
+}>;
+
+export type ResolvedPeg = Readonly<{
+  along: number;
+  lateral: number;
+  radius: number;
+  center: Vec3;
+}>;
+
+export type ResolvedPusherLayout = Readonly<{
+  frame: ResolvedFrame;
+  hallWidth: number;
+  radius: number;
+  reach: number;
+  travel: number;
+  phaseOffset: number;
+}>;
+
+export type ResolvedPusherPose = Readonly<{
+  phase: number;
+  left: Readonly<{ center: Vec3; depth: number }>;
+  right: Readonly<{ center: Vec3; depth: number }>;
+  passage: number;
+}>;
+
+export type ResolvedBranchLayout = Readonly<{
+  start: ResolvedFrame;
+  end: ResolvedFrame;
+  merge: ResolvedFrame;
+}>;
+
+export type ResolvedVortex = Readonly<{
+  frame: ResolvedFrame;
+  radius: number;
+  outletDiameter: number;
+  verticalDrop: number;
+}>;
+
+export type ObstacleLayoutFailure = Readonly<{
+  code: "invalid-samples" | "peg-clearance" | "wall-clearance" | "pusher-passage" | "vortex-outlet" | "vortex-drop";
+  message: string;
+}>;
+
+export type ValidResolvedObstacleLayout = Readonly<{
+  ok: true;
+  failures: readonly ObstacleLayoutFailure[];
+  start: ResolvedStart;
+  pegHall: ResolvedHall;
+  pegs: readonly ResolvedPeg[];
+  pushers: ResolvedPusherLayout;
+  branch: ResolvedBranchLayout;
+  vortex: ResolvedVortex;
+}>;
+
+export type InvalidResolvedObstacleLayout = Readonly<{
+  ok: false;
+  failures: readonly ObstacleLayoutFailure[];
+}>;
+
+export type ResolvedObstacleLayout = ValidResolvedObstacleLayout | InvalidResolvedObstacleLayout;
+
 export type TrackGeometry = Readonly<{
   positions: Float32Array;
   normals: Float32Array;
