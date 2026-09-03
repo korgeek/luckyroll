@@ -19,7 +19,8 @@ describe.sequential("neon obstacle physics qualification", () => {
     const rows = ledgerRows();
     const seeds = rows.filter((row) => row.state === "pending").map((row) => row.seed);
     const recorded = rows.filter((row) => row.state === "recorded").map((row) => row.seed);
-    expect(validateObstacleQualificationSeeds(seeds, recorded)).toEqual(FIXED_VALIDATION_SEEDS.slice(recorded.length));
+    if (seeds.length === 0) expect(() => validateObstacleQualificationSeeds(seeds, recorded)).toThrow("already records every seed");
+    else expect(validateObstacleQualificationSeeds(seeds, recorded)).toEqual(FIXED_VALIDATION_SEEDS.slice(recorded.length));
   });
 
   it.runIf(runQualification)("runs every pending seed once before asserting aggregate containment, movement, and finisher identity", async () => {

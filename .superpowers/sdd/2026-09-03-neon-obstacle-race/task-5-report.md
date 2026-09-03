@@ -51,7 +51,25 @@ The escape/stall events occur while the race elapsed clock is still zero, during
 
 A one-marble pre-gate probe reproduced the issue without consuming a full-race attempt: the original three-turn agitator reached `47.02335557499136` units/s, exceeding the test's `8`-unit safety cap. The shared controller's command was reduced to a quarter-turn over the same 1500 ms interval; the one-marble regression now passes. No geometry, launch placement, base track, or lifecycle path was changed. The focused scene/obstacle/ledger suite passed `46` tests with `1` intentionally skipped qualification test, and `npm run build` completed successfully (retaining only Vite's existing chunk-size advisory).
 
-Budget is therefore **1/10 consumed**, not 10/10. Per the hard instruction, no additional 100-marble world was started and the validation command was not rerun. The ledger is updated with the observed row. A controller/user must authorize any future completion of the remaining seed plan after an agitator/launch safety fix is reviewed with focused/static tests.
+## Approved pending-nine resume
+
+Sol approved the remaining nine seeds after the focused agitator cap. The guarded resume command was invoked once and printed these completed rows before aggregate assertions:
+
+| Seed | Finishers | Last elapsed | Escapes | Stalls | Unique IDs |
+| ---: | ---: | --- | ---: | ---: | --- |
+| 23 | 0 | — | 22 | 78 | true |
+| 37 | 0 | — | 26 | 73 | true |
+| 41 | 0 | — | 25 | 74 | true |
+| 53 | 1 | 53183.33333333132 | 21 | 75 | true |
+| 67 | 1 | 51983.333333331495 | 21 | 76 | true |
+| 71 | 2 | 51883.33333333151 | 26 | 71 | true |
+| 83 | 1 | 52933.33333333136 | 31 | 65 | true |
+| 97 | 0 | — | 24 | 73 | true |
+| 101 | no captured row | — | — | — | — |
+
+The command exited after seed 97 without printing a seed-101 row. Because that seed may have begun stepping before termination, the ledger conservatively records it as consumed. The physics budget is **10/10**, with zero remaining attempts; no rerun is permitted. Qualification is blocked by mass escapes/stalls on every captured resumed row, and seed 101 has no result to claim.
+
+Focused/static tests and the build may still pass, but they do not qualify the obstacle course. Any later dynamic retest requires explicit user authorization for an eleventh attempt after a broader obstacle/route safety redesign.
 
 ## Manual/mobile checks not performed
 
