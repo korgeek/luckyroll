@@ -216,6 +216,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   let angles = devices.pinwheels.map(() => 0);
   let disposed = false;
   let gateOpen = false;
+  let forceGateOpen = false;
   let launched = new WeakSet<RapierBody>();
   const cellCount = built.track.cells.length;
   let consumed = createBoosterState(100, cellCount);
@@ -246,7 +247,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     ensureLive();
     elapsedSeconds += TIMESTEP_SECONDS;
     angles = angles.map(() => elapsedSeconds * 2);
-    gateOpen = elapsedSeconds * 1_000 >= devices.start.shuffleMs;
+    gateOpen = forceGateOpen || elapsedSeconds * 1_000 >= devices.start.shuffleMs;
     applyDevicePose(true);
     return pose();
   };
@@ -281,9 +282,9 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     }
     return Object.freeze(events);
   };
-  const reset = (): ModularDevicePose => {
+  const reset = (remainingRestart = false): ModularDevicePose => {
     ensureLive();
-    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); gateOpen = false; launched = new WeakSet<RapierBody>(); consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>();
+    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; launched = new WeakSet<RapierBody>(); consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>();
     applyDevicePose(false);
     return pose();
   };

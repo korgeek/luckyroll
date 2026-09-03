@@ -5,21 +5,23 @@ import { createRaceFocusDirector, getTrackBounds, writeCameraShot, writeControll
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
-import { buildValidatedTrack, type BuiltTrack } from "./track/trackBuild";
+import type { BuiltTrack } from "./track/trackBuild";
 import { buildObstacleGeometry, type ObstacleGeometryResources } from "./track/obstacleGeometry";
-import { createObstaclePhysics, createBowlLaunchPositions, type DevicePose, type ObstaclePhysicsResources } from "./track/obstaclePhysics";
+import { createObstaclePhysics, type DevicePose, type ObstaclePhysicsResources } from "./track/obstaclePhysics";
 import { createObstacleRenderGroup, disposeObstacleRenderGroup, setDeviceRenderPose } from "./track/obstacleRender";
-import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, initializeTrackPhysics, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
-import { createTrackRenderGroup, disposeTrackRenderGroup } from "./track/trackRender";
+import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, distanceSquaredToSample, initializeTrackPhysics, insideFinishVolume } from "./track/trackPhysics";
+import { disposeTrackRenderGroup } from "./track/trackRender";
 import { projectToTrack } from "./track/trackSampler";
-import { createLaunchSlots } from "./track/trackSpec";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
+import { createBuiltInTrackResources, createRaceCourse, type RaceCourse, type RaceCourseRun } from "./raceCourse";
 
 export type SceneEvent =
   | { type: "tick"; elapsedMs: number; finishedCount: number; remaining: Marble[]; leader?: Marble; trailer?: Marble }
   | { type: "finish"; marble: Marble }
+  | { type: "dnf"; marble: Marble; reason: "escape" | "non-finite" }
+  | { type: "error"; message: string }
   | { type: "timeout"; remaining: Marble[] };
-export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; reset: () => void; dispose: () => void };
+export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; setPaused: (paused: boolean) => void; reset: () => void; dispose: () => void };
 type Ball = { id: number; marble: Marble; body: any; done: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
 type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 export type CameraRankItem = Readonly<{ done: boolean; progress: number }>;
@@ -35,7 +37,7 @@ export type SceneObstacleResources = Readonly<{
   reset: (options?: Readonly<{ gateOpen?: boolean }>) => DevicePose;
   dispose: () => void;
 }>;
-export type SceneRaceClock = Readonly<{ consumeAfterWorldStep: (pose: DevicePose, now: number) => void; elapsedMs: (now: number, pausedDuration?: number, pauseStarted?: number, paused?: boolean) => number; reset: () => void }>;
+export type SceneRaceClock = Readonly<{ consumeAfterWorldStep: (pose: Pick<DevicePose, "raceClockStarted">, now: number) => void; elapsedMs: (now: number, pausedDuration?: number, pauseStarted?: number, paused?: boolean) => number; reset: () => void }>;
 type SceneTrackColliderCreator = (world: any, geometry: BuiltTrack["geometry"]) => unknown;
 type SceneStartLifecycleOptions<Request> = Readonly<{
   initialize: () => Promise<void>;
@@ -102,8 +104,7 @@ export const createSceneDebugOverlay = (mount: HTMLElement, debug: DebugCameraSt
 };
 
 export const createSceneTrackResources = (debug = false): SceneTrackResources => {
-  const built = buildValidatedTrack({ features: true });
-  return Object.freeze({ built, renderGroup: createTrackRenderGroup(built.geometry, { debug, checkpointNodes: built.spec.nodes }) });
+  return createBuiltInTrackResources(debug);
 };
 
 export const attachSceneTrackCollider = (
@@ -218,7 +219,14 @@ export const evaluateRaceBody = (
   });
 };
 
-export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void): RaceScene {
+export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void, selection: import("../designer/trackDesign").RaceCourseSelection = { kind: "builtin" }): RaceScene {
+  let course: RaceCourse;
+  try {
+    course = createRaceCourse(selection);
+  } catch (error) {
+    emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    return { start: () => undefined, restartRemaining: () => undefined, setPaused: () => undefined, reset: () => undefined, dispose: () => undefined };
+  }
   const profile = selectQualityProfile({ width: window.innerWidth, devicePixelRatio: window.devicePixelRatio });
   const debugEnabled = isTrackDebugEnabled(window.location.search);
   const debug = createDebugCameraState(debugEnabled);
@@ -237,17 +245,16 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const key = new THREE.DirectionalLight("#dce8ff", 2.3); key.position.set(12, 42, 36); scene.add(key);
   const cyan = new THREE.PointLight("#19d7e7", 30, 58, 1.3); cyan.position.set(0, 27, 38); scene.add(cyan);
   const magenta = new THREE.PointLight("#e73da7", 24, 46, 1.2); magenta.position.set(4, 8, -58); scene.add(magenta);
-  const sceneTrack = createSceneTrackResources(debugEnabled);
-  const bounds = getTrackBounds(sceneTrack.built.samples);
+  const bounds = getTrackBounds(course.samples);
   const trackDebug = debugEnabled ? createSceneDebugOverlay(canvas.parentElement ?? document.body, debug) : undefined;
-  const track = sceneTrack.renderGroup;
+  const track = course.renderGroup;
   const marbleGroup = new THREE.Group();
   scene.add(track, marbleGroup);
-  let world: any; let obstacles: SceneObstacleResources | undefined; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
+  let world: any; let raceRun: RaceCourseRun | undefined; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
   const liveBalls: Ball[] = [];
   const rankedCameraBalls: Ball[] = [];
   let running = false; let timedOut = false; let last = performance.now(); let fixedAccumulator = 0; let disposed = false;
-  let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
+  let manualPaused = false; let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
   let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
   const dummy = new THREE.Object3D();
   const raceFocus = createRaceFocusDirector();
@@ -265,14 +272,11 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
 
   const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
-    if (!world) world = createTrackPhysicsWorld();
-    obstacles?.dispose(); obstacles = undefined;
-    world.free();
+    raceRun?.dispose(); raceRun = undefined;
+    world?.free();
     world = createTrackPhysicsWorld();
-    attachSceneTrackCollider(world, sceneTrack);
-    obstacles = createSceneObstacleResources(world, sceneTrack);
-    scene.add(obstacles.renderGroup);
-    if (remainingRestart) obstacles.reset({ gateOpen: true });
+    course.attach(world);
+    raceRun = course.createRun(world, marbles.length, seed, remainingRestart);
     track.visible = true;
     clearMarbles();
     const renderBindings = new Map<number, { mesh: THREE.InstancedMesh; renderIndex: number }>(); renderMeshes = [];
@@ -281,9 +285,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       colorMesh.frustumCulled = false; colorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); marbleGroup.add(colorMesh); renderMeshes.push(colorMesh);
       batch.sourceIndexes.forEach((sourceIndex, renderIndex) => renderBindings.set(sourceIndex, { mesh: colorMesh, renderIndex }));
     });
-    const launchPositions = remainingRestart
-      ? launchPositionsFor(createLaunchSlots(marbles.length), sceneTrack.built.geometry, seed)
-      : createBowlLaunchPositions(marbles.length, obstacles.geometry.layout.start, seed);
+    const launchPositions = raceRun.launchPositions;
     const bodies = createMarbleBodies(
       world,
       launchPositions,
@@ -293,14 +295,14 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   };
 
   const updateCamera = (elapsedMs: number, leaderProgress: number) => {
-    let localUp = sceneTrack.built.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
+    let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
     if (debug.isPaused()) {
       activeShot = debug.activeShot();
       writeCameraShot(cameraShot, activeShot, bounds);
     } else {
       const target = raceFocus.select(rankedCameraBalls, leaderProgress, elapsedMs);
       if (target) {
-        const sample = sceneTrack.built.samples[target.sampleIndex] ?? sceneTrack.built.samples[0];
+        const sample = course.samples[target.sampleIndex] ?? course.samples[0];
         localUp = sample.up;
         activeShot = target === rankedCameraBalls[0] ? "leader" : target === rankedCameraBalls[rankedCameraBalls.length - 1] ? "trailer" : "profile";
         writeTrackFollowShot(cameraShot, target.position, sample, bounds);
@@ -324,21 +326,32 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (disposed) return;
     requestAnimationFrame(loop);
     const delta = Math.min(33, now - last); last = now;
-    const paused = debug.isPaused();
+    const paused = manualPaused || debug.isPaused();
     if (running && paused && !debugWasPaused) pauseStarted = now;
     if (running && !paused && debugWasPaused) pausedDuration += now - pauseStarted;
     debugWasPaused = paused;
-    if (running && world && obstacles && renderMeshes.length && !paused) {
+    if (running && world && raceRun && renderMeshes.length && !paused) {
       fixedAccumulator += delta;
       while (fixedAccumulator >= 1000 / 60) {
-        const pose = stepSceneObstacleResources(world, obstacles);
+        const pose = raceRun.stepBeforeWorld();
+        world.timestep = 1 / 60;
+        world.step();
+        raceRun.stepAfterWorld(balls.map((ball) => ball.body));
         raceClock.consumeAfterWorldStep(pose, now);
         fixedAccumulator -= 1000 / 60;
       }
       const elapsedMs = raceClock.elapsedMs(now, pausedDuration, pauseStarted, false);
       balls.forEach((ball) => {
         if (ball.done) return;
-        const raceState = evaluateRaceBody(ball.body, sceneTrack.built.samples);
+        const position = ball.body.translation();
+        const finite = [position.x, position.y, position.z].every(Number.isFinite);
+        if (!finite) {
+          ball.done = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "non-finite" }); return;
+        }
+        const raceState = evaluateRaceBody(ball.body, course.samples);
+        if (!Number.isFinite(raceState.projection.progress) || distanceSquaredToSample(position, course.samples[raceState.projection.sampleIndex]) > 15 ** 2) {
+          ball.done = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "escape" }); return;
+        }
         ball.progress = raceState.projection.progress; ball.sampleIndex = raceState.projection.sampleIndex; ball.position = raceState.position;
         if (raceState.finished) {
           ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble });
@@ -365,16 +378,24 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const starts = createSceneStartLifecycle({
     initialize: initializeScenePhysics,
     onReady: () => { world = createTrackPhysicsWorld(); },
-    onStart: ({ marbles, seed, remainingRestart = false }: { marbles: Marble[]; seed: number; remainingRestart?: boolean }) => begin(marbles, seed, remainingRestart),
-    onError: (error) => { console.error("Lucky Roll physics initialization failed.", error); },
+    onStart: ({ marbles, seed, remainingRestart = false }: { marbles: Marble[]; seed: number; remainingRestart?: boolean }) => {
+      try {
+        begin(marbles, seed, remainingRestart);
+      } catch (error) {
+        raceRun?.dispose(); raceRun = undefined; course.dispose(); world?.free(); world = undefined; running = false;
+        emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    },
+    onError: (error) => { emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); },
   });
   requestAnimationFrame(loop);
   return {
     start: (marbles, seed) => starts.requestStart({ marbles, seed }),
     restartRemaining: (marbles) => starts.requestStart({ marbles, seed: Date.now(), remainingRestart: true }),
-    reset: () => { starts.reset(); raceFocus.reset(); raceClock.reset(); running = false; obstacles?.dispose(); obstacles = undefined; balls = []; liveBalls.length = 0; rankedCameraBalls.length = 0; renderMeshes = []; clearMarbles(); track.visible = false; },
+    setPaused: (paused) => { manualPaused = paused; },
+    reset: () => { starts.reset(); raceFocus.reset(); raceClock.reset(); running = false; raceRun?.dispose(); raceRun = undefined; world?.free(); world = undefined; balls = []; liveBalls.length = 0; rankedCameraBalls.length = 0; renderMeshes = []; clearMarbles(); track.visible = false; },
     dispose: () => {
-      disposed = true; starts.dispose(); running = false; obstacles?.dispose(); obstacles = undefined; world?.free(); trackDebug?.dispose(); disposeTrackRenderGroup(track); clearMarbles(); renderer.dispose();
+      disposed = true; starts.dispose(); running = false; raceRun?.dispose(); raceRun = undefined; course.dispose(); world?.free(); trackDebug?.dispose(); clearMarbles(); renderer.dispose();
       window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);
     },
   };
