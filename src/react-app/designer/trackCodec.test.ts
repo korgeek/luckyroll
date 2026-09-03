@@ -11,10 +11,12 @@ describe("strict shared track codec", () => {
   });
 
   it("encodes only portable fields and creates a track hash URL", () => {
-    const result = createShareUrl(createValidTrackDesign("Portable"), "https://example.test/designer?mode=share");
+    const track = createValidTrackDesign("Portable");
+    const result = createShareUrl(track, "https://example.test/designer?mode=share");
     expect(result.url).toBe(`https://example.test/designer?mode=share#track=${result.token}`);
-    expect(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(result.token.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(result.token.length / 4) * 4, "=")), (c) => c.charCodeAt(0))))).toEqual(expect.objectContaining({ version: 1, name: "Portable" }));
-    expect(result.token).not.toContain("id");
+    const portable = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(result.token.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(result.token.length / 4) * 4, "=")), (c) => c.charCodeAt(0))));
+    expect(portable).toEqual({ version: 1, name: "Portable", cells: track.cells });
+    expect(Object.keys(portable)).toEqual(["version", "name", "cells"]);
   });
 
   it.each([
@@ -37,6 +39,7 @@ describe("strict shared track codec", () => {
     expect(() => decodeSharedTrack(json({ ...validTrack, id: "bad" }))).toThrow();
     expect(() => decodeSharedTrack(json({ ...validTrack, version: 2 }))).toThrow();
     expect(() => decodeSharedTrack(json({ ...validTrack, cells: validTrack.cells.slice(0, 39) }))).toThrow();
+    expect(() => decodeSharedTrack(encode(new TextEncoder().encode("{")))).toThrow();
     expect(() => decodeSharedTrack("__8")).toThrow();
     expect(() => decodeSharedTrack("a".repeat(8193))).toThrow();
     expect(() => decodeSharedTrack(encode(new Uint8Array(6145)))).toThrow();

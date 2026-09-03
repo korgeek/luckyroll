@@ -37,7 +37,7 @@ export const loadTrackLibrary = (storage: Storage): LibraryLoadResult => {
 };
 
 export const persistTrackLibrary = (storage: Storage, library: TrackLibrary): void => {
-  storage.setItem(TRACK_LIBRARY_KEY, JSON.stringify(library));
+  storage.setItem(TRACK_LIBRARY_KEY, JSON.stringify(parseLibrary(library)));
 };
 
 export const upsertTrack = (library: TrackLibrary, track: TrackDesign, options: SaveIdentity): SaveResult => {

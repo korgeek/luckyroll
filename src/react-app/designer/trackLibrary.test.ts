@@ -63,12 +63,26 @@ describe("atomic local track library", () => {
     expect(storage.length).toBe(1);
   });
 
-  it("does not mutate library when persistence throws", () => {
+  it("rejects malformed libraries before writing and preserves existing bytes", () => {
+    const storage = memoryStorage({ "luckyroll.tracks": "existing" });
+    const malformed = { version: 1, tracks: [{ id: "one", name: "bad", cells: [], updatedAt: 1 }] } as unknown as TrackLibrary;
+    expect(() => persistTrackLibrary(storage, malformed)).toThrow();
+    expect(storage.getItem("luckyroll.tracks")).toBe("existing");
+  });
+
+  it("preserves existing bytes when persistence throws", () => {
     const library = { version: 1, tracks: [] } as TrackLibrary;
-    const storage = memoryStorage();
+    const storage = memoryStorage({ "luckyroll.tracks": "existing" });
     storage.setItem = () => { throw new Error("quota"); };
     expect(() => persistTrackLibrary(storage, library)).toThrow("quota");
+    expect(storage.getItem("luckyroll.tracks")).toBe("existing");
     expect(library).toEqual({ version: 1, tracks: [] });
     expect(() => resetTrackLibrary(storage)).toThrow("quota");
+  });
+
+  it("returns a non-destructive failure when getItem throws", () => {
+    const storage = memoryStorage({ "luckyroll.tracks": "existing" });
+    storage.getItem = () => { throw new Error("read failure"); };
+    expect(loadTrackLibrary(storage)).toEqual({ ok: false, raw: null, message: "read failure" });
   });
 });
