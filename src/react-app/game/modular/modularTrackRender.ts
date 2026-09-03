@@ -33,6 +33,10 @@ const toGeometry = (resource: IndexedGeometry): THREE.BufferGeometry => {
 };
 const toVector = (value: Vec3): THREE.Vector3 => new THREE.Vector3(value.x, value.y, value.z);
 const orient = (object: THREE.Object3D, axis: Vec3): void => { object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(axis).normalize()); };
+const orientBasis = (object: THREE.Object3D, up: Vec3, axis: Vec3): void => {
+  const x = toVector(up).normalize(); const y = toVector(axis).normalize(); const z = new THREE.Vector3().crossVectors(x, y).normalize();
+  object.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+};
 const frameQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
   const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.up), toVector(frame.tangent).negate());
   return new THREE.Quaternion().setFromRotationMatrix(basis);
@@ -78,7 +82,7 @@ const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMateria
   const transform = new THREE.Object3D();
   devices.bumpers.forEach((bar, index) => {
     const coreLength = bar.length - bar.thickness;
-    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(bar.height, coreLength, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
+    transform.position.copy(toVector(bar.center)); orientBasis(transform, bar.up, bar.axis); transform.scale.set(bar.height, coreLength, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
     for (const [capIndex, sign] of [-1, 1].entries()) {
       transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * coreLength / 2);
       transform.scale.set(bar.height, bar.thickness, bar.thickness); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);

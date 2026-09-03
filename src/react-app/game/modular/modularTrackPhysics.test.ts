@@ -14,6 +14,7 @@ import {
   getInitializedTrackPhysicsRapier,
   initializeTrackPhysics,
 } from "../track/trackPhysics";
+import { resolveModuleDevices } from "./moduleDevices";
 
 describe("modular track physics", () => {
   it("creates one fixed welded trimesh with internal-edge fixing", async () => {
@@ -84,6 +85,29 @@ describe("modular track physics", () => {
     expect(launchedVelocity).toBeDefined();
     if (launchedVelocity === undefined) throw new Error("Gate did not launch the marble.");
     expect(launchedVelocity.x * forward.x + launchedVelocity.y * forward.y + launchedVelocity.z * forward.z).toBeCloseTo(8, 5);
+    resources.dispose(); world.free();
+  });
+
+  it("consumes only a forward swept booster crossing and clears it on reset", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters[0]!;
+    const [body] = createMarbleBodies(world, [{ ...booster.center, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
+    const at = (along: number): { x: number; y: number; z: number } => ({ x: booster.center.x + booster.forward.x * along, y: booster.center.y + booster.forward.y * along, z: booster.center.z + booster.forward.z * along });
+    const outside = (booster.endDistance - booster.startDistance) / 2 + 1;
+    resources.reset(); body.setTranslation(at(-outside), true); resources.stepAfterWorld([body]);
+    body.setTranslation(at(outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
+    expect(resources.stepAfterWorld([body])).toHaveLength(1);
+    body.setTranslation(at(-outside), true); body.setLinvel({ x: -booster.forward.x * 10, y: -booster.forward.y * 10, z: -booster.forward.z * 10 }, true);
+    expect(resources.stepAfterWorld([body])).toHaveLength(0);
+    resources.reset(); body.setTranslation(at(-outside), true); resources.stepAfterWorld([body]);
+    body.setTranslation(at(-outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
+    expect(resources.stepAfterWorld([body])).toHaveLength(0);
+    resources.reset(); body.setTranslation(at(-outside), true); resources.stepAfterWorld([body]);
+    body.setTranslation(at(outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
+    expect(resources.stepAfterWorld([body])).toHaveLength(1);
     resources.dispose(); world.free();
   });
 });

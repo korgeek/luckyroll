@@ -32,6 +32,7 @@ describe("canonical modular devices", () => {
     }
     for (const bumper of devices.bumpers) {
       expect(dot(bumper.forward, bumper.tipDirection)).toBeGreaterThan(0);
+      expect(Math.abs(dot(bumper.up, bumper.axis))).toBeLessThan(1e-6);
       expect(bumper.clearPassage).toBeGreaterThanOrEqual(3 * 0.68);
       expect(bumper.distanceFromNearestSeam).toBeGreaterThanOrEqual(2);
       expect(bumper.thickness).toBeCloseTo(0.45 * 0.68, 8);

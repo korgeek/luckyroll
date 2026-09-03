@@ -17,6 +17,7 @@ const PINWHEEL_RADIUS = 0.28 * CHANNEL_WIDTH;
 const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+const subtract = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const scale = (a: Vec3, amount: number): Vec3 => ({ x: a.x * amount, y: a.y * amount, z: a.z * amount });
 const normalize = (a: Vec3): Vec3 => {
   const length = Math.hypot(a.x, a.y, a.z);
@@ -49,6 +50,7 @@ export type BumperBar = Readonly<{
   center: Vec3;
   forward: Vec3;
   axis: Vec3;
+  up: Vec3;
   tipDirection: Vec3;
   length: number;
   thickness: number;
@@ -133,12 +135,14 @@ const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[])
     if (frame === undefined) continue;
     const inward = scale(frame.side, -sign);
     const axis = rotate(inward, frame.tangent, BUMPER_TIP_ANGLE);
+    const up = normalize(subtract(frame.up, scale(axis, frame.up.x * axis.x + frame.up.y * axis.y + frame.up.z * axis.z)));
     values.push(Object.freeze({
       cellIndex,
       localU,
       center: add(add(frame.position, scale(frame.side, sign * (CHANNEL_WIDTH / 2 - BUMPER_LENGTH / 2))), scale(frame.up, BUMPER_HEIGHT / 2)),
       forward: frame.tangent,
       axis,
+      up,
       tipDirection: axis,
       length: BUMPER_LENGTH,
       thickness: BUMPER_THICKNESS,

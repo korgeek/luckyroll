@@ -48,6 +48,7 @@ export type ModularDevicePose = Readonly<{
 export type ModularPhysicsResources = Readonly<{
   trackCollider: RapierCollider;
   fixedColliders: readonly RapierCollider[];
+  pinwheelBodies: readonly RapierBody[];
   stepBeforeWorld: () => ModularDevicePose;
   stepAfterWorld: (bodies: readonly RapierBody[]) => readonly BoosterEvent[];
   reset: (remainingRestart?: boolean) => ModularDevicePose;
@@ -175,7 +176,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
 
   for (const bumper of devices.bumpers) {
     const axis = normalize(bumper.axis);
-    const up = normalize(subtract({ x: 0, y: 1, z: 0 }, scale(axis, dot({ x: 0, y: 1, z: 0 }, axis))));
+    const up = normalize(bumper.up);
     const rotation = rotationFromBasis(up, axis, normalize(cross(up, axis)));
     const body = world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(bumper.center.x, bumper.center.y, bumper.center.z).setRotation(rotation));
     const coreLength = Math.max(0, bumper.length - bumper.thickness);
@@ -201,9 +202,10 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     const halfLength = Math.max(0, pinwheel.radius / 2 - pinwheel.armThickness / 2);
     for (let arm = 0; arm < 3; arm += 1) {
       const angle = arm * Math.PI * 2 / 3;
+      const radial = { x: Math.cos(angle), y: 0, z: Math.sin(angle) };
       const descriptor = rapier.ColliderDesc.capsule(halfLength, pinwheel.armThickness / 2)
-        .setTranslation(Math.cos(angle) * pinwheel.radius / 2, 0, Math.sin(angle) * pinwheel.radius / 2)
-        .setRotation(rotationAround({ x: 0, y: 0, z: 1 }, angle - Math.PI / 2))
+        .setTranslation(radial.x * pinwheel.radius / 2, 0, radial.z * pinwheel.radius / 2)
+        .setRotation(rotationFromUp(radial))
         .setFriction(FRICTION).setRestitution(RESTITUTION);
       world.createCollider(descriptor, body);
     }
@@ -232,11 +234,13 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     });
   };
   const crossing = (previous: Vec3, current: Vec3, booster: ModuleDevices["boosters"][number]): boolean => {
-    const previousAlong = dot(subtract(previous, booster.center), booster.forward);
-    const currentAlong = dot(subtract(current, booster.center), booster.forward);
+    const previousOffset = subtract(previous, booster.center); const currentOffset = subtract(current, booster.center);
+    const previousAlong = dot(previousOffset, booster.forward); const currentAlong = dot(currentOffset, booster.forward);
+    const lateralLimit = CHANNEL_WIDTH / 2 - MARBLE_DIAMETER / 2;
+    if (Math.abs(dot(previousOffset, booster.side)) > lateralLimit || Math.abs(dot(currentOffset, booster.side)) > lateralLimit) return false;
     const halfLength = (booster.endDistance - booster.startDistance) / 2;
     const low = -halfLength; const high = halfLength;
-    return Math.max(previousAlong, currentAlong) >= low && Math.min(previousAlong, currentAlong) <= high;
+    return currentAlong > previousAlong + 1e-7 && previousAlong <= high && currentAlong >= low;
   };
   const stepBeforeWorld = (): ModularDevicePose => {
     ensureLive();
@@ -286,6 +290,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   return Object.freeze({
     trackCollider,
     fixedColliders: Object.freeze(fixedColliders),
+    pinwheelBodies: Object.freeze(pinwheelBodies),
     stepBeforeWorld,
     stepAfterWorld,
     reset,
@@ -312,53 +317,58 @@ export const runModularSeamProbe = async (options: SeamProbeOptions): Promise<Se
   await initializeTrackPhysics();
   const rapier = getInitializedTrackPhysicsRapier();
   const profile = profileAt(CHANNEL_WIDTH);
-  const makeMesh = (rows: readonly number[], welded: boolean): Readonly<{ positions: Float32Array; indices: Uint32Array }> => {
-    const rowValues = welded ? rows : [rows[0], rows[1], rows[1], rows[2]];
+  const makeMesh = (rows: readonly number[]): Readonly<{ positions: Float32Array; indices: Uint32Array }> => {
+    const rowValues = rows;
     const positions = new Float32Array(rowValues.length * profile.length * 3);
     rowValues.forEach((along, row) => profile.forEach((point, column) => {
       const offset = (row * profile.length + column) * 3;
       positions[offset] = along; positions[offset + 1] = point.height; positions[offset + 2] = point.lateral;
     }));
-    const spans = welded ? rowValues.length - 1 : 2;
+    const spans = rowValues.length - 1;
     const indices = new Uint32Array(Math.max(0, spans) * (profile.length - 1) * 6);
     let offset = 0;
     for (let row = 0; row < spans; row += 1) {
-      const firstRow = welded ? row : row === 0 ? 0 : 2;
+      const firstRow = row;
       for (let column = 0; column < profile.length - 1; column += 1) {
       const mappedA = firstRow * profile.length + column; const mappedB = mappedA + 1; const mappedC = (firstRow + 1) * profile.length + column; const mappedD = mappedC + 1;
-      indices[offset++] = mappedA; indices[offset++] = mappedC; indices[offset++] = mappedB; indices[offset++] = mappedB; indices[offset++] = mappedC; indices[offset++] = mappedD;
+      indices[offset++] = mappedA; indices[offset++] = mappedB; indices[offset++] = mappedC; indices[offset++] = mappedB; indices[offset++] = mappedD; indices[offset++] = mappedC;
       }
     }
     return Object.freeze({ positions, indices });
   };
-  const surface = profile.reduce((nearest, point, index) => Math.abs(point.lateral - options.lateral) < Math.abs(profile[nearest].lateral - options.lateral) ? index : nearest, 0);
-  const point = profile[surface];
-  const previous = profile[Math.max(0, surface - 1)]; const next = profile[Math.min(profile.length - 1, surface + 1)];
-  const normal = normalize({ x: 0, y: next.lateral - previous.lateral, z: -(next.height - previous.height) });
-  const start = { x: -0.05 * 20, y: point.height + Math.max(0.2, normal.y) * MARBLE_DIAMETER / 2 + 0.02, z: options.lateral };
+  const surface = Math.max(0, profile.findIndex((candidate, index) => index > 0 && options.lateral <= candidate.lateral) - 1);
+  const lower = profile[surface]; const upper = profile[Math.min(profile.length - 1, surface + 1)];
+  const amount = (options.lateral - lower.lateral) / (upper.lateral - lower.lateral || 1);
+  const point = { lateral: lower.lateral + (upper.lateral - lower.lateral) * amount, height: lower.height + (upper.height - lower.height) * amount };
+  const normal = normalize({ x: 0, y: upper.lateral - lower.lateral, z: -(upper.height - lower.height) });
+  const start = { x: -0.05 * 20, y: point.height + normal.y * MARBLE_DIAMETER / 2 + 0.02, z: point.lateral + normal.z * MARBLE_DIAMETER / 2 };
   const steps = Math.ceil(0.2 * 20 / options.speed / (1 / 240)) + 8;
-  const run = (rows: readonly number[], welded: boolean): Readonly<{ velocity: Vec3; position: Vec3 }> => {
+  const run = (rows: readonly number[], flags = 0): Readonly<{ velocity: Vec3; position: Vec3 }> => {
     const world = createTrackPhysicsWorld({ x: 0, y: -16, z: 0 });
     world.timestep = 1 / 240;
-    const mesh = makeMesh(rows, welded);
+    const mesh = makeMesh(rows);
     const trackBody = world.createRigidBody(rapier.RigidBodyDesc.fixed());
-    world.createCollider(rapier.ColliderDesc.trimesh(mesh.positions, mesh.indices).setFriction(FRICTION).setRestitution(RESTITUTION), trackBody);
+    world.createCollider(rapier.ColliderDesc.trimesh(mesh.positions, mesh.indices, flags).setFriction(FRICTION).setRestitution(RESTITUTION), trackBody);
     const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(start.x, start.y, start.z));
     body.enableCcd(true);
     world.createCollider(rapier.ColliderDesc.ball(MARBLE_DIAMETER / 2).setFriction(FRICTION).setRestitution(RESTITUTION), body);
     body.setLinvel({ x: options.speed, y: 0, z: 0 }, true);
-    for (let step = 0; step < steps; step += 1) world.step();
-    const result = Object.freeze({ velocity: toVec3(body.linvel()), position: toVec3(body.translation()) });
+    let seamVelocity: Vec3 | undefined;
+    for (let step = 0; step < steps; step += 1) {
+      world.step();
+      if (seamVelocity === undefined && body.translation().x >= 0) seamVelocity = toVec3(body.linvel());
+    }
+    const result = Object.freeze({ velocity: seamVelocity ?? toVec3(body.linvel()), position: toVec3(body.translation()) });
     world.free();
     return result;
   };
-  const welded = run([-10, 0, 10], true);
-  // The control uses the same analytic endpoints and longitudinal samples, without any device colliders.
-  const control = run([-10, 0, 10], false);
-  const normalDelta = Math.abs(welded.velocity.y - control.velocity.y);
+  // The welded panel shares the middle seam row; the control is a single endpoint-to-endpoint span.
+  const welded = run([-10, 0, 10], rapier.TriMeshFlags.FIX_INTERNAL_EDGES);
+  const control = run([-10, 10]);
+  const normalDelta = Math.abs(dot(subtract(welded.velocity, control.velocity), normal));
   const forwardLoss = Math.max(0, control.velocity.x - welded.velocity.x) / options.speed;
   const escaped = ![welded.position.x, welded.position.y, welded.position.z, welded.velocity.x, welded.velocity.y, welded.velocity.z].every(Number.isFinite)
-    || Math.abs(welded.position.z) > CHANNEL_WIDTH / 2 + MARBLE_DIAMETER
+    || Math.abs(welded.position.z) > CHANNEL_WIDTH / 2 - MARBLE_DIAMETER / 2
     || welded.position.y < -MARBLE_DIAMETER;
   return Object.freeze({ maxNormalVelocityDelta: normalDelta, maxForwardLossRatio: forwardLoss, escapes: escaped ? 1 : 0 });
 };

@@ -56,3 +56,31 @@ Raw result: TypeScript exit 0; `Test Files 1 passed (1)` and `Tests 8 passed (8)
 The deferred 60-second/100-marble run remains unimplemented and unrun.
 
 Fix-round physical changes also add the canonical gate cuboid with disabled/open transition, local-Y pinwheel rotation, full descriptor-sized bumper colliders/render instances, and cleared previous-position/booster state on reset.
+
+## Fix Round 2
+
+The seam probe now compares a welded `[-10, 0, 10]` profile against a true continuous `[-10, 10]` control panel. Both use real Rapier dynamic CCD balls seeded on the interpolated full surface normal. The nine representative cases (speeds 8, 18, and 42 at center and both near-wall offsets) measure welded/control velocity normal delta and forward loss, and use finite/floor/outer-clearance escape checks; no literal result is substituted.
+
+Additional focused fixes enforce strict forward swept booster crossing (including containment and skip-through behavior), reset replacement of crossing history/state, pinwheel capsule local-Y radial alignment, and the canonical bumper frame (`X=up`, `Y=axis`, `Z=cross(up,axis)`) across physics and render dimensions.
+
+Final focused verification raw results:
+
+```text
+npx tsc -p tsconfig.app.json --noEmit
+```
+
+Raw result: exit 0.
+
+```text
+npm test -- --run src/react-app/game/modular/modularTrackRender.test.ts
+```
+
+Raw result: `Test Files 1 passed (1)`; `Tests 5 passed (5)`.
+
+```text
+npm test -- --run src/react-app/game/modular/modularTrackPhysics.test.ts src/react-app/game/track/trackPhysics.test.ts
+```
+
+Raw result: `Test Files 2 passed (2)`; `Tests 18 passed (18)`. Rapier emitted only its existing deprecated initialization-parameter warning.
+
+The deferred 60-second/100-marble soak and qualification validation remain intentionally unimplemented and unrun.
