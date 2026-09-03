@@ -60,7 +60,7 @@ const wideHall = (frame: ResolvedFrame, width: number, length: number): IndexedG
   return indexed(positions, [0, 2, 1, 1, 2, 3, 0, 4, 2, 2, 4, 6, 1, 3, 5, 3, 7, 5]);
 };
 
-const walledBowl = (frame: ResolvedFrame, outerRadius: number, innerRadius: number, drop: number, innerAlong: number, wallHeight: number, segments = 32): IndexedGeometry => {
+const walledBowl = (frame: ResolvedFrame, outerRadius: number, innerRadius: number, drop: number, innerAlong: number, wallHeight: number, entryAngle = 0, segments = 32): IndexedGeometry => {
   const positions: number[] = []; const indices: number[] = []; const radial = [innerRadius, innerRadius + 0.16, (innerRadius + outerRadius) / 2, outerRadius];
   const heights = [-drop, -drop + 0.12, -drop * 0.28, 0];
   radial.forEach((radius, ring) => {
@@ -70,19 +70,20 @@ const walledBowl = (frame: ResolvedFrame, outerRadius: number, innerRadius: numb
   for (let ring = 0; ring < radial.length - 1; ring += 1) for (let i = 0; i < segments; i += 1) { const next = (i + 1) % segments; const a = ring * segments + i; const b = ring * segments + next; const c = a + segments; const d = b + segments; indices.push(a, b, c, b, d, c); }
   const floorOuter = (radial.length - 1) * segments; const innerTop = floorOuter + segments; const outerTop = innerTop + segments; const outerBottom = outerTop + segments;
   for (const [radius, height] of [[outerRadius, wallHeight], [outerRadius + 0.42, wallHeight], [outerRadius + 0.42, 0]] as const) for (let i = 0; i < segments; i += 1) { const angle = i / segments * Math.PI * 2; write(positions, inFrame(frame, Math.cos(angle) * radius, Math.sin(angle) * radius, height)); }
-  const aperture = (i: number): boolean => i <= 2 || i >= segments - 2;
+  const entrySegment = Math.round((entryAngle / (Math.PI * 2) + 1) * segments) % segments;
+  const aperture = (i: number): boolean => Math.abs(((i - entrySegment + segments / 2) % segments) - segments / 2) <= 2;
   for (let i = 0; i < segments; i += 1) if (!aperture(i)) {
     const next = (i + 1) % segments;
     for (const [from, to] of [[floorOuter, innerTop], [innerTop, outerTop], [outerTop, outerBottom], [outerBottom, floorOuter]] as const) { const a = from + i; const b = from + next; const c = to + i; const d = to + next; indices.push(a, c, b, b, c, d); }
   }
-  for (const at of [3, segments - 2]) { const a = floorOuter + at; const b = innerTop + at; const c = outerTop + at; const d = outerBottom + at; indices.push(a, b, c, a, c, d); }
+  for (const at of [(entrySegment + 3) % segments, (entrySegment - 3 + segments) % segments]) { const a = floorOuter + at; const b = innerTop + at; const c = outerTop + at; const d = outerBottom + at; indices.push(a, b, c, a, c, d); }
   return indexed(positions, indices);
 };
 
 const channelThroat = (frame: ResolvedFrame, centerAlong: number, width: number, length: number, depth: number): IndexedGeometry => {
-  const positions: number[] = []; const indices: number[] = [];
-  for (const along of [-length / 2, length / 2]) for (const lateral of [-width / 2, width / 2]) { write(positions, inFrame(frame, centerAlong + along, lateral, -depth)); write(positions, inFrame(frame, centerAlong + along, lateral, 0.9)); }
-  indices.push(0, 4, 2, 2, 4, 6, 0, 1, 4, 1, 5, 4, 2, 6, 3, 3, 6, 7);
+  const positions: number[] = []; const indices: number[] = []; const rows = 5; const cross = 8;
+  for (let row = 0; row < rows; row += 1) { const t = row / (rows - 1); const along = centerAlong + (t - 0.5) * length; const radius = width / 2 * (0.9 + 0.1 * Math.sin(Math.PI * t)); for (let i = 0; i <= cross; i += 1) { const angle = Math.PI + i / cross * Math.PI; write(positions, inFrame(frame, along, Math.cos(angle) * radius, -depth + Math.sin(angle) * radius)); } }
+  for (let row = 0; row < rows - 1; row += 1) for (let i = 0; i < cross; i += 1) { const a = row * (cross + 1) + i; const b = a + 1; const c = a + cross + 1; const d = c + 1; indices.push(a, c, b, b, c, d); }
   return indexed(positions, indices);
 };
 
@@ -103,12 +104,13 @@ const branchFloor = (left: Float32Array, right: Float32Array): IndexedGeometry =
   return indexed(positions, indices);
 };
 
-const tube = (centers: Float32Array, radius: number, frame: ResolvedFrame): IndexedGeometry => {
+const tube = (centers: Float32Array, radius: number, frames: readonly ResolvedFrame[]): IndexedGeometry => {
   const ring = 10; const count = centers.length / 3; const positions: number[] = []; const indices: number[] = [];
   const center = (index: number): Vec3 => ({ x: centers[index * 3], y: centers[index * 3 + 1], z: centers[index * 3 + 2] });
-  for (let i = 0; i < count; i += 1) for (let j = 0; j < ring; j += 1) { const angle = j / ring * Math.PI * 2; write(positions, add(center(i), add(scale(frame.side, Math.cos(angle) * radius), scale(frame.up, Math.sin(angle) * radius)))); }
+  for (let i = 0; i < count; i += 1) for (let j = 0; j < ring; j += 1) { const angle = j / ring * Math.PI * 2; const frame = frames[i]; write(positions, add(center(i), add(scale(frame.side, Math.cos(angle) * radius), scale(frame.up, Math.sin(angle) * radius)))); }
   for (let i = 0; i < count - 1; i += 1) for (let j = 0; j < ring; j += 1) { const next = (j + 1) % ring; const a = i * ring + j; const b = i * ring + next; const c = a + ring; const d = b + ring; indices.push(a, c, b, b, c, d); }
   const cap = (base: number, direction: Vec3, atEnd: boolean): void => {
+    const frame = frames[base];
     let prior = Array.from({ length: ring }, (_, j) => (atEnd ? (count - 1) * ring : 0) + j);
     for (let level = 1; level < 4; level += 1) {
       const angle = level / 4 * Math.PI / 2; const ringRadius = radius * Math.cos(angle); const shift = radius * Math.sin(angle); const ringIndexes: number[] = [];
@@ -123,28 +125,25 @@ const tube = (centers: Float32Array, radius: number, frame: ResolvedFrame): Inde
 
 const branch = (track: TrackGeometry, layout: ValidResolvedObstacleLayout): Readonly<{ rails: BranchGeometry; floors: readonly IndexedGeometry[] }> => {
   const samples = track.samples.slice(layout.branch.start.sampleIndex, layout.branch.end.sampleIndex + 1);
+  const frames = Array.from({ length: 17 }, (_, i) => { const sample = samples[Math.round(i / 16 * (samples.length - 1))]; return Object.freeze({ sampleIndex: sample.index, position: sample.position, tangent: sample.tangent, side: sample.side, up: sample.up }); });
   const centerlines = [sampleBranchPath(samples, "left"), sampleBranchPath(samples, "middle"), sampleBranchPath(samples, "right")];
-  return Object.freeze({ rails: Object.freeze({ ...join(centerlines.map((line) => tube(line, 0.28, layout.branch.start))), centerlines: Object.freeze(centerlines), radius: 0.28 }), floors: Object.freeze([branchFloor(centerlines[0], centerlines[1]), branchFloor(centerlines[1], centerlines[2])]) });
+  return Object.freeze({ rails: Object.freeze({ ...join(centerlines.map((line) => tube(line, 0.28, frames))), centerlines: Object.freeze(centerlines), radius: 0.28 }), floors: Object.freeze([branchFloor(centerlines[0], centerlines[1]), branchFloor(centerlines[1], centerlines[2])]) });
 };
 
 const catchChannel = (samples: readonly TrackGeometry["samples"][number][], frame: ResolvedFrame, outletAlong: number, radius: number): IndexedGeometry => {
-  const cross = 12;
-  const collar: number[] = []; const collarIndices: number[] = [];
-  for (const down of [0, 0.22]) for (let i = 0; i < cross; i += 1) { const angle = i / cross * Math.PI * 2; write(collar, inFrame(frame, outletAlong + Math.cos(angle) * radius, Math.sin(angle) * radius, -1.36 - down)); }
-  for (let i = 0; i < cross; i += 1) { const next = (i + 1) % cross; collarIndices.push(i, cross + i, next, next, cross + i, cross + next); }
-  const route = samples.slice(frame.sampleIndex, frame.sampleIndex + 6); const tunnel: number[] = []; const tunnelIndices: number[] = [];
-  route.forEach((sample, row) => { const base = row === 0 ? inFrame(frame, outletAlong, 0, -1.36) : add(sample.position, scale(sample.up, -1.58)); for (let i = 0; i <= cross; i += 1) { const angle = Math.PI + i / cross * Math.PI; write(tunnel, add(base, add(scale(sample.side, Math.cos(angle) * radius), scale(sample.up, Math.sin(angle) * radius)))); } });
-  for (let row = 0; row < route.length - 1; row += 1) for (let i = 0; i < cross; i += 1) { const a = row * (cross + 1) + i; const b = a + 1; const c = a + cross + 1; const d = c + 1; tunnelIndices.push(a, c, b, b, c, d); }
-  return join([indexed(collar, collarIndices), indexed(tunnel, tunnelIndices)]);
+  const cross = 12; const route = samples.slice(frame.sampleIndex, frame.sampleIndex + 6); const positions: number[] = []; const indices: number[] = [];
+  route.forEach((sample, row) => { const blend = row / Math.max(1, route.length - 1); const base = row === 0 ? inFrame(frame, outletAlong, 0, -1.36) : add(sample.position, scale(sample.up, -1.58)); for (let i = 0; i <= cross; i += 1) { const angle = -Math.PI / 2 + i / cross * Math.PI; const collarRadial = add(scale(frame.tangent, Math.cos(angle)), scale(frame.side, Math.sin(angle))); const tunnelRadial = add(scale(sample.side, Math.cos(angle)), scale(sample.up, -Math.sin(angle))); const radial = normalize(add(scale(collarRadial, 1 - blend), scale(tunnelRadial, blend))); write(positions, add(base, scale(radial, radius))); } });
+  for (let row = 0; row < route.length - 1; row += 1) for (let i = 0; i < cross; i += 1) { const a = row * (cross + 1) + i; const b = a + 1; const c = a + cross + 1; const d = c + 1; indices.push(a, c, b, b, c, d); }
+  return indexed(positions, indices);
 };
 
 export const buildObstacleGeometry = (track: TrackGeometry, layout: ValidResolvedObstacleLayout): ObstacleGeometryResources => {
-  const outletRadius = layout.vortex.outletDiameter / 2; const outletAlong = 0.28;
+  const outletRadius = layout.vortex.outletDiameter / 2; const outletAlong = 0.28; const predecessor = track.samples[Math.max(0, layout.vortex.frame.sampleIndex - 1)]; const towardIncomingRoute = sub(predecessor.position, layout.vortex.frame.position); const vortexEntryAngle = Math.atan2(towardIncomingRoute.x * layout.vortex.frame.side.x + towardIncomingRoute.y * layout.vortex.frame.side.y + towardIncomingRoute.z * layout.vortex.frame.side.z, towardIncomingRoute.x * layout.vortex.frame.tangent.x + towardIncomingRoute.y * layout.vortex.frame.tangent.y + towardIncomingRoute.z * layout.vortex.frame.tangent.z);
   const startThroat = channelThroat(layout.start.frame, 7.5, 3.4, 4.2, 0.72); const branchResources = branch(track, layout);
   return Object.freeze({
     shell: buildTrackShell(track), startBowl: walledBowl(layout.start.frame, layout.start.radius, 1.55, 0.72, 6.05, layout.start.wallHeight), startThroat,
     pegHallSurface: wideHall(layout.pegHall.frame, layout.pegHall.width, 10), pusherHallSurface: wideHall(layout.pushers.frame, layout.pushers.hallWidth, 9), pegs: layout.pegs,
-    branchFloors: branchResources.floors, branchRails: branchResources.rails, vortex: walledBowl(layout.vortex.frame, layout.vortex.radius, outletRadius, layout.vortex.verticalDrop, outletAlong, 1.85),
+    branchFloors: branchResources.floors, branchRails: branchResources.rails, vortex: walledBowl(layout.vortex.frame, layout.vortex.radius, outletRadius, layout.vortex.verticalDrop, outletAlong, 1.85, vortexEntryAngle),
     catchChannel: catchChannel(track.samples, layout.vortex.frame, outletAlong, outletRadius), layout,
   });
 };

@@ -57,6 +57,13 @@ describe("neon obstacle geometry", () => {
       expect(Math.abs(dot([current[0] - sample.position.x, current[1] - sample.position.y, current[2] - sample.position.z], sample.up))).toBeLessThan(0.08);
     }
   });
+  it("orients every branch rail ring with its locally projected canonical frame", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); const ringSize = 10;
+    for (let i = 0; i < r.branchRails.centerlines[0].length / 3; i += 1) {
+      const center = point({ positions: r.branchRails.centerlines[0], indices: new Uint32Array() }, i); const vertex = point(r.branchRails, i * ringSize); const sample = track.samples[projectToTrack({ x: center[0], y: center[1], z: center[2] }, track.samples).sampleIndex];
+      const radial = [vertex[0] - center[0], vertex[1] - center[1], vertex[2] - center[2]]; const length = Math.hypot(...radial); expect(dot(radial.map((v) => v / length), sample.side)).toBeGreaterThan(0.98);
+    }
+  });
   it("derives the only vortex entry and outlet loops from topology and measures outlet/drop from vertices", () => {
     const r = buildObstacleGeometry(track.geometry, resolved); const loops = [...boundaryLoops(r.vortex)]; expect(loops).toHaveLength(2);
     const outletAnchor = { x: resolved.vortex.frame.position.x + resolved.vortex.frame.tangent.x * 0.28 - resolved.vortex.frame.up.x * 1.36, y: resolved.vortex.frame.position.y + resolved.vortex.frame.tangent.y * 0.28 - resolved.vortex.frame.up.y * 1.36, z: resolved.vortex.frame.position.z + resolved.vortex.frame.tangent.z * 0.28 - resolved.vortex.frame.up.z * 1.36 };
@@ -81,12 +88,22 @@ describe("neon obstacle geometry", () => {
     const throatPoints = Array.from({ length: r.startThroat.positions.length / 3 }, (_, i) => point(r.startThroat, i)); const startAperture = startLoops.flatMap((loop) => loop.map((i) => point(r.startBowl, i)));
     expect(Math.min(...throatPoints.flatMap((a) => startAperture.map((b) => distance(a, b))))).toBeLessThan(0.5);
   });
+  it("faces the vortex aperture toward the actual incoming canonical route", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); const aperture = boundaryLoops(r.vortex).reduce((outermost, loop) => loop.reduce((sum, i) => sum + distance(point(r.vortex, i), [resolved.vortex.frame.position.x, resolved.vortex.frame.position.y, resolved.vortex.frame.position.z]), 0) > outermost.reduce((sum, i) => sum + distance(point(r.vortex, i), [resolved.vortex.frame.position.x, resolved.vortex.frame.position.y, resolved.vortex.frame.position.z]), 0) ? loop : outermost); const aperturePoints = aperture.map((i) => point(r.vortex, i)); const center = [aperturePoints.reduce((sum, p) => sum + p[0], 0) / aperturePoints.length, aperturePoints.reduce((sum, p) => sum + p[1], 0) / aperturePoints.length, aperturePoints.reduce((sum, p) => sum + p[2], 0) / aperturePoints.length] as const; const prior = track.samples[resolved.vortex.frame.sampleIndex - 1]; const incoming = [prior.position.x - resolved.vortex.frame.position.x, prior.position.y - resolved.vortex.frame.position.y, prior.position.z - resolved.vortex.frame.position.z]; const entry = [center[0] - resolved.vortex.frame.position.x, center[1] - resolved.vortex.frame.position.y, center[2] - resolved.vortex.frame.position.z];
+    expect(aperturePoints.length).toBeGreaterThan(0); expect(Math.hypot(...entry)).toBeGreaterThan(0.1); expect(Math.hypot(...incoming)).toBeGreaterThan(0.1); expect((entry[0] * incoming[0] + entry[1] * incoming[1] + entry[2] * incoming[2]) / (Math.hypot(...entry) * Math.hypot(...incoming))).toBeGreaterThan(0.8);
+  });
   it("forms a route-oriented, enclosed catch half-tunnel with a rounded multi-ring bowl and outlet lip", () => {
     const r = buildObstacleGeometry(track.geometry, resolved); const up = resolved.vortex.frame.up;
     const bowlHeights = new Set(Array.from({ length: r.vortex.positions.length / 3 }, (_, i) => dot(point(r.vortex, i), up).toFixed(3))); expect(bowlHeights.size).toBeGreaterThan(4);
     const catchPoints = Array.from({ length: r.catchChannel.positions.length / 3 }, (_, i) => point(r.catchChannel, i)); const side = resolved.vortex.frame.side;
     expect(Math.max(...catchPoints.map((p) => dot(p, side))) - Math.min(...catchPoints.map((p) => dot(p, side)))).toBeGreaterThan(1.2);
     expect(Math.max(...catchPoints.map((p) => dot(p, up))) - Math.min(...catchPoints.map((p) => dot(p, up)))).toBeGreaterThan(0.6);
+  });
+  it("welds the catch collar to its half-tunnel with only the downstream channel opening", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); expect(boundaryLoops(r.catchChannel)).toHaveLength(1);
+  });
+  it("uses a multi-section rounded profile for the start throat floor and walls", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); expect(r.startThroat.positions.length / 3).toBeGreaterThan(16); expect(new Set(Array.from({ length: r.startThroat.positions.length / 3 }, (_, i) => point(r.startThroat, i)[1].toFixed(3))).size).toBeGreaterThan(3);
   });
   it("has finite non-degenerate indexed triangles in every generated static buffer", () => {
     const r = buildObstacleGeometry(track.geometry, resolved);
