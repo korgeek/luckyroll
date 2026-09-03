@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverlay, createSceneStartLifecycle, createSceneTrackResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, projectRaceBody } from "./MarbleRaceScene";
+import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverlay, createSceneStartLifecycle, createSceneTrackResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, projectRaceBody, refreshCameraRankView } from "./MarbleRaceScene";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -180,6 +180,24 @@ describe("continuous-track scene seams", () => {
     expect(projections).toBe(1);
     expect(state.projection.progress).toBe(0);
     expect(state.projection.sampleIndex).toBe(0);
+  });
+
+  it("keeps the race camera clock paused while a debug view is held", () => {
+    expect(getRaceElapsedMs(7_500, 1_000, 5_000, 0, false)).toBe(1_500);
+  });
+
+  it("keeps emitted live-marble order stable while the reusable camera rank view sorts by progress", () => {
+    const live = [
+      { id: "first-emitted", done: false, progress: 0.4 },
+      { id: "finished", done: true, progress: 1 },
+      { id: "second-emitted", done: false, progress: 0.8 },
+    ];
+    const ranked: typeof live = [];
+
+    refreshCameraRankView(live, ranked);
+
+    expect(live.map((ball) => ball.id)).toEqual(["first-emitted", "finished", "second-emitted"]);
+    expect(ranked.map((ball) => ball.id)).toEqual(["second-emitted", "first-emitted"]);
   });
 
   it("requires both final projected progress and the shared finish volume", () => {

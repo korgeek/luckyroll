@@ -37,3 +37,32 @@ exit 0
 - Dynamic 100-marble/end-to-end validation budget: **0/10**; this task ran none.
 - The existing Vite build continues to warn that `MarbleRaceScene` exceeds the configured 500 kB chunk advisory. It is pre-existing performance guidance, not a build failure.
 - The existing Rapier initialization warning appears in `MarbleRaceScene.test.ts`; tests still pass.
+
+## Review follow-up
+
+- Final-trailer identity is now consulted before phase logic, so it survives leader regression below 75%, leader swaps, and live-count changes until that marble finishes. A finished latched marble immediately selects and latches the new slowest live marble.
+- Entering the final phase respects an existing 1800ms target hold; the final trailer is latched only after that hold expires or the target finishes.
+- The director accepts positional arguments, removing the per-frame selection request object. Scene code keeps a stable live-marble array for tick and timeout events and separately refreshes a reusable sorted camera-rank array.
+- The director receives pause-excluded race elapsed time, including while a debug camera view is held.
+
+Focused follow-up verification:
+
+```text
+npm test -- --run src/react-app/game/cameraPlan.test.ts src/react-app/game/MarbleRaceScene.test.ts
+Test Files  2 passed (2)
+Tests       34 passed (34)
+```
+
+Final non-race verification:
+
+```text
+npm test -- --run [12 explicit camera/scene/timing/static-track files]
+Test Files  12 passed (12)
+Tests       150 passed (150)
+
+npm run build
+✓ built
+
+git diff --check
+exit 0
+```

@@ -47,35 +47,62 @@ describe("track-bound race camera plan", () => {
     const director = createRaceFocusDirector();
     const original = field(8);
 
-    expect(director.select({ live: original, leaderProgress: 0.625, nowMs: 0 })?.id).toBe("marble-4");
-    expect(director.select({ live: original, leaderProgress: 0.4, nowMs: 1_799 })?.id).toBe("marble-4");
-    expect(director.select({ live: original, leaderProgress: 0.60, nowMs: 1_800 })?.id).toBe("marble-4");
-    expect(director.select({ live: original, leaderProgress: 0.74, nowMs: 1_800 })?.id).toBe("marble-7");
+    expect(director.select(original, 0.625, 0)?.id).toBe("marble-4");
+    expect(director.select(original, 0.4, 1_799)?.id).toBe("marble-4");
+    expect(director.select(original, 0.60, 1_800)?.id).toBe("marble-4");
+    expect(director.select(original, 0.74, 1_800)?.id).toBe("marble-7");
   });
 
   it("latches the final trailer across order and live-count changes until that target finishes", () => {
     const director = createRaceFocusDirector();
     const lateField = [target("leader", 0.9), target("middle", 0.7), target("trailer", 0.5)];
 
-    expect(director.select({ live: lateField, leaderProgress: 0.76, nowMs: 4_000 })?.id).toBe("trailer");
-    expect(director.select({ live: [target("trailer", 0.8), target("leader", 0.7)], leaderProgress: 0.9, nowMs: 4_100 })?.id).toBe("trailer");
-    expect(director.select({ live: [target("leader", 0.9), target("middle", 0.7)], leaderProgress: 0.9, nowMs: 4_200 })?.id).toBe("middle");
+    expect(director.select(lateField, 0.76, 4_000)?.id).toBe("trailer");
+    expect(director.select([target("trailer", 0.8), target("leader", 0.7)], 0.9, 4_100)?.id).toBe("trailer");
+    expect(director.select([target("leader", 0.9), target("middle", 0.7)], 0.9, 4_200)?.id).toBe("middle");
   });
 
   it("preserves a zero-valued marble id in the final trailer latch", () => {
     const director = createRaceFocusDirector();
 
-    expect(director.select({ live: [target(5, 0.9), target(0, 0.5)], leaderProgress: 0.8, nowMs: 0 })?.id).toBe(0);
-    expect(director.select({ live: [target(0, 0.8), target(5, 0.7)], leaderProgress: 0.9, nowMs: 1 })?.id).toBe(0);
+    expect(director.select([target(5, 0.9), target(0, 0.5)], 0.8, 0)?.id).toBe(0);
+    expect(director.select([target(0, 0.8), target(5, 0.7)], 0.9, 1)?.id).toBe(0);
+  });
+
+  it("keeps a final trailer latch after the leader regresses below three quarters", () => {
+    const director = createRaceFocusDirector();
+    const live = [target("leader", 0.9), target("middle", 0.7), target("trailer", 0.5)];
+
+    expect(director.select(live, 0.8, 0)?.id).toBe("trailer");
+    expect(director.select([target("leader", 0.6), target("trailer", 0.55), target("middle", 0.4)], 0.49, 5_000)?.id).toBe("trailer");
+  });
+
+  it("honors an existing 1800ms hold before it latches the final trailer", () => {
+    const director = createRaceFocusDirector();
+    const live = field(5);
+
+    expect(director.select(live, 0.625, 0)?.id).toBe("marble-2");
+    expect(director.select(live, 0.76, 1_799)?.id).toBe("marble-2");
+    expect(director.select(live, 0.76, 1_800)?.id).toBe("marble-4");
+  });
+
+  it("keeps the director hold active across a paused wall-clock interval when given race elapsed time", () => {
+    const director = createRaceFocusDirector();
+    const live = field(5);
+
+    expect(director.select(live, 0.625, 0)?.id).toBe("marble-2");
+    expect(director.select(live, 0.4, 500)?.id).toBe("marble-2");
+    expect(director.select(live, 0.4, 1_799)?.id).toBe("marble-2");
+    expect(director.select(live, 0.4, 1_800)?.id).toBe("marble-0");
   });
 
   it("clears its hold and final-trailer latch on reset", () => {
     const director = createRaceFocusDirector();
     const lateField = [target("leader", 0.9), target("trailer", 0.5)];
 
-    expect(director.select({ live: lateField, leaderProgress: 0.8, nowMs: 0 })?.id).toBe("trailer");
+    expect(director.select(lateField, 0.8, 0)?.id).toBe("trailer");
     director.reset();
-    expect(director.select({ live: lateField, leaderProgress: 0.4, nowMs: 1 })?.id).toBe("leader");
+    expect(director.select(lateField, 0.4, 1)?.id).toBe("leader");
   });
 
   it("writes the exact directed local-frame pose and finite clipping plane values", () => {

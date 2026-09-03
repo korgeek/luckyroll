@@ -4,8 +4,7 @@ export type CameraShotName = "overview" | "side" | "profile" | "leader" | "trail
 export type TrackBounds = Readonly<{ center: Vec3; radius: number }>;
 export type CameraShot = { position: { x: number; y: number; z: number }; lookAt: { x: number; y: number; z: number }; near: number; far: number };
 export type RaceFocusTarget = Readonly<{ id: string | number; progress: number }>;
-export type RaceFocusRequest<Target extends RaceFocusTarget> = Readonly<{ live: readonly Target[]; leaderProgress: number; nowMs: number }>;
-export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarget>(request: RaceFocusRequest<Target>) => Target | undefined; reset: () => void }>;
+export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number) => Target | undefined; reset: () => void }>;
 export type TrackFollowFrame = Readonly<{ tangent: Vec3; up: Vec3 }>;
 export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number }>;
 
@@ -84,19 +83,28 @@ export const createRaceFocusDirector = (): RaceFocusDirector => {
   };
 
   return Object.freeze({
-    select: <Target extends RaceFocusTarget>({ live, leaderProgress, nowMs }: RaceFocusRequest<Target>): Target | undefined => {
+    select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number): Target | undefined => {
       if (!live.length) return undefined;
+      const finalTrailer = selectById(live, finalTrailerId);
+      if (finalTrailer) return finalTrailer;
+      if (finalTrailerId !== undefined) {
+        const next = live[live.length - 1];
+        finalTrailerId = next.id;
+        selectedId = next.id;
+        selectedAt = nowMs;
+        return next;
+      }
       const phase = focusPhase(leaderProgress);
+      const selected = selectById(live, selectedId);
       if (phase === "trailer") {
-        const latched = selectById(live, finalTrailerId);
-        const next = latched ?? live[live.length - 1];
+        if (selected && nowMs - selectedAt < 1_800) return selected;
+        const next = live[live.length - 1];
         finalTrailerId = next.id;
         selectedId = next.id;
         selectedAt = nowMs;
         return next;
       }
 
-      const selected = selectById(live, selectedId);
       if (selected && nowMs - selectedAt < 1_800) return selected;
       const desiredRank = selectFocusRank(leaderProgress, live.length);
       if (phase === "middle" && selected) {
