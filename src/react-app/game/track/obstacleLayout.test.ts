@@ -139,6 +139,26 @@ describe("neon obstacle layout", () => {
     expect(validateObstacleLayout(empty)).toEqual(empty.failures);
   });
 
+  it("fails closed for noncanonical sample indexes without using them as array offsets", () => {
+    const single = samples[0];
+    const malformedInputs: readonly (readonly TrackSample[])[] = [
+      [{ ...single, index: 7 }],
+      [{ ...single, index: -1 }],
+      [{ ...single, index: 0.5 }],
+      [{ ...samples[1] }, { ...samples[0] }],
+    ];
+    for (const malformed of malformedInputs) {
+      expect(() => resolveObstacleLayout(malformed, NEON_OBSTACLE_LAYOUT)).not.toThrow();
+      const resolvedMalformed = resolveObstacleLayout(malformed, NEON_OBSTACLE_LAYOUT);
+      expect(resolvedMalformed.ok).toBe(false);
+      if (!resolvedMalformed.ok) {
+        expect(resolvedMalformed.failures).toEqual(expect.arrayContaining([
+          expect.objectContaining({ code: "invalid-samples", message: expect.any(String) }),
+        ]));
+      }
+    }
+  });
+
   it("fails closed when layout measurements are non-finite", () => {
     const nonFinite = resolveObstacleLayout(samples, {
       ...NEON_OBSTACLE_LAYOUT,
@@ -203,6 +223,37 @@ describe("neon obstacle layout", () => {
     });
     for (const code of ["peg-clearance", "wall-clearance", "pusher-passage", "vortex-outlet", "vortex-drop"] as const) {
       expect(failures).toEqual(expect.arrayContaining([expect.objectContaining({ code, message: expect.any(String) })]));
+    }
+  });
+
+  it("fails closed for finite layouts that violate intrinsic obstacle safety", () => {
+    const overlappingPegs = resolveObstacleLayout(samples, {
+      ...NEON_OBSTACLE_LAYOUT,
+      pegHall: {
+        ...NEON_OBSTACLE_LAYOUT.pegHall,
+        pegs: [NEON_OBSTACLE_LAYOUT.pegHall.pegs[0], NEON_OBSTACLE_LAYOUT.pegHall.pegs[0]],
+      },
+    });
+    const blockedPushers = resolveObstacleLayout(samples, {
+      ...NEON_OBSTACLE_LAYOUT,
+      pushers: { ...NEON_OBSTACLE_LAYOUT.pushers, hallWidth: 2 },
+    });
+    const invalidVortex = resolveObstacleLayout(samples, {
+      ...NEON_OBSTACLE_LAYOUT,
+      vortex: { ...NEON_OBSTACLE_LAYOUT.vortex, outletDiameter: 1, verticalDrop: 1 },
+    });
+
+    for (const [result, code] of [
+      [overlappingPegs, "peg-clearance"],
+      [blockedPushers, "pusher-passage"],
+      [invalidVortex, "vortex-outlet"],
+    ] as const) {
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.failures).toEqual(expect.arrayContaining([
+          expect.objectContaining({ code, message: expect.any(String) }),
+        ]));
+      }
     }
   });
 });

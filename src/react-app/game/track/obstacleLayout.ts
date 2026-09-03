@@ -74,12 +74,15 @@ const invalidSamples = (message: string) => Object.freeze({
   failures: Object.freeze([Object.freeze({ code: "invalid-samples" as const, message })]),
 });
 
-const closestFrame = (samples: readonly TrackSample[], progress: number): ResolvedFrame => {
+const closestSample = (samples: readonly TrackSample[], progress: number): TrackSample => {
   const lastIndex = samples.length - 1;
   const target = Math.max(0, Math.min(1, progress));
-  const sample = samples.reduce((nearest, candidate) =>
+  return samples.reduce((nearest, candidate) =>
     Math.abs(candidate.index / lastIndex - target) < Math.abs(nearest.index / lastIndex - target) ? candidate : nearest,
   );
+};
+
+const frameForSample = (sample: TrackSample): ResolvedFrame => {
   return Object.freeze({
     sampleIndex: sample.index,
     position: freezeVector(sample.position),
@@ -100,7 +103,9 @@ export const resolveObstacleLayout = (
   layout: ObstacleLayout = NEON_OBSTACLE_LAYOUT,
 ): ResolvedObstacleLayout => {
   if (samples.length === 0) return invalidSamples("Obstacle layout requires at least one track sample.");
-  if (!samples.every(validSample)) return invalidSamples("Obstacle layout requires finite, complete track sample frames.");
+  if (!samples.every((sample, offset) => validSample(sample) && sample.index === offset)) {
+    return invalidSamples("Obstacle layout requires finite, complete samples with canonical sequential indexes.");
+  }
   if (!validLayoutMeasurements(layout)) {
     return Object.freeze({
       ok: false as const,
@@ -108,22 +113,25 @@ export const resolveObstacleLayout = (
     });
   }
 
-  const startFrame = closestFrame(samples, layout.start.progress);
-  const pegFrame = closestFrame(samples, layout.pegHall.progress);
-  const pusherFrame = closestFrame(samples, layout.pushers.progress);
+  const startSample = closestSample(samples, layout.start.progress);
+  const pegSample = closestSample(samples, layout.pegHall.progress);
+  const pusherSample = closestSample(samples, layout.pushers.progress);
+  const startFrame = frameForSample(startSample);
+  const pegFrame = frameForSample(pegSample);
+  const pusherFrame = frameForSample(pusherSample);
   const branch: ResolvedBranchLayout = Object.freeze({
-    start: closestFrame(samples, layout.branch.startProgress),
-    end: closestFrame(samples, layout.branch.endProgress),
-    merge: closestFrame(samples, layout.branch.mergeProgress),
+    start: frameForSample(closestSample(samples, layout.branch.startProgress)),
+    end: frameForSample(closestSample(samples, layout.branch.endProgress)),
+    merge: frameForSample(closestSample(samples, layout.branch.mergeProgress)),
   });
-  const vortexFrame = closestFrame(samples, layout.vortex.progress);
+  const vortexFrame = frameForSample(closestSample(samples, layout.vortex.progress));
   const start: ResolvedStart = Object.freeze({
     frame: startFrame, radius: layout.start.radius, shuffleMs: layout.start.shuffleMs, wallHeight: layout.start.wallHeight,
   });
   const pegHall: ResolvedHall = Object.freeze({
     frame: pegFrame,
     width: layout.pegHall.hallWidth,
-    baseSurfaceWidth: samples[pegFrame.sampleIndex].width,
+    baseSurfaceWidth: pegSample.width,
   });
   const pegs: readonly ResolvedPeg[] = Object.freeze(layout.pegHall.pegs.map((peg) => Object.freeze({
     along: peg.along,
@@ -134,7 +142,7 @@ export const resolveObstacleLayout = (
   const pushers: ResolvedPusherLayout = Object.freeze({
     frame: pusherFrame,
     hallWidth: layout.pushers.hallWidth,
-    baseSurfaceWidth: samples[pusherFrame.sampleIndex].width,
+    baseSurfaceWidth: pusherSample.width,
     radius: layout.pushers.radius,
     reach: layout.pushers.reach,
     travel: layout.pushers.travel,
@@ -153,6 +161,8 @@ export const resolveObstacleLayout = (
       failures: Object.freeze([Object.freeze({ code: "non-finite-layout" as const, message: "Resolved obstacle measurements must be finite." })]),
     });
   }
+  const intrinsicFailures = validateIntrinsicObstacleLayout(candidate);
+  if (intrinsicFailures.length > 0) return Object.freeze({ ok: false as const, failures: intrinsicFailures });
   return Object.freeze(candidate) as ValidResolvedObstacleLayout;
 };
 
@@ -226,6 +236,29 @@ const hasFiniteResolvedMeasurements = (resolved: ValidResolvedObstacleLayout): b
   ].every(Number.isFinite);
 };
 
+const validateIntrinsicObstacleLayout = (resolved: ValidResolvedObstacleLayout): readonly ObstacleLayoutFailure[] => {
+  const failures: ObstacleLayoutFailure[] = [];
+  if (minimumPegSurfaceGap(resolved.pegs) < MIN_DEVICE_CLEARANCE) {
+    failures.push(Object.freeze({ code: "peg-clearance", message: `Peg surface gap is below ${MIN_DEVICE_CLEARANCE}.` }));
+  }
+  if (minimumPegWallGap(resolved.pegs, resolved.pegHall) < MIN_DEVICE_CLEARANCE) {
+    failures.push(Object.freeze({ code: "wall-clearance", message: `Peg wall gap is below ${MIN_DEVICE_CLEARANCE}.` }));
+  }
+  for (let phase = 0; phase <= 1; phase += 0.025) {
+    if (openPusherPassage(resolvePusherPose(resolved.pushers, phase)) < MIN_DEVICE_CLEARANCE) {
+      failures.push(Object.freeze({ code: "pusher-passage", message: `Pusher passage is below ${MIN_DEVICE_CLEARANCE} at phase ${phase.toFixed(3)}.` }));
+      break;
+    }
+  }
+  if (Math.abs(resolved.vortex.outletDiameter - MARBLE_DIAMETER * 2) > Number.EPSILON) {
+    failures.push(Object.freeze({ code: "vortex-outlet", message: "Vortex outlet diameter must equal 1.36." }));
+  }
+  if (Math.abs(resolved.vortex.verticalDrop - MARBLE_DIAMETER * 2) > Number.EPSILON) {
+    failures.push(Object.freeze({ code: "vortex-drop", message: "Vortex vertical drop must equal 1.36." }));
+  }
+  return Object.freeze(failures);
+};
+
 export const validateObstacleLayout = (resolved: ResolvedObstacleLayout): readonly ObstacleLayoutFailure[] => {
   if (!resolved.ok) return resolved.failures;
   const failures: ObstacleLayoutFailure[] = [];
@@ -245,23 +278,6 @@ export const validateObstacleLayout = (resolved: ResolvedObstacleLayout): readon
       message: `Pusher hall base surface width ${resolved.pushers.baseSurfaceWidth} requires the planned ${resolved.pushers.hallWidth}-wide device surface.`,
     }));
   }
-  if (minimumPegSurfaceGap(resolved.pegs) < MIN_DEVICE_CLEARANCE) {
-    failures.push(Object.freeze({ code: "peg-clearance", message: `Peg surface gap is below ${MIN_DEVICE_CLEARANCE}.` }));
-  }
-  if (minimumPegWallGap(resolved.pegs, resolved.pegHall) < MIN_DEVICE_CLEARANCE) {
-    failures.push(Object.freeze({ code: "wall-clearance", message: `Peg wall gap is below ${MIN_DEVICE_CLEARANCE}.` }));
-  }
-  for (let phase = 0; phase <= 1; phase += 0.025) {
-    if (openPusherPassage(resolvePusherPose(resolved.pushers, phase)) < MIN_DEVICE_CLEARANCE) {
-      failures.push(Object.freeze({ code: "pusher-passage", message: `Pusher passage is below ${MIN_DEVICE_CLEARANCE} at phase ${phase.toFixed(3)}.` }));
-      break;
-    }
-  }
-  if (Math.abs(resolved.vortex.outletDiameter - MARBLE_DIAMETER * 2) > Number.EPSILON) {
-    failures.push(Object.freeze({ code: "vortex-outlet", message: "Vortex outlet diameter must equal 1.36." }));
-  }
-  if (Math.abs(resolved.vortex.verticalDrop - MARBLE_DIAMETER * 2) > Number.EPSILON) {
-    failures.push(Object.freeze({ code: "vortex-drop", message: "Vortex vertical drop must equal 1.36." }));
-  }
+  failures.push(...validateIntrinsicObstacleLayout(resolved));
   return Object.freeze(failures);
 };
