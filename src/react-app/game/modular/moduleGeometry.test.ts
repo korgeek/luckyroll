@@ -36,7 +36,7 @@ describe("welded modular channel geometry", () => {
       const a = direction(index, index + 1); const b = direction(index + 1, Math.min(profile.length - 1, index + 2));
       return dot(a, b) / (length(a) * length(b));
     });
-    expect(Math.min(...facetCosines)).toBeGreaterThan(0.9);
+    expect(Math.min(...facetCosines)).toBeGreaterThan(Math.cos(10 * Math.PI / 180));
   });
 
   it("welds every reciprocal port to one exact indexed row without caps or duplicate triangles", () => {
@@ -68,9 +68,29 @@ describe("welded modular channel geometry", () => {
   it("rejects a longitudinal mesh-strip normal turn even when path tangents are unchanged", () => {
     const geometry = buildModuleGeometry(sampleModulePath(createValidTrackDesign(), assertValidTrackDesign(createValidTrackDesign())));
     const indices = new Uint32Array(geometry.indices);
-    const triangle = Math.floor(PROFILE_SEGMENTS / 2) * 2 + 1;
+    const triangle = 10 * 2 + 1;
     [indices[triangle * 3 + 1], indices[triangle * 3 + 2]] = [indices[triangle * 3 + 2], indices[triangle * 3 + 1]];
     const failures = validateModuleGeometry({ ...geometry, indices });
     expect(failures.some((failure) => failure.code === "longitudinal-normal")).toBe(true);
+  });
+
+  it("rejects a welded seam whose retained analytic chord error exceeds 0.02D", () => {
+    const geometry = buildModuleGeometry(sampleModulePath(createValidTrackDesign(), assertValidTrackDesign(createValidTrackDesign())));
+    const row = geometry.seams[0]?.upstreamRow ?? 1;
+    const samples = [...geometry.samples];
+    samples[row] = Object.freeze({ ...samples[row], chordError: 0.02 });
+    const failures = validateModuleGeometry({ ...geometry, samples });
+    expect(failures.some((failure) => failure.code === "chord" && failure.sampleIndex === row)).toBe(true);
+  });
+
+  it("rejects a spatially collapsed triangle even when its indices remain distinct", () => {
+    const geometry = buildModuleGeometry(sampleModulePath(createValidTrackDesign(), assertValidTrackDesign(createValidTrackDesign())));
+    const positions = new Float32Array(geometry.positions);
+    const triangle = 10 * 2 + 1;
+    const first = geometry.indices[triangle * 3] * 3;
+    const third = geometry.indices[triangle * 3 + 2] * 3;
+    positions[third] = positions[first]; positions[third + 1] = positions[first + 1]; positions[third + 2] = positions[first + 2];
+    const failures = validateModuleGeometry({ ...geometry, positions });
+    expect(failures.some((failure) => failure.code === "degenerate")).toBe(true);
   });
 });

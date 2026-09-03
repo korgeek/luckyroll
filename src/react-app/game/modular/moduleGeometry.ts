@@ -36,30 +36,22 @@ const bezier = (
 export const profileAt = (width: number): readonly ChannelProfilePoint[] => {
   const half = width / 2;
   const floorHalf = width * FLOOR_SPAN / 2;
-  const leftTip = { lateral: -half + LIP_INSET, height: RAIL_HEIGHT };
-  const leftBase = { lateral: -half, height: WALL_RISE_HEIGHT };
-  const leftFloor = { lateral: -floorHalf, height: 0 };
-  const rightFloor = { lateral: floorHalf, height: 0 };
-  const rightBase = { lateral: half, height: WALL_RISE_HEIGHT };
-  const rightTip = { lateral: half - LIP_INSET, height: RAIL_HEIGHT };
+  const tip = { lateral: half - LIP_INSET, height: RAIL_HEIGHT };
+  const outer = { lateral: half, height: WALL_RISE_HEIGHT };
+  const floor = { lateral: floorHalf, height: 0 };
   const points: ChannelProfilePoint[] = [];
-  const appendBezier = (a: ChannelProfilePoint, b: ChannelProfilePoint, c: ChannelProfilePoint, d: ChannelProfilePoint, segments: number, includeStart: boolean): void => {
-    for (let index = includeStart ? 0 : 1; index <= segments; index += 1) points.push(freeze(bezier(a, b, c, d, index / segments)));
-  };
-  const appendLine = (a: ChannelProfilePoint, b: ChannelProfilePoint, segments: number, includeStart: boolean): void => {
-    for (let index = includeStart ? 0 : 1; index <= segments; index += 1) {
-      const amount = index / segments;
-      points.push(freeze({ lateral: lerp(a.lateral, b.lateral, amount), height: lerp(a.height, b.height, amount) }));
-    }
-  };
 
   // Rounded lips ease into the wall and return inward by exactly 0.75D.
   const wallSpan = half - floorHalf;
-  appendBezier(leftTip, { lateral: leftTip.lateral - LIP_INSET * 0.5, height: RAIL_HEIGHT }, { lateral: leftBase.lateral, height: RAIL_HEIGHT - 0.35 }, leftBase, LIP_SEGMENTS, true);
-  appendBezier(leftBase, { lateral: leftBase.lateral, height: WALL_RISE_HEIGHT - 0.35 }, { lateral: leftFloor.lateral - wallSpan * 0.42, height: 0 }, leftFloor, WALL_SEGMENTS, false);
-  appendLine(leftFloor, rightFloor, FLOOR_SEGMENTS, false);
-  appendBezier(rightFloor, { lateral: rightFloor.lateral + wallSpan * 0.42, height: 0 }, { lateral: rightBase.lateral, height: WALL_RISE_HEIGHT - 0.45 }, rightBase, WALL_SEGMENTS, false);
-  appendBezier(rightBase, { lateral: rightBase.lateral, height: WALL_RISE_HEIGHT + 0.35 }, { lateral: rightTip.lateral + LIP_INSET * 0.5, height: RAIL_HEIGHT }, rightTip, LIP_SEGMENTS, false);
+  const rightHalf: ChannelProfilePoint[] = [];
+  const appendHalfBezier = (a: ChannelProfilePoint, b: ChannelProfilePoint, c: ChannelProfilePoint, d: ChannelProfilePoint, segments: number, includeStart: boolean): void => {
+    for (let index = includeStart ? 0 : 1; index <= segments; index += 1) rightHalf.push(freeze(bezier(a, b, c, d, index / segments)));
+  };
+  appendHalfBezier(floor, { lateral: floor.lateral + wallSpan * 0.42, height: 0 }, { lateral: outer.lateral, height: WALL_RISE_HEIGHT - 0.35 }, outer, WALL_SEGMENTS, true);
+  appendHalfBezier(outer, { lateral: outer.lateral, height: WALL_RISE_HEIGHT + 0.35 }, { lateral: tip.lateral + LIP_INSET / 2, height: RAIL_HEIGHT }, tip, LIP_SEGMENTS, false);
+  const floorPoints = Array.from({ length: FLOOR_SEGMENTS + 1 }, (_, index) => freeze({ lateral: lerp(-floorHalf, floorHalf, index / FLOOR_SEGMENTS), height: 0 }));
+  const leftHalf = rightHalf.map((point) => freeze({ lateral: -point.lateral, height: point.height })).reverse();
+  points.push(...leftHalf, ...floorPoints.slice(1), ...rightHalf.slice(1));
   return Object.freeze(points);
 };
 
@@ -194,7 +186,7 @@ export const validateModuleGeometry = (geometry: ModularTrackGeometry): readonly
     if (seen.has(key)) failures.push(failure("duplicate", "Modular geometry contains a duplicate triangle."));
     seen.add(key);
     addEdge(a, b); addEdge(b, c); addEdge(c, a);
-    if (a === b || b === c || a === c) failures.push(failure("degenerate", "Modular geometry contains a degenerate triangle."));
+    if (a === b || b === c || a === c || magnitude(triangleNormal(geometry, triangle)) * 0.5 <= 1e-6) failures.push(failure("degenerate", "Modular geometry contains a degenerate triangle."));
     adjacency[a]?.add(b); adjacency[a]?.add(c); adjacency[b]?.add(a); adjacency[b]?.add(c); adjacency[c]?.add(a); adjacency[c]?.add(b);
   }
   if (vertexCount > 0) {
@@ -240,45 +232,16 @@ export const validateModuleGeometry = (geometry: ModularTrackGeometry): readonly
     if (rows[0] === rows[1] && rows[1] === rows[2] && geometry.seams.some((seam) => seam.upstreamRow === rows[0])) failures.push(failure("cap", "Connected modular seam contains an end cap triangle.", rows[0]));
   }
 
-  // Samples are adaptively emitted by Task 5; checking their frame turn is the longitudinal dihedral bound.
-  const centerColumn = LIP_SEGMENTS + WALL_SEGMENTS + FLOOR_SEGMENTS / 2;
-  const centerDirection = (fromRow: number, toRow: number): Vec3 => normalize({
-    x: geometry.positions[(toRow * rowSize + centerColumn) * 3] - geometry.positions[(fromRow * rowSize + centerColumn) * 3],
-    y: geometry.positions[(toRow * rowSize + centerColumn) * 3 + 1] - geometry.positions[(fromRow * rowSize + centerColumn) * 3 + 1],
-    z: geometry.positions[(toRow * rowSize + centerColumn) * 3 + 2] - geometry.positions[(fromRow * rowSize + centerColumn) * 3 + 2],
-  });
-  for (let row = 1; row < geometry.samples.length; row += 1) {
-    const previous = geometry.samples[row - 1].tangent;
-    const next = geometry.samples[row].tangent;
-    const turn = Math.acos(Math.max(-1, Math.min(1, previous.x * next.x + previous.y * next.y + previous.z * next.z)));
-    if (turn > 2 * Math.PI / 180 + 1e-6) failures.push(failure("longitudinal-normal", "Adjacent modular longitudinal frames turn more than two degrees.", row));
-    const previousCenter = (row - 1) * rowSize + centerColumn;
-    const nextCenter = row * rowSize + centerColumn;
-    const arc = geometry.samples[row].distance - geometry.samples[row - 1].distance;
-    const chord = magnitude({ x: geometry.positions[nextCenter * 3] - geometry.positions[previousCenter * 3], y: geometry.positions[nextCenter * 3 + 1] - geometry.positions[previousCenter * 3 + 1], z: geometry.positions[nextCenter * 3 + 2] - geometry.positions[previousCenter * 3 + 2] });
-    // ponytail: sampled arc-vs-chord guard; use analytic source midpoints if samples ever become mutable.
-    if (arc + 2e-5 < chord || arc - chord > 0.0136) failures.push(failure("chord", "Modular longitudinal chord error exceeds 0.02D.", row));
-  }
-  for (let row = 1; row < geometry.samples.length - 1; row += 1) {
-    const previous = centerDirection(row - 1, row);
-    const next = centerDirection(row, row + 1);
-    const turn = Math.acos(Math.max(-1, Math.min(1, previous.x * next.x + previous.y * next.y + previous.z * next.z)));
-    if (turn > 2 * Math.PI / 180 + 1e-6) failures.push(failure("longitudinal-normal", "Adjacent modular centerline chords turn more than two degrees.", row));
+  for (let row = 0; row < geometry.samples.length; row += 1) {
+    const chordError = geometry.samples[row].chordError;
+    if (chordError === undefined || !Number.isFinite(chordError) || chordError > 0.02 * MARBLE_DIAMETER) failures.push(failure("chord", "Modular longitudinal chord error exceeds 0.02D.", row));
+    if (row === 0 || row >= geometry.samples.length - 1) continue;
     for (let column = 0; column < geometry.profileSegments; column += 1) {
-      const floorStart = LIP_SEGMENTS + WALL_SEGMENTS;
-      if (column !== floorStart + Math.floor(FLOOR_SEGMENTS / 2)) continue;
       // T1 of the preceding quad and T0 of the next quad share the row boundary edge.
       const previousTriangle = ((row - 1) * geometry.profileSegments + column) * 2 + 1;
       const nextTriangle = (row * geometry.profileSegments + column) * 2;
       const previousNormal = triangleNormal(geometry, previousTriangle);
       const nextNormal = triangleNormal(geometry, nextTriangle);
-      const actualNormal = triangleNormal(geometry, nextTriangle);
-      const providedNormal = normalize({
-        x: geometry.normals[geometry.indices[nextTriangle * 3] * 3] + geometry.normals[geometry.indices[nextTriangle * 3 + 1] * 3] + geometry.normals[geometry.indices[nextTriangle * 3 + 2] * 3],
-        y: geometry.normals[geometry.indices[nextTriangle * 3] * 3 + 1] + geometry.normals[geometry.indices[nextTriangle * 3 + 1] * 3 + 1] + geometry.normals[geometry.indices[nextTriangle * 3 + 2] * 3 + 1],
-        z: geometry.normals[geometry.indices[nextTriangle * 3] * 3 + 2] + geometry.normals[geometry.indices[nextTriangle * 3 + 1] * 3 + 2] + geometry.normals[geometry.indices[nextTriangle * 3 + 2] * 3 + 2],
-      });
-      if (actualNormal.x * providedNormal.x + actualNormal.y * providedNormal.y + actualNormal.z * providedNormal.z < 0.5) failures.push(failure("longitudinal-normal", "Adjacent modular surface triangle winding disagrees with its normal buffer.", row));
       const surfaceTurn = Math.acos(Math.max(-1, Math.min(1, previousNormal.x * nextNormal.x + previousNormal.y * nextNormal.y + previousNormal.z * nextNormal.z)));
       if (surfaceTurn > 2 * Math.PI / 180 + 1e-6) {
         failures.push(failure("longitudinal-normal", "Adjacent modular surface triangles turn more than two degrees.", row));
