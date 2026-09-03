@@ -102,6 +102,11 @@ describe("neon obstacle geometry", () => {
   it("welds the catch collar to its half-tunnel with only the downstream channel opening", () => {
     const r = buildObstacleGeometry(track.geometry, resolved); expect(boundaryLoops(r.catchChannel)).toHaveLength(1);
   });
+  it("spans both local sides in the downstream catch U-section while retaining its vertical bowl", () => {
+    const r = buildObstacleGeometry(track.geometry, resolved); const cross = 12; const row = 5; const sample = track.samples[resolved.vortex.frame.sampleIndex + row]; const base = { x: sample.position.x - sample.up.x * 1.58, y: sample.position.y - sample.up.y * 1.58, z: sample.position.z - sample.up.z * 1.58 };
+    const local = Array.from({ length: cross + 1 }, (_, index) => point(r.catchChannel, row * (cross + 1) + index)).map((p) => ({ side: dot([p[0] - base.x, p[1] - base.y, p[2] - base.z], sample.side), up: dot([p[0] - base.x, p[1] - base.y, p[2] - base.z], sample.up) }));
+    expect(Math.min(...local.map((value) => value.side))).toBeLessThan(-0.6); expect(Math.max(...local.map((value) => value.side))).toBeGreaterThan(0.6); expect(Math.min(...local.map((value) => value.up))).toBeLessThan(-0.6); expect(Math.max(...local.map((value) => value.up))).toBeCloseTo(0, 2);
+  });
   it("uses a multi-section rounded profile for the start throat floor and walls", () => {
     const r = buildObstacleGeometry(track.geometry, resolved); expect(r.startThroat.positions.length / 3).toBeGreaterThan(16); expect(new Set(Array.from({ length: r.startThroat.positions.length / 3 }, (_, i) => point(r.startThroat, i)[1].toFixed(3))).size).toBeGreaterThan(3);
   });
