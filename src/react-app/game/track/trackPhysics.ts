@@ -376,12 +376,14 @@ export const runObstacleValidationRace = async (options: Readonly<{ seed: number
   return Object.freeze({ seed: options.seed, finishOrder: Object.freeze(finishOrder), finishTimesMs: Object.freeze(finishTimesMs), escapes: Object.freeze(escapes), stalls: Object.freeze(stalls) });
 };
 
-export const validateObstacleQualificationSeeds = (seeds: readonly number[], recordedSeeds: readonly number[] = []): readonly number[] => {
-  if (new Set(recordedSeeds).size !== recordedSeeds.length || recordedSeeds.some((seed, index) => seed !== FIXED_VALIDATION_SEEDS[index])) throw new Error("Obstacle qualification must use the ten fixed seeds exactly once in canonical order.");
-  if (new Set(seeds).size !== seeds.length) throw new Error("Obstacle qualification seeds must be unique.");
-  if (seeds.some((seed) => recordedSeeds.includes(seed))) throw new Error("Obstacle qualification ledger already records a requested seed; do not start another race.");
+export const validateQualificationSeeds = (seeds: readonly number[], recordedSeeds: readonly number[] = []): readonly number[] => {
+  if (new Set(recordedSeeds).size !== recordedSeeds.length || recordedSeeds.some((seed, index) => seed !== FIXED_VALIDATION_SEEDS[index])) throw new Error("Qualification must use the ten fixed seeds exactly once in canonical order.");
+  if (new Set(seeds).size !== seeds.length) throw new Error("Qualification seeds must be unique.");
+  if (seeds.some((seed) => recordedSeeds.includes(seed))) throw new Error("Qualification ledger already records a requested seed; do not start another race.");
   const pending = FIXED_VALIDATION_SEEDS.slice(recordedSeeds.length);
-  if (seeds.length !== pending.length || seeds.some((seed, index) => seed !== pending[index])) throw new Error("Obstacle qualification must use the ten fixed seeds exactly once in canonical order.");
-  if (pending.length === 0) throw new Error("Obstacle qualification ledger already records every seed; do not start another race.");
+  if (seeds.length !== pending.length || seeds.some((seed, index) => seed !== pending[index])) throw new Error("Qualification must use the ten fixed seeds exactly once in canonical order.");
+  if (pending.length === 0) throw new Error("Qualification ledger already records every seed; do not start another race.");
   return Object.freeze([...seeds]);
 };
+
+export const validateObstacleQualificationSeeds = validateQualificationSeeds;
