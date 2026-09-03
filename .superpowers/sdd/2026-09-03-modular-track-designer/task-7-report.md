@@ -92,3 +92,14 @@ npx tsc -p tsconfig.app.json --noEmit
 ```
 
 Raw result: `Test Files 3 passed (3)`, `Tests 22 passed (22)`; app TypeScript exited 0. The existing render tests now assert every bumper shaft center and axis, gate visibility for both gate states, changed agitator/pinwheel quaternions around their canonical up axes, a non-empty exact chevron count before vertex checks, and disposal spy counts unchanged immediately after the second dispose. No production files changed in this round.
+
+## Fix round 5
+
+Focused command:
+
+```text
+npm test -- --run src/react-app/game/modular/moduleDevices.test.ts src/react-app/game/modular/modularTrackRender.test.ts src/react-app/game/track/obstacleGeometry.test.ts
+npx tsc -p tsconfig.app.json --noEmit
+```
+
+Raw result: `Test Files 3 passed (3)`, `Tests 22 passed (22)`; app TypeScript exited 0. The pose test now directly asserts the rendered pinwheel's local `rotation.y` equals the requested one-radian angle. No production files changed in this round.

@@ -80,6 +80,7 @@ describe("modular track rendering", () => {
     setModularDevicePose(rendered, { elapsedSeconds: 1, gateOpen: true, agitatorAngle: 0.5, pinwheelAngles: [1] });
     expect(gate.visible).toBe(false);
     expect(rendered.group.userData.pinwheelAngles).toEqual([1]);
+    expect(pinwheel.rotation.y).toBeCloseTo(1, 8);
     expect(agitatorBase.quaternion.equals(baseQuaternion)).toBe(true);
     expect(agitatorSpin.rotation.y).toBeCloseTo(0.5, 8);
     rendered.group.updateMatrixWorld(true);
