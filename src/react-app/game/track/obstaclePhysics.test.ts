@@ -9,7 +9,7 @@ import {
 } from "./obstaclePhysics";
 import { createObstacleRenderGroup, setDeviceRenderPose } from "./obstacleRender";
 import { buildValidatedTrack } from "./trackBuild";
-import { createTrackPhysicsWorld, initializeTrackPhysics } from "./trackPhysics";
+import { createTrackPhysicsWorld, getInitializedTrackPhysicsRapier, initializeTrackPhysics } from "./trackPhysics";
 
 const track = buildValidatedTrack();
 const resolved = resolveObstacleLayout(track.samples);
@@ -26,6 +26,11 @@ const minimumPairDistance = (positions: readonly { x: number; y: number; z: numb
 
 const vectorDistance = (left: { x: number; y: number; z: number }, right: { x: number; y: number; z: number }): number =>
   Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z);
+const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => ({
+  x: (1 - 2 * (quaternion.y ** 2 + quaternion.z ** 2)) * vector.x + 2 * (quaternion.x * quaternion.y - quaternion.z * quaternion.w) * vector.y + 2 * (quaternion.x * quaternion.z + quaternion.y * quaternion.w) * vector.z,
+  y: 2 * (quaternion.x * quaternion.y + quaternion.z * quaternion.w) * vector.x + (1 - 2 * (quaternion.x ** 2 + quaternion.z ** 2)) * vector.y + 2 * (quaternion.y * quaternion.z - quaternion.x * quaternion.w) * vector.z,
+  z: 2 * (quaternion.x * quaternion.z - quaternion.y * quaternion.w) * vector.x + 2 * (quaternion.y * quaternion.z + quaternion.x * quaternion.w) * vector.y + (1 - 2 * (quaternion.x ** 2 + quaternion.y ** 2)) * vector.z,
+});
 
 describe("obstacle physics", () => {
   it.each([11, 23, 37, 41, 53, 67, 71, 83, 97, 101])("places 100 deterministic bowl marbles without overlap for seed %i", (seed) => {
@@ -117,6 +122,15 @@ describe("obstacle physics", () => {
     expect(physics.agitator.numColliders()).toBe(3);
     expect(physics.gate.numColliders()).toBe(1);
     expect(physics.pushers.map((body) => body.numColliders())).toEqual([1, 1]);
+    const rapier = getInitializedTrackPhysicsRapier();
+    expect(physics.pegColliders.every((collider) => collider.shapeType() === rapier.ShapeType.RoundCylinder)).toBe(true);
+    physics.pegColliders.forEach((collider) => {
+      expect(collider.radius() + collider.roundRadius()).toBeCloseTo(0.42, 6);
+      expect(collider.halfHeight() + collider.roundRadius()).toBeCloseTo(0.575, 6);
+    });
+    expect(physics.pusherColliders.every((collider) => collider.shapeType() === rapier.ShapeType.Capsule)).toBe(true);
+    expect(physics.agitator.bodyType()).toBe(rapier.RigidBodyType.KinematicPositionBased);
+    expect(physics.pegBodies.every((body) => body.bodyType() === rapier.RigidBodyType.Fixed)).toBe(true);
     expect(calls).toEqual([
       { translation: 1, rotation: 1 }, { translation: 1, rotation: 1 },
       { translation: 1, rotation: 1 }, { translation: 1, rotation: 1 },
@@ -124,6 +138,7 @@ describe("obstacle physics", () => {
     world.step();
     expect(vectorDistance(physics.pushers[0].translation(), pose.pusherTransforms.left.translation)).toBeLessThan(0.000_001);
     expect(vectorDistance(physics.pushers[1].translation(), pose.pusherTransforms.right.translation)).toBeLessThan(0.000_001);
+    expect(Math.abs(rotate(physics.pushers[0].rotation(), { x: 0, y: 1, z: 0 }).x * resolved.pushers.frame.side.x + rotate(physics.pushers[0].rotation(), { x: 0, y: 1, z: 0 }).y * resolved.pushers.frame.side.y + rotate(physics.pushers[0].rotation(), { x: 0, y: 1, z: 0 }).z * resolved.pushers.frame.side.z)).toBeCloseTo(1, 6);
     expect(physics.pusherColliders[0].halfHeight()).toBeCloseTo((pose.pushers.left.depth - 1.1) / 2, 6);
     expect(vectorDistance(physics.pegBodies[0].translation(), {
       x: geometry.pegs[0].center.x + resolved.pegHall.frame.up.x * 0.575,
@@ -136,6 +151,34 @@ describe("obstacle physics", () => {
     physics.dispose();
     expect([...physics.fixedColliders, ...physics.pegColliders, ...physics.pusherColliders].every((collider) => !collider.isValid())).toBe(true);
     expect(kinematics.every((body) => !body.isValid())).toBe(true);
+    world.free();
+  });
+
+  it("removes exactly every owned body once on normal double-dispose", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const remove = vi.spyOn(world, "removeRigidBody");
+    const physics = createObstaclePhysics(world, geometry);
+    physics.dispose();
+    physics.dispose();
+    expect(remove).toHaveBeenCalledTimes(20);
+    world.free();
+  });
+
+  it.each([0, 600, 1_200])("keeps both pusher capsule spans and world axes aligned at %ims", async (milliseconds) => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const physics = createObstaclePhysics(world, geometry);
+    physics.controller.advanceMs(milliseconds);
+    const pose = physics.stepFixed();
+    world.step();
+    for (const [index, side] of [pose.pushers.left, pose.pushers.right].entries()) {
+      const body = physics.pushers[index]; const axis = rotate(body.rotation(), { x: 0, y: 1, z: 0 });
+      expect(Math.abs(axis.x * resolved.pushers.frame.side.x + axis.y * resolved.pushers.frame.side.y + axis.z * resolved.pushers.frame.side.z)).toBeCloseTo(1, 6);
+      expect(physics.pusherColliders[index].halfHeight()).toBeCloseTo((side.depth - 1.1) / 2, 6);
+      expect(vectorDistance(body.translation(), index === 0 ? pose.pusherTransforms.left.translation : pose.pusherTransforms.right.translation)).toBeLessThan(0.000_001);
+    }
+    physics.dispose();
     world.free();
   });
 

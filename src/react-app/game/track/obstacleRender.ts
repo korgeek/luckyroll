@@ -19,7 +19,7 @@ export const createObstacleRenderGroup = (resources: ObstacleGeometryResources, 
   const add = (name: string, resource: IndexedGeometry, material: THREE.Material): THREE.Mesh => { const mesh = new THREE.Mesh(geometry(resource), material); mesh.name = name; group.add(mesh); return mesh; };
   add("start-bowl", resources.startBowl, charcoal); add("start-outlet-throat", resources.startThroat, dark); add("peg-hall-surface", resources.pegHallSurface, charcoal); add("pusher-hall-surface", resources.pusherHallSurface, charcoal); add("branch-path-floor-left", resources.branchFloors[0], charcoal); add("branch-path-floor-right", resources.branchFloors[1], charcoal); add("branch-rails", resources.branchRails, dark); add("vortex-bowl", resources.vortex, charcoal); add("vortex-catch-channel", resources.catchChannel, dark);
 
-  const pegGeometry = new THREE.CylinderGeometry(resources.pegs[0]?.radius ?? 0.42, resources.pegs[0]?.radius ?? 0.42, 1.15, 12); const pegs = new THREE.InstancedMesh(pegGeometry, cyan, resources.pegs.length); pegs.name = "peg-shuffler";
+  const pegGeometry = new THREE.CapsuleGeometry(resources.pegs[0]?.radius ?? 0.42, 0.31, 4, 12); const pegs = new THREE.InstancedMesh(pegGeometry, cyan, resources.pegs.length); pegs.name = "peg-shuffler";
   const transform = new THREE.Object3D(); transform.quaternion.copy(frameQuaternion(resources.layout.pegHall.frame.up));
   resources.pegs.forEach((peg, index) => { writePosition(transform, peg.center); transform.position.addScaledVector(new THREE.Vector3(resources.layout.pegHall.frame.up.x, resources.layout.pegHall.frame.up.y, resources.layout.pegHall.frame.up.z), 0.575); transform.updateMatrix(); pegs.setMatrixAt(index, transform.matrix); pegs.setColorAt(index, new THREE.Color(index % 2 === 0 ? "#19d7e7" : "#ff8a32")); });
   pegs.instanceMatrix.needsUpdate = true; if (pegs.instanceColor !== null) pegs.instanceColor.needsUpdate = true; group.add(pegs);
@@ -29,7 +29,7 @@ export const createObstacleRenderGroup = (resources: ObstacleGeometryResources, 
   const left = createPusher("pusher-left-mesh"); const right = createPusher("pusher-right-mesh"); group.add(pusherRoot);
 
   const agitator = new THREE.Group(); agitator.name = "start-agitator"; const armGeometry = new THREE.BoxGeometry(4.7, 0.24, 0.32);
-  for (let arm = 0; arm < 3; arm += 1) { const angle = arm / 3 * Math.PI * 2; const mesh = new THREE.Mesh(armGeometry, magenta); mesh.position.set(Math.cos(angle) * 2.35, 0, Math.sin(angle) * 2.35); mesh.rotation.y = angle; agitator.add(mesh); }
+  for (let arm = 0; arm < 3; arm += 1) { const angle = arm / 3 * Math.PI * 2; const mesh = new THREE.Mesh(armGeometry, magenta); mesh.position.set(Math.cos(angle) * 2.35, 0, Math.sin(angle) * 2.35); mesh.rotation.y = -angle; agitator.add(mesh); }
   const gate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.24, 8.2), dark); gate.name = "release-gate"; group.add(agitator, gate);
   group.userData[DEVICE_REFS] = Object.freeze({ left, right, agitator, gate } satisfies DeviceRefs);
 

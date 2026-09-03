@@ -267,7 +267,8 @@ export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeo
     const center = add(peg.center, scale(resources.layout.pegHall.frame.up, 0.575));
     const body = world.createRigidBody(module.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z).setRotation(pegRotation));
     ownedBodies.push(body);
-    const collider = world.createCollider(colliderSettings(module.ColliderDesc.roundCylinder(0.575, peg.radius, Math.min(0.12, peg.radius / 2))), body);
+    const borderRadius = Math.min(0.12, peg.radius / 2);
+    const collider = world.createCollider(colliderSettings(module.ColliderDesc.roundCylinder(0.575 - borderRadius, peg.radius - borderRadius, borderRadius)), body);
     pegBodies.push(body);
     pegColliders.push(collider);
   }
@@ -289,7 +290,7 @@ export const createObstaclePhysics = (world: RapierWorld, resources: ObstacleGeo
     const angle = arm / 3 * Math.PI * 2;
     const descriptor = colliderSettings(module.ColliderDesc.cuboid(2.35, 0.12, 0.16));
     descriptor.setTranslation(Math.cos(angle) * 2.35, 0, Math.sin(angle) * 2.35);
-    descriptor.setRotation(rotationAround({ x: 0, y: 1, z: 0 }, angle));
+    descriptor.setRotation(rotationAround({ x: 0, y: 1, z: 0 }, -angle));
     world.createCollider(descriptor, agitator);
   }
   world.createCollider(colliderSettings(module.ColliderDesc.cuboid(0.18, 0.62, 4.1)), gate);
