@@ -48,10 +48,26 @@ const isFiniteVector = (vector: unknown): vector is Vec3 => {
   return Number.isFinite(candidate.x) && Number.isFinite(candidate.y) && Number.isFinite(candidate.z);
 };
 
-const validSample = (sample: TrackSample | undefined): sample is TrackSample =>
-  sample !== undefined &&
-  Number.isFinite(sample.index) && Number.isFinite(sample.distance) && Number.isFinite(sample.width) &&
-  isFiniteVector(sample.position) && isFiniteVector(sample.tangent) && isFiniteVector(sample.side) && isFiniteVector(sample.up);
+const validSample = (sample: unknown): sample is TrackSample => {
+  if (typeof sample !== "object" || sample === null) return false;
+  const candidate = sample as TrackSample;
+  return Number.isFinite(candidate.index) && Number.isFinite(candidate.distance) &&
+    Number.isFinite(candidate.width) && Number.isFinite(candidate.channelDepth) && Number.isFinite(candidate.bankRadians) &&
+    ["launch", "run", "descent", "mixing-hall", "splitter", "finish"].includes(candidate.zone) &&
+    isFiniteVector(candidate.position) && isFiniteVector(candidate.tangent) && isFiniteVector(candidate.side) && isFiniteVector(candidate.up);
+};
+
+const validLayoutMeasurements = (layout: ObstacleLayout): boolean => {
+  const values = [
+    layout.start.progress, layout.start.radius, layout.start.shuffleMs, layout.start.wallHeight,
+    layout.pegHall.progress, layout.pegHall.hallWidth, layout.pegHall.pegRadius,
+    layout.pushers.progress, layout.pushers.hallWidth, layout.pushers.radius, layout.pushers.reach, layout.pushers.travel, layout.pushers.phaseOffset,
+    layout.branch.startProgress, layout.branch.endProgress, layout.branch.mergeProgress,
+    layout.vortex.progress, layout.vortex.radius, layout.vortex.outletDiameter, layout.vortex.verticalDrop,
+    ...layout.pegHall.pegs.flatMap((peg) => [peg.along, peg.lateral]),
+  ];
+  return values.every(Number.isFinite);
+};
 
 const invalidSamples = (message: string) => Object.freeze({
   ok: false as const,
@@ -85,6 +101,12 @@ export const resolveObstacleLayout = (
 ): ResolvedObstacleLayout => {
   if (samples.length === 0) return invalidSamples("Obstacle layout requires at least one track sample.");
   if (!samples.every(validSample)) return invalidSamples("Obstacle layout requires finite, complete track sample frames.");
+  if (!validLayoutMeasurements(layout)) {
+    return Object.freeze({
+      ok: false as const,
+      failures: Object.freeze([Object.freeze({ code: "non-finite-layout" as const, message: "Obstacle layout measurements must be finite." })]),
+    });
+  }
 
   const startFrame = closestFrame(samples, layout.start.progress);
   const pegFrame = closestFrame(samples, layout.pegHall.progress);
@@ -98,7 +120,11 @@ export const resolveObstacleLayout = (
   const start: ResolvedStart = Object.freeze({
     frame: startFrame, radius: layout.start.radius, shuffleMs: layout.start.shuffleMs, wallHeight: layout.start.wallHeight,
   });
-  const pegHall: ResolvedHall = Object.freeze({ frame: pegFrame, width: layout.pegHall.hallWidth });
+  const pegHall: ResolvedHall = Object.freeze({
+    frame: pegFrame,
+    width: layout.pegHall.hallWidth,
+    baseSurfaceWidth: samples[pegFrame.sampleIndex].width,
+  });
   const pegs: readonly ResolvedPeg[] = Object.freeze(layout.pegHall.pegs.map((peg) => Object.freeze({
     along: peg.along,
     lateral: peg.lateral,
@@ -108,6 +134,7 @@ export const resolveObstacleLayout = (
   const pushers: ResolvedPusherLayout = Object.freeze({
     frame: pusherFrame,
     hallWidth: layout.pushers.hallWidth,
+    baseSurfaceWidth: samples[pusherFrame.sampleIndex].width,
     radius: layout.pushers.radius,
     reach: layout.pushers.reach,
     travel: layout.pushers.travel,
@@ -120,8 +147,12 @@ export const resolveObstacleLayout = (
     verticalDrop: layout.vortex.verticalDrop,
   });
   const candidate = { ok: true as const, failures: Object.freeze([]), start, pegHall, pegs, pushers, branch, vortex };
-  const failures = validateObstacleLayout(candidate);
-  if (failures.length > 0) return Object.freeze({ ok: false as const, failures });
+  if (!hasFiniteResolvedMeasurements(candidate)) {
+    return Object.freeze({
+      ok: false as const,
+      failures: Object.freeze([Object.freeze({ code: "non-finite-layout" as const, message: "Resolved obstacle measurements must be finite." })]),
+    });
+  }
   return Object.freeze(candidate) as ValidResolvedObstacleLayout;
 };
 
@@ -163,9 +194,57 @@ export const resolvePusherPose = (pushers: ResolvedPusherLayout, phase: number):
 
 export const openPusherPassage = (pose: ResolvedPusherPose): number => pose.passage;
 
+const frameValues = (frame: ResolvedFrame): readonly number[] => [
+  frame.sampleIndex,
+  frame.position.x, frame.position.y, frame.position.z,
+  frame.tangent.x, frame.tangent.y, frame.tangent.z,
+  frame.side.x, frame.side.y, frame.side.z,
+  frame.up.x, frame.up.y, frame.up.z,
+];
+
+const hasFiniteResolvedMeasurements = (resolved: ValidResolvedObstacleLayout): boolean => {
+  const pusherPoseValues = [0, 0.25, 0.5, 0.75, 1].flatMap((phase) => {
+    const pose = resolvePusherPose(resolved.pushers, phase);
+    return [
+      pose.phase, pose.passage,
+      pose.left.depth, pose.left.center.x, pose.left.center.y, pose.left.center.z,
+      pose.right.depth, pose.right.center.x, pose.right.center.y, pose.right.center.z,
+    ];
+  });
+  return [
+    ...frameValues(resolved.start.frame),
+    resolved.start.radius, resolved.start.shuffleMs, resolved.start.wallHeight,
+    ...frameValues(resolved.pegHall.frame),
+    resolved.pegHall.width, resolved.pegHall.baseSurfaceWidth,
+    ...resolved.pegs.flatMap((peg) => [peg.along, peg.lateral, peg.radius, peg.center.x, peg.center.y, peg.center.z]),
+    ...frameValues(resolved.pushers.frame),
+    resolved.pushers.hallWidth, resolved.pushers.baseSurfaceWidth, resolved.pushers.radius, resolved.pushers.reach, resolved.pushers.travel, resolved.pushers.phaseOffset,
+    ...pusherPoseValues,
+    ...frameValues(resolved.branch.start), ...frameValues(resolved.branch.end), ...frameValues(resolved.branch.merge),
+    ...frameValues(resolved.vortex.frame),
+    resolved.vortex.radius, resolved.vortex.outletDiameter, resolved.vortex.verticalDrop,
+  ].every(Number.isFinite);
+};
+
 export const validateObstacleLayout = (resolved: ResolvedObstacleLayout): readonly ObstacleLayoutFailure[] => {
   if (!resolved.ok) return resolved.failures;
   const failures: ObstacleLayoutFailure[] = [];
+  if (!hasFiniteResolvedMeasurements(resolved)) {
+    failures.push(Object.freeze({ code: "non-finite-layout", message: "Resolved obstacle measurements must be finite." }));
+    return Object.freeze(failures);
+  }
+  if (resolved.pegHall.baseSurfaceWidth < resolved.pegHall.width) {
+    failures.push(Object.freeze({
+      code: "device-surface-width",
+      message: `Peg hall base surface width ${resolved.pegHall.baseSurfaceWidth} requires the planned ${resolved.pegHall.width}-wide device surface.`,
+    }));
+  }
+  if (resolved.pushers.baseSurfaceWidth < resolved.pushers.hallWidth) {
+    failures.push(Object.freeze({
+      code: "device-surface-width",
+      message: `Pusher hall base surface width ${resolved.pushers.baseSurfaceWidth} requires the planned ${resolved.pushers.hallWidth}-wide device surface.`,
+    }));
+  }
   if (minimumPegSurfaceGap(resolved.pegs) < MIN_DEVICE_CLEARANCE) {
     failures.push(Object.freeze({ code: "peg-clearance", message: `Peg surface gap is below ${MIN_DEVICE_CLEARANCE}.` }));
   }

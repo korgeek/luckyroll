@@ -96,6 +96,7 @@ export type ResolvedStart = Readonly<{
 export type ResolvedHall = Readonly<{
   frame: ResolvedFrame;
   width: number;
+  baseSurfaceWidth: number;
 }>;
 
 export type ResolvedPeg = Readonly<{
@@ -108,6 +109,7 @@ export type ResolvedPeg = Readonly<{
 export type ResolvedPusherLayout = Readonly<{
   frame: ResolvedFrame;
   hallWidth: number;
+  baseSurfaceWidth: number;
   radius: number;
   reach: number;
   travel: number;
@@ -135,8 +137,13 @@ export type ResolvedVortex = Readonly<{
 }>;
 
 export type ObstacleLayoutFailure = Readonly<{
-  code: "invalid-samples" | "peg-clearance" | "wall-clearance" | "pusher-passage" | "vortex-outlet" | "vortex-drop";
+  code: "invalid-samples" | "non-finite-layout" | "device-surface-width" | "peg-clearance" | "wall-clearance" | "pusher-passage" | "vortex-outlet" | "vortex-drop";
   message: string;
+}>;
+
+export type ObstaclePlacementValidation = Readonly<{
+  ok: boolean;
+  failures: readonly ObstacleLayoutFailure[];
 }>;
 
 export type ValidResolvedObstacleLayout = Readonly<{

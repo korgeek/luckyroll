@@ -12,6 +12,7 @@ import {
   validateObstacleLayout,
 } from "./obstacleLayout";
 import { buildValidatedTrack } from "./trackBuild";
+import type { TrackSample } from "./trackTypes";
 
 const samples = buildValidatedTrack({ features: true }).samples;
 
@@ -48,6 +49,17 @@ describe("neon obstacle layout", () => {
     const built = buildValidatedTrack({ features: true });
     expect(built.obstacleLayout.ok).toBe(true);
     expect(built.obstacleLayout.pegs).toHaveLength(7);
+  });
+
+  it("does not report narrow base-track device anchors as physically ready", () => {
+    const built = buildValidatedTrack({ features: true });
+    expect(built.obstacleLayout.ok).toBe(true);
+    expect(built.obstaclePlacement.ok).toBe(false);
+    expect(built.obstaclePlacement.failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "device-surface-width", message: expect.stringMatching(/base surface|requires/i) }),
+    ]));
+    expect(built.obstacleLayout.pegHall.baseSurfaceWidth).toBeLessThan(built.obstacleLayout.pegHall.width);
+    expect(built.obstacleLayout.pushers.baseSurfaceWidth).toBeLessThan(built.obstacleLayout.pushers.hallWidth);
   });
 
   it("keeps every peg opening at least three marble diameters wide", () => {
@@ -113,11 +125,70 @@ describe("neon obstacle layout", () => {
   it("fails closed for empty or malformed samples", () => {
     const empty = resolveObstacleLayout([], NEON_OBSTACLE_LAYOUT);
     const malformed = resolveObstacleLayout([{ ...samples[0], tangent: { x: Number.NaN, y: 0, z: 0 } }], NEON_OBSTACLE_LAYOUT);
+    const nullEntry = resolveObstacleLayout([null] as unknown as readonly TrackSample[], NEON_OBSTACLE_LAYOUT);
+    const { channelDepth: _channelDepth, bankRadians: _bankRadians, zone: _zone, ...incomplete } = samples[0];
+    const incompleteEntry = resolveObstacleLayout([incomplete] as unknown as readonly TrackSample[], NEON_OBSTACLE_LAYOUT);
     expect(empty.ok).toBe(false);
     expect(malformed.ok).toBe(false);
+    expect(nullEntry.ok).toBe(false);
+    expect(incompleteEntry.ok).toBe(false);
     if (!empty.ok) expect(empty.failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: "invalid-samples", message: expect.any(String) })]));
     if (!malformed.ok) expect(malformed.failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: "invalid-samples", message: expect.any(String) })]));
+    if (!nullEntry.ok) expect(nullEntry.failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: "invalid-samples", message: expect.any(String) })]));
+    if (!incompleteEntry.ok) expect(incompleteEntry.failures).toEqual(expect.arrayContaining([expect.objectContaining({ code: "invalid-samples", message: expect.any(String) })]));
     expect(validateObstacleLayout(empty)).toEqual(empty.failures);
+  });
+
+  it("fails closed when layout measurements are non-finite", () => {
+    const nonFinite = resolveObstacleLayout(samples, {
+      ...NEON_OBSTACLE_LAYOUT,
+      pushers: { ...NEON_OBSTACLE_LAYOUT.pushers, reach: Number.POSITIVE_INFINITY },
+    });
+    expect(nonFinite.ok).toBe(false);
+    if (!nonFinite.ok) {
+      expect(nonFinite.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "non-finite-layout", message: expect.any(String) }),
+      ]));
+    }
+  });
+
+  it("does not emit a valid layout when finite measurements overflow a pusher pose", () => {
+    const overflowing = resolveObstacleLayout(samples, {
+      ...NEON_OBSTACLE_LAYOUT,
+      pushers: { ...NEON_OBSTACLE_LAYOUT.pushers, reach: Number.MAX_VALUE, travel: 0 },
+    });
+    expect(overflowing.ok).toBe(false);
+    if (!overflowing.ok) {
+      expect(overflowing.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "non-finite-layout", message: expect.any(String) }),
+      ]));
+    }
+  });
+
+  it("rejects non-finite resolved placement measurements", () => {
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(validateObstacleLayout({
+      ...resolved,
+      start: { ...resolved.start, frame: { ...resolved.start.frame, position: { ...resolved.start.frame.position, x: Number.NaN } } },
+      pegHall: { ...resolved.pegHall, width: Number.NaN },
+      pegs: [{ ...resolved.pegs[0], radius: Number.POSITIVE_INFINITY }],
+      pushers: { ...resolved.pushers, phaseOffset: Number.NaN },
+      vortex: { ...resolved.vortex, outletDiameter: Number.NaN },
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "non-finite-layout", message: expect.any(String) }),
+    ]));
+  });
+
+  it("rejects non-finite resolved frame measurements", () => {
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(validateObstacleLayout({
+      ...resolved,
+      start: { ...resolved.start, frame: { ...resolved.start.frame, position: { ...resolved.start.frame.position, x: Number.NaN } } },
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "non-finite-layout", message: expect.any(String) }),
+    ]));
   });
 
   it("reports every safety failure code with an actionable message", () => {
