@@ -103,6 +103,8 @@ const walledBowl = (frame: ResolvedFrame, outerRadius: number, innerRadius: numb
   return indexed(positions, indices);
 };
 
+export { walledBowl as buildWalledBowl };
+
 const channelThroat = (frame: ResolvedFrame, centerAlong: number, width: number, length: number, depth: number): IndexedGeometry => {
   const positions: number[] = []; const indices: number[] = []; const rows = 5; const cross = 8;
   for (let row = 0; row < rows; row += 1) { const t = row / (rows - 1); const along = centerAlong + (t - 0.5) * length; const radius = width / 2 * (0.9 + 0.1 * Math.sin(Math.PI * t)); for (let i = 0; i <= cross; i += 1) { const angle = Math.PI + i / cross * Math.PI; write(positions, inFrame(frame, along, Math.cos(angle) * radius, -depth + Math.sin(angle) * radius)); } }

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { Participant } from "../domain/types";
+import type { LocalTrack } from "../designer/trackDesign";
+import { TrackLibraryPanel } from "./TrackLibraryPanel";
 
 export type GameMode = "race" | "teams";
 export type SetupValues = { mode: GameMode; participants: Participant[]; prizePool: number; teamCount: 2 | 3 };
@@ -7,7 +9,20 @@ export type SetupValues = { mode: GameMode; participants: Participant[]; prizePo
 const COLORS = ["#ff4f8f", "#58e7ff", "#ffcf58", "#a883ff", "#6dffae", "#ff8b55", "#ff75d5", "#75aaff", "#e8ff5a", "#ff6278"];
 const SYMBOLS = ["◆", "●", "▲", "✦", "■", "✚", "♥", "✿", "☀", "✹"];
 
-export function SetupScreen({ onStart }: { onStart: (values: SetupValues) => void }) {
+export type SetupScreenProps = Readonly<{
+	onStart: (values: SetupValues) => void;
+	tracks?: readonly LocalTrack[];
+	selectedTrackId?: string;
+	onNewTrack?: () => void;
+	onEditTrack?: (id: string) => void;
+	onSelectTrack?: (id?: string) => void;
+	onPlayTrack?: (id: string) => void;
+	onShareTrack?: (id: string) => void;
+	onDeleteTrack?: (id: string) => void;
+	onImportTrack?: (input: string) => void;
+}>;
+
+export function SetupScreen({ onStart, tracks = [], selectedTrackId, onNewTrack = () => undefined, onEditTrack = () => undefined, onSelectTrack = () => undefined, onPlayTrack = () => undefined, onShareTrack = () => undefined, onDeleteTrack = () => undefined, onImportTrack = () => undefined }: SetupScreenProps) {
 	const [mode, setMode] = useState<GameMode>("race");
 	const [names, setNames] = useState(["Player 1", "Player 2"]);
 	const [prizePool, setPrizePool] = useState("");
@@ -17,6 +32,7 @@ export function SetupScreen({ onStart }: { onStart: (values: SetupValues) => voi
 
 	return <section className="setup-card" aria-label="Game setup">
 		<p className="eyebrow">INSTANT PARTY GAME</p><h1>LUCKY ROLL</h1><p className="tagline">Who&apos;s last?</p>
+		<TrackLibraryPanel tracks={tracks} selectedTrackId={selectedTrackId} onNew={onNewTrack} onEdit={onEditTrack} onSelect={onSelectTrack} onPlay={onPlayTrack} onShare={onShareTrack} onDelete={onDeleteTrack} onImport={onImportTrack} />
 		<div className="mode-switch"><button className={mode === "race" ? "selected" : ""} onClick={() => setMode("race")}>Race</button><button className={mode === "teams" ? "selected" : ""} onClick={() => setMode("teams")}>Team Split</button></div>
 		<div className="section-title"><span>PLAYERS</span><button className="text-button" onClick={() => setNames((current) => [...current].sort(() => Math.random() - 0.5))}>Shuffle</button></div>
 		<div className="name-list">{names.map((name, index) => <label className="name-row" key={index}><span className="player-dot" style={{ background: COLORS[index] }}>{SYMBOLS[index]}</span><span className="sr-only">Player {index + 1}</span><input aria-label={`Player ${index + 1}`} value={name} maxLength={16} onChange={(event) => update(index, event.target.value)} />{names.length > 2 && <button className="remove-button" aria-label={`Remove player ${index + 1}`} onClick={() => setNames((current) => current.filter((_, removeIndex) => removeIndex !== index))}>×</button>}</label>)}</div>

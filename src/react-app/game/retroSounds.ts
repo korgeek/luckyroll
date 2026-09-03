@@ -1,4 +1,5 @@
 let context: AudioContext | undefined;
+let muted = false;
 
 function audio() {
 	context ??= new AudioContext();
@@ -22,16 +23,20 @@ function note(frequency: number, when: number, duration: number, type: Oscillato
 
 export const retroSounds = {
 	start() {
+		if (muted) return;
 		const now = audio().currentTime;
 		[262, 330, 392, 523].forEach((frequency, index) => note(frequency, now + index * 0.075, 0.12));
 	},
 	finish() {
+		if (muted) return;
 		const now = audio().currentTime;
 		[784, 988, 1175, 1568].forEach((frequency, index) => note(frequency, now + index * 0.09, 0.16, "square", 0.045));
 	},
 	timeout() {
+		if (muted) return;
 		const now = audio().currentTime;
 		note(196, now, 0.18, "sawtooth", 0.035);
 		note(147, now + 0.2, 0.32, "sawtooth", 0.035);
 	},
+	setMuted(value: boolean) { muted = value; },
 };
