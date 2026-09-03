@@ -26,12 +26,12 @@ describe("track renderer", () => {
     expect(surface.userData.surfaceColor).toBe("#171b25");
   });
 
-  it("renders readable striped dark rim accents without adding another track mesh", () => {
+  it("renders emissive cyan/yellow mesh rim accents without adding another track surface", () => {
     const group = createTrackRenderGroup(buildValidatedTrack().geometry);
-    const rims = group.getObjectByName("u-channel-dark-rims") as THREE.LineSegments;
+    const rims = group.getObjectByName("u-channel-neon-rims")!;
 
-    expect(rims.geometry.getAttribute("color")).toBeDefined();
-    expect(rims.geometry.getAttribute("color").count).toBeGreaterThan(2);
+    expect(rims.children.every((child) => child instanceof THREE.InstancedMesh)).toBe(true);
+    rims.children.forEach((child) => expect((child as THREE.InstancedMesh).material).toBeInstanceOf(THREE.MeshStandardMaterial));
   });
 
   it("renders the rounded divider from the exact validated feature buffers", () => {

@@ -16,32 +16,21 @@ const edgeVertex = (geometry: TrackGeometry, sampleIndex: number, column: number
   );
 };
 
-const createRimLines = (geometry: TrackGeometry): THREE.LineSegments => {
-  const positions: number[] = [];
-  const colors: number[] = [];
+const createRimLines = (geometry: TrackGeometry): THREE.Group => {
   const lastColumn = geometry.profileSegments;
-  const deepRim = new THREE.Color("#16d7e8");
-  const softRim = new THREE.Color("#ffe25a");
-
-  for (let index = 1; index < geometry.samples.length; index += 1) {
-    for (const column of [0, lastColumn]) {
-      const previous = edgeVertex(geometry, index - 1, column);
-      const current = edgeVertex(geometry, index, column);
-      positions.push(previous.x, previous.y, previous.z, current.x, current.y, current.z);
-      const color = Math.floor(index / 5) % 2 === 0 ? deepRim : softRim;
-      colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
-    }
+  const segments = (geometry.samples.length - 1) * 2;
+  const rimGeometry = new THREE.BoxGeometry(0.2, 0.18, 1);
+  const cyan = new THREE.MeshStandardMaterial({ color: "#16d7e8", emissive: "#075460", roughness: 0.38, metalness: 0.35 });
+  const yellow = new THREE.MeshStandardMaterial({ color: "#ffe25a", emissive: "#6d5900", roughness: 0.38, metalness: 0.3 });
+  const cyanRims = new THREE.InstancedMesh(rimGeometry, cyan, Math.ceil(segments / 2)); cyanRims.name = "u-channel-cyan-rims";
+  const yellowRims = new THREE.InstancedMesh(rimGeometry, yellow, Math.floor(segments / 2)); yellowRims.name = "u-channel-yellow-rims";
+  const transform = new THREE.Object3D(); let cyanIndex = 0; let yellowIndex = 0;
+  for (let index = 1; index < geometry.samples.length; index += 1) for (const column of [0, lastColumn]) {
+    const previous = edgeVertex(geometry, index - 1, column); const current = edgeVertex(geometry, index, column); const direction = current.clone().sub(previous); const length = direction.length();
+    transform.position.copy(previous).add(current).multiplyScalar(0.5); transform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize()); transform.scale.set(1, 1, length); transform.updateMatrix();
+    if ((index + column) % 2 === 0) cyanRims.setMatrixAt(cyanIndex++, transform.matrix); else yellowRims.setMatrixAt(yellowIndex++, transform.matrix);
   }
-
-  const rimGeometry = new THREE.BufferGeometry();
-  rimGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  rimGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  const rims = new THREE.LineSegments(
-    rimGeometry,
-    new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 }),
-  );
-  rims.name = "u-channel-dark-rims";
-  return rims;
+  cyanRims.instanceMatrix.needsUpdate = true; yellowRims.instanceMatrix.needsUpdate = true; const group = new THREE.Group(); group.name = "u-channel-neon-rims"; group.add(cyanRims, yellowRims); return group;
 };
 
 const createShell = (track: TrackGeometry): THREE.Mesh => {
