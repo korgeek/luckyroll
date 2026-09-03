@@ -33,6 +33,14 @@ const toGeometry = (resource: IndexedGeometry): THREE.BufferGeometry => {
 };
 const toVector = (value: Vec3): THREE.Vector3 => new THREE.Vector3(value.x, value.y, value.z);
 const orient = (object: THREE.Object3D, axis: Vec3): void => { object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(axis).normalize()); };
+const frameQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
+  const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.up), toVector(frame.tangent));
+  return new THREE.Quaternion().setFromRotationMatrix(basis);
+};
+const planeQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
+  const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.tangent), toVector(frame.up));
+  return new THREE.Quaternion().setFromRotationMatrix(basis);
+};
 const material = (color: string, emissive?: string): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, ...(emissive === undefined ? {} : { emissive }), roughness: 0.48, metalness: 0.3 });
 
 const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THREE.InstancedMesh => {
@@ -49,9 +57,10 @@ const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THRE
       const previous = new THREE.Vector3(built.geometry.positions[previousOffset], built.geometry.positions[previousOffset + 1], built.geometry.positions[previousOffset + 2]);
       const current = new THREE.Vector3(built.geometry.positions[currentOffset], built.geometry.positions[currentOffset + 1], built.geometry.positions[currentOffset + 2]);
       const direction = current.clone().sub(previous);
+      const length = direction.length();
       transform.position.copy(previous).add(current).multiplyScalar(0.5);
       transform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
-      transform.scale.set(1, 1, direction.length());
+      transform.scale.set(1, 1, length);
       transform.updateMatrix();
       rim.setMatrixAt(instance++, transform.matrix);
     }
@@ -61,16 +70,16 @@ const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THRE
 };
 
 const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMaterial: THREE.Material): void => {
-  const shafts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.45 * 0.68 / 2, 0.45 * 0.68 / 2, 4, 8), bumperMaterial, devices.bumpers.length);
+  const shafts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), bumperMaterial, devices.bumpers.length);
   shafts.name = "bumper-shafts";
-  const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.45 * 0.68 / 2, 8, 6), bumperMaterial, devices.bumpers.length * 2);
+  const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), bumperMaterial, devices.bumpers.length * 2);
   caps.name = "bumper-caps";
   const transform = new THREE.Object3D();
   devices.bumpers.forEach((bar, index) => {
-    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(1, bar.length, 1); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
+    transform.position.copy(toVector(bar.center)); orient(transform, bar.axis); transform.scale.set(bar.thickness, bar.length, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
     for (const [capIndex, sign] of [-1, 1].entries()) {
-      transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * (bar.length / 2 - bar.thickness / 2));
-      transform.scale.setScalar(1); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);
+      transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * bar.length / 2);
+      transform.scale.setScalar(bar.thickness); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);
     }
   });
   shafts.instanceMatrix.needsUpdate = true; caps.instanceMatrix.needsUpdate = true;
@@ -78,25 +87,30 @@ const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMateria
 };
 
 const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMaterial: THREE.Material, refs: ModularDeviceRefs): void => {
-  const armGeometry = new THREE.BoxGeometry(2 * 0.28 * 12, 0.5 * 0.68, 0.5 * 0.68);
+  const armGeometry = new THREE.CapsuleGeometry(0.5 * 0.68 / 2, 0.28 * 12 - 0.5 * 0.68, 4, 8);
   devices.pinwheels.forEach((layout) => {
     const rotor = new THREE.Group(); rotor.name = `pinwheel-${layout.cellIndex}`; rotor.position.copy(toVector(layout.center)); orient(rotor, layout.axis);
+    const arms = new THREE.InstancedMesh(armGeometry, pinwheelMaterial, 3); arms.name = "pinwheel-arms";
+    const transform = new THREE.Object3D();
     for (let arm = 0; arm < 3; arm += 1) {
-      const mesh = new THREE.Mesh(armGeometry, pinwheelMaterial); mesh.position.x = layout.radius / 2; mesh.rotation.y = arm * Math.PI * 2 / 3; rotor.add(mesh);
+      const angle = arm * Math.PI * 2 / 3; const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+      transform.position.copy(radial).multiplyScalar(layout.radius / 2); transform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), radial); transform.scale.setScalar(1); transform.updateMatrix(); arms.setMatrixAt(arm, transform.matrix);
     }
+    arms.instanceMatrix.needsUpdate = true; rotor.add(arms);
     refs.pinwheels.push(rotor); group.add(rotor);
   });
 };
 
-const createBoosters = (built: BuiltModularTrack, devices: ModuleDevices, group: THREE.Group, boosterMaterial: THREE.Material): void => {
+const createBoosters = (_built: BuiltModularTrack, devices: ModuleDevices, group: THREE.Group, boosterMaterial: THREE.Material): void => {
   const chevrons = new THREE.Group(); chevrons.name = "booster-chevrons"; chevrons.userData.collider = false;
-  const geometry = new THREE.ConeGeometry(0.52, 0.9, 3);
+  const geometry = new THREE.PlaneGeometry(1.8, 0.9);
   devices.boosters.forEach((booster) => {
-    const sample = built.samples.filter((candidate) => candidate.cellIndex === booster.cellIndex).reduce((best, candidate) => Math.abs(candidate.localU - 0.5) < Math.abs(best.localU - 0.5) ? candidate : best);
-    for (const offset of [-1.1, 0, 1.1]) {
+    const midpointDistance = (booster.startDistance + booster.endDistance) / 2;
+    for (const [index, offset] of [-1.1, 0, 1.1].entries()) {
       const mesh = new THREE.Mesh(geometry, boosterMaterial);
-      mesh.position.copy(toVector(sample.position)).addScaledVector(toVector(sample.up), 0.08).addScaledVector(toVector(sample.side), offset);
-      orient(mesh, sample.up); mesh.rotateOnWorldAxis(toVector(sample.up), Math.atan2(booster.forward.z, booster.forward.x));
+      const distance = booster.startDistance + index * (booster.endDistance - booster.startDistance) / 2;
+      mesh.position.copy(toVector(booster.center)).addScaledVector(toVector(booster.forward), distance - midpointDistance).addScaledVector(toVector(booster.up), 0.03).addScaledVector(toVector(booster.side), offset);
+      mesh.quaternion.copy(planeQuaternion({ tangent: booster.forward, side: booster.side, up: booster.up }));
       chevrons.add(mesh);
     }
   });
@@ -105,11 +119,11 @@ const createBoosters = (built: BuiltModularTrack, devices: ModuleDevices, group:
 
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, accent: THREE.Material, refs: ModularDeviceRefs): void => {
   const bowl = new THREE.Mesh(toGeometry(buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight)), dark); bowl.name = "modular-start-bowl"; group.add(bowl);
-  const agitator = new THREE.Group(); agitator.name = "modular-start-agitator";
+  const agitator = new THREE.Group(); agitator.name = "modular-start-agitator"; agitator.quaternion.copy(frameQuaternion(devices.start.agitator));
   const armGeometry = new THREE.BoxGeometry(4.7, 0.24, 0.32);
   for (let index = 0; index < 3; index += 1) { const arm = new THREE.Mesh(armGeometry, accent); arm.position.x = 2.35; arm.rotation.y = index * Math.PI * 2 / 3; agitator.add(arm); }
-  agitator.position.copy(toVector(devices.start.frame.position)); group.add(agitator);
-  const gate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.24, 8.2), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.frame.position)); group.add(gate);
+  agitator.position.copy(toVector(devices.start.agitator.position)); group.add(agitator);
+  const gate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.24, 8.2), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.position)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
   refs.agitator = agitator; refs.gate = gate;
 };
 

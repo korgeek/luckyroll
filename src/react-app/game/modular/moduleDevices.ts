@@ -30,10 +30,6 @@ const frameFromSample = (sample: ModulePathSample): ResolvedFrame => Object.free
   side: sample.side,
   up: sample.up,
 });
-const nearestSample = (samples: readonly ModulePathSample[], cellIndex: number, localU: number): ModulePathSample | undefined => {
-  const candidates = samples.filter((sample) => sample.cellIndex === cellIndex);
-  return candidates.reduce<ModulePathSample | undefined>((best, sample) => best === undefined || Math.abs(sample.localU - localU) < Math.abs(best.localU - localU) ? sample : best, undefined);
-};
 const cellSamples = (samples: readonly ModulePathSample[], cellIndex: number): readonly ModulePathSample[] => samples.filter((sample) => sample.cellIndex === cellIndex);
 const travelFor = (route: ValidRoute, cellIndex: number): Direction | undefined => route.directionByCell.get(cellIndex);
 
@@ -42,10 +38,14 @@ export type BoosterTrigger = Readonly<{
   startDistance: number;
   endDistance: number;
   forward: Vec3;
+  center: Vec3;
+  side: Vec3;
+  up: Vec3;
 }>;
 
 export type BumperBar = Readonly<{
   cellIndex: number;
+  localU: number;
   center: Vec3;
   forward: Vec3;
   axis: Vec3;
@@ -68,7 +68,7 @@ export type PinwheelLayout = Readonly<{
 }>;
 
 export type ModuleDevices = Readonly<{
-  start: ResolvedStart;
+  start: ResolvedStart & Readonly<{ gate: ResolvedFrame; agitator: ResolvedFrame }>;
   boosters: readonly BoosterTrigger[];
   bumpers: readonly BumperBar[];
   pinwheels: readonly PinwheelLayout[];
@@ -95,17 +95,36 @@ export const resolveModulePreview = (_cell: Exclude<TrackCell, null>, travel?: D
   collider: false as const,
 });
 
-const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[], forward: Vec3): readonly BumperBar[] => {
+type DeviceFrame = Readonly<{ position: Vec3; tangent: Vec3; side: Vec3; up: Vec3; distance: number }>;
+const interpolate = (a: Vec3, b: Vec3, amount: number): Vec3 => normalize(add(a, scale({ x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }, amount)));
+const frameAtCellU = (samples: readonly ModulePathSample[], cellIndex: number, localU: number): DeviceFrame | undefined => {
+  const rows = samples.filter((sample) => sample.cellIndex === cellIndex);
+  const first = rows[0];
+  if (first === undefined) return undefined;
+  const lower = rows.reduce((candidate, sample) => sample.localU <= localU && sample.localU >= candidate.localU ? sample : candidate, first);
+  const upper = rows.find((sample) => sample.localU >= localU) ?? rows[rows.length - 1];
+  const span = upper.localU - lower.localU;
+  const amount = span === 0 ? 0 : (localU - lower.localU) / span;
+  return Object.freeze({
+    position: add(lower.position, scale({ x: upper.position.x - lower.position.x, y: upper.position.y - lower.position.y, z: upper.position.z - lower.position.z }, amount)),
+    tangent: interpolate(lower.tangent, upper.tangent, amount),
+    side: interpolate(lower.side, upper.side, amount),
+    up: interpolate(lower.up, upper.up, amount),
+    distance: lower.distance + (upper.distance - lower.distance) * amount,
+  });
+};
+const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[]): readonly BumperBar[] => {
   const values: BumperBar[] = [];
   for (const [localU, sign] of [[0.35, -1], [0.5, 1], [0.65, -1]] as const) {
-    const sample = nearestSample(samples, cellIndex, localU);
-    if (sample === undefined) continue;
-    const inward = scale(sample.side, -sign);
-    const axis = rotate(inward, forward, BUMPER_TIP_ANGLE);
+    const frame = frameAtCellU(samples, cellIndex, localU);
+    if (frame === undefined) continue;
+    const inward = scale(frame.side, -sign);
+    const axis = rotate(inward, frame.tangent, BUMPER_TIP_ANGLE);
     values.push(Object.freeze({
       cellIndex,
-      center: add(add(sample.position, scale(sample.side, sign * (CHANNEL_WIDTH / 2 - BUMPER_LENGTH / 2))), scale(sample.up, BUMPER_HEIGHT / 2)),
-      forward,
+      localU,
+      center: add(add(frame.position, scale(frame.side, sign * (CHANNEL_WIDTH / 2 - BUMPER_LENGTH / 2))), scale(frame.up, BUMPER_HEIGHT / 2)),
+      forward: frame.tangent,
       axis,
       tipDirection: axis,
       length: BUMPER_LENGTH,
@@ -121,7 +140,8 @@ const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[],
 export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samples: readonly ModulePathSample[]): ModuleDevices => {
   const first = samples[0];
   if (first === undefined) throw new Error("A modular device layout requires a sampled route.");
-  const start = Object.freeze({ frame: frameFromSample(first), radius: 8.5, shuffleMs: 700, wallHeight: 4 });
+  const startFrame = frameFromSample(first);
+  const start = Object.freeze({ frame: startFrame, gate: startFrame, agitator: startFrame, radius: 8.5, shuffleMs: 700, wallHeight: 4 });
   const boosters: BoosterTrigger[] = [];
   const bumpers: BumperBar[] = [];
   const pinwheels: PinwheelLayout[] = [];
@@ -129,17 +149,19 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
     const cell = track.cells[step.cellIndex];
     const travel = travelFor(route, step.cellIndex);
     if (cell === null || cell === undefined || travel === undefined) continue;
-    const middle = nearestSample(samples, step.cellIndex, 0.5);
+    const middle = frameAtCellU(samples, step.cellIndex, 0.5);
     if (middle === undefined) continue;
     if (cell.kind === "booster") {
-      const startDistance = (cellSamples(samples, step.cellIndex)[0]?.distance ?? middle.distance) + MODULE_SIZE * 0.4;
-      boosters.push(Object.freeze({ cellIndex: step.cellIndex, startDistance, endDistance: startDistance + MODULE_SIZE * 0.2, forward: middle.tangent }));
+      const firstRow = cellSamples(samples, step.cellIndex)[0] ?? middle;
+      const cellStartDistance = firstRow.distance - firstRow.localU * MODULE_SIZE;
+      const startDistance = cellStartDistance + MODULE_SIZE * 0.4;
+      boosters.push(Object.freeze({ cellIndex: step.cellIndex, startDistance, endDistance: cellStartDistance + MODULE_SIZE * 0.6, forward: middle.tangent, center: middle.position, side: middle.side, up: middle.up }));
     } else if (cell.kind === "bumper") {
-      bumpers.push(...resolveBumpers(step.cellIndex, samples, middle.tangent));
+      bumpers.push(...resolveBumpers(step.cellIndex, samples));
     } else if (cell.kind === "pinwheel") {
       pinwheels.push(Object.freeze({
         cellIndex: step.cellIndex,
-        center: add(middle.position, scale(middle.up, PINWHEEL_ARM_THICKNESS)),
+        center: add(middle.position, scale(middle.up, PINWHEEL_ARM_THICKNESS / 2)),
         axis: middle.up,
         radius: PINWHEEL_RADIUS,
         armThickness: PINWHEEL_ARM_THICKNESS,

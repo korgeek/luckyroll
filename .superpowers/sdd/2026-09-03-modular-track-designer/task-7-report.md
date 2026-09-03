@@ -32,3 +32,22 @@ Result: focused tests passed: 3 files, 19 tests. App TypeScript check passed wit
 ## Concerns
 
 The full suite, browser QA, and modular physics qualification were intentionally not run per Task 7 scope and the current user rulings. Device descriptors use world-space sampled frames, so the later physics task can consume the same `axis`, `forward`, and center transforms as rendering.
+
+## Fix round 1
+
+RED command:
+
+```text
+npm test -- --run src/react-app/game/modular/moduleDevices.test.ts src/react-app/game/modular/modularTrackRender.test.ts src/react-app/game/track/obstacleGeometry.test.ts
+```
+
+Raw result: 2 suites failed as expected. The new assertions exposed nearest-sample booster placement (`expected 30 to be close to 28`), non-flat chevrons, and missing instanced pinwheel arms.
+
+GREEN commands:
+
+```text
+npm test -- --run src/react-app/game/modular/moduleDevices.test.ts src/react-app/game/modular/modularTrackRender.test.ts src/react-app/game/track/obstacleGeometry.test.ts
+npx tsc -p tsconfig.app.json --noEmit
+```
+
+Raw result: `Test Files 3 passed (3)`, `Tests 19 passed (19)`; TypeScript exited 0. The fix interpolates exact device frames, derives booster `[+8,+12]` from the first sampled row, uses descriptor-sized bumper instances/caps, rounded instanced pinwheel arms, descriptor-oriented start devices, flat in-band chevrons, and preserved rim lengths.
