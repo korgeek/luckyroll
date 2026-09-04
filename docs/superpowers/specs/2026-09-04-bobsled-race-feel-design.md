@@ -32,7 +32,7 @@ height = -distance × tan(7°)
 
 The constant 7-degree grade replaces the global 20-degree planar tilt. Every forward tangent therefore has a downhill component regardless of whether a cell travels east, west, or down the editor board. Straight modules have no lateral grade.
 
-Curves smoothly bank toward their inside up to 24 degrees through the curved interior. Banking remains zero throughout the canonical 0.10S landing at each port and eases in and out with the existing smooth curve parameter, preserving welded position, tangent, width, and cross-section continuity at every module seam. Straight, funnel, wave, pinwheel, booster, and bumper modules remain unbanked unless their centerline itself curves.
+Curves smoothly bank toward their inside up to 24 degrees through the curved interior. Banking remains zero throughout the canonical 0.10S landing at each port; both bank angle and its longitudinal rate are exactly zero where that landing meets the banked interior and at the module boundary. Reciprocal ports therefore use the same position, forward tangent, side/up frame, floor/wall/lip profile vertices, and surface normal. The curve exit and the next channel share one indexed boundary row rather than two touching meshes, so banking can never introduce a twist, ridge, step, gap, or overlapping collider at a seam. Straight, funnel, wave, pinwheel, booster, and bumper modules remain unbanked unless their centerline itself curves.
 
 Rendering, the welded Rapier trimesh, device frames, projection samples, finish volume, and cameras all consume the same graded and banked samples. No render-only rotation is allowed.
 
@@ -70,7 +70,7 @@ Bird View remains a fixed whole-course shot. Project the vector from finish to s
 ## Verification
 
 - Prove every sample has a non-positive height delta and every straight has positive downhill gravity along its forward tangent with negligible lateral gravity.
-- Prove curve bank is zero at both landings, points inward in the interior, and keeps existing seam position/tangent/cross-section tolerances.
+- Prove curve bank angle and longitudinal bank rate are zero at both landings, point inward in the interior, and keep exact reciprocal side/up frames plus existing seam position/tangent/cross-section/normal tolerances.
 - Prove the start extension and first module share the exact canonical floor/wall/lip cross-section and one welded boundary row, with no gap, step, duplicate face, overlapping collider, or surface-normal discontinuity anywhere inside the channel.
 - Red/green-test pusher timing, physical pose, reset, rear/side clearance, and visible-render synchronization.
 - Run 100 marbles with the existing deterministic test seed and require every marble to clear the gate within a bounded time with zero start escape, stall, or non-finite state.
