@@ -41,7 +41,7 @@ describe("track-bound race camera plan", () => {
     const samples = [
       { position: { x: 4, y: 0, z: 8 } },
       { position: { x: -2, y: -4, z: -6 } },
-    ] as readonly TrackSample[];
+    ] as unknown as readonly TrackSample[];
     const up = getBirdViewUp(samples);
     const finishToStart = { x: 6, z: 14 };
 
@@ -54,7 +54,7 @@ describe("track-bound race camera plan", () => {
     const coincident = [
       { position: { x: 3, y: 1, z: -2 } },
       { position: { x: 3, y: -7, z: -2 } },
-    ] as readonly TrackSample[];
+    ] as unknown as readonly TrackSample[];
 
     expect(getBirdViewUp([])).toEqual({ x: 0, y: 0, z: -1 });
     expect(getBirdViewUp(coincident)).toEqual({ x: 0, y: 0, z: -1 });
