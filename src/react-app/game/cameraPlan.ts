@@ -27,6 +27,16 @@ export const getTrackBounds = (samples: readonly TrackSample[]): TrackBounds => 
   return Object.freeze({ center, radius });
 };
 
+export const getBirdViewUp = (samples: readonly TrackSample[]): Vec3 => {
+  const start = samples[0]?.position;
+  const finish = samples[samples.length - 1]?.position;
+  if (start === undefined || finish === undefined) return { x: 0, y: 0, z: -1 };
+  const length = Math.hypot(start.x - finish.x, start.z - finish.z);
+  return length > 1e-9
+    ? { x: (start.x - finish.x) / length, y: 0, z: (start.z - finish.z) / length }
+    : { x: 0, y: 0, z: -1 };
+};
+
 const focusFor = (bounds: TrackBounds, focus?: Vec3): Vec3 =>
   focus && Number.isFinite(focus.x) && Number.isFinite(focus.y) && Number.isFinite(focus.z) ? focus : bounds.center;
 

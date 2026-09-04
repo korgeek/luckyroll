@@ -129,6 +129,27 @@ describe("race scene lifecycle boundary", () => {
     seams.frames.shift()?.(now + 60_100); expect(seams.emitted).toContain("timeout"); scene.dispose();
   });
 
+  it("orients bird view along the race and resumes the directed camera frame when disabled", async () => {
+    const scene = await startScene();
+    const camera = cameraPoses[0].camera;
+    const now = performance.now();
+    scene.setBirdView(true);
+    for (let frame = 0; frame < 160; frame += 1) seams.frames.shift()?.(now + frame * 17);
+
+    expect(camera.up.x).toBeCloseTo(-1, 3);
+    expect(camera.up.y).toBeCloseTo(0, 3);
+    expect(camera.up.z).toBe(0);
+    const birdPosition = camera.position.clone();
+    const birdUp = camera.up.clone();
+
+    scene.setBirdView(false);
+    seams.frames.shift()?.(now + 160 * 17);
+    expect(camera.up.x).toBeGreaterThan(birdUp.x);
+    expect(camera.up.y).toBeGreaterThan(birdUp.y);
+    expect(camera.position.distanceTo(new THREE.Vector3(7.5, 3.8, 0))).toBeLessThan(birdPosition.distanceTo(new THREE.Vector3(7.5, 3.8, 0)));
+    scene.dispose();
+  });
+
   it("restarts and tears down every instance exactly once", async () => {
     const scene = await startScene(); scene.restartRemaining([marble(1)]); await settle(); scene.dispose(); scene.dispose();
     expect(seams.runs.map((run) => run.disposeCount)).toEqual([1, 1]); expect(seams.worlds.map((world) => world.freeCount)).toEqual([1, 1, 1]);

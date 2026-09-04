@@ -3,6 +3,7 @@ import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
   createRaceFocusDirector,
+  getBirdViewUp,
   getCameraShot,
   getTrackBounds,
   hasCameraClipChanged,
@@ -34,6 +35,29 @@ describe("track-bound race camera plan", () => {
     expect(shot.position.x).toBeCloseTo(canonicalTrackBounds.center.x, 8);
     expect(Math.abs(shot.position.z - canonicalTrackBounds.center.z)).toBeLessThan(canonicalTrackBounds.radius * 0.01);
     expect(shot.position.y).toBeGreaterThan(canonicalTrackBounds.center.y + canonicalTrackBounds.radius * 2);
+  });
+
+  it("orients bird view horizontally from finish toward start", () => {
+    const samples = [
+      { position: { x: 4, y: 0, z: 8 } },
+      { position: { x: -2, y: -4, z: -6 } },
+    ] as readonly TrackSample[];
+    const up = getBirdViewUp(samples);
+    const finishToStart = { x: 6, z: 14 };
+
+    expect(up.x * finishToStart.x + up.z * finishToStart.z).toBeGreaterThan(0);
+    expect(up.y).toBe(0);
+    expect(Math.hypot(up.x, up.z)).toBeCloseTo(1, 8);
+  });
+
+  it("uses a stable bird-view orientation for missing or coincident endpoints", () => {
+    const coincident = [
+      { position: { x: 3, y: 1, z: -2 } },
+      { position: { x: 3, y: -7, z: -2 } },
+    ] as readonly TrackSample[];
+
+    expect(getBirdViewUp([])).toEqual({ x: 0, y: 0, z: -1 });
+    expect(getBirdViewUp(coincident)).toEqual({ x: 0, y: 0, z: -1 });
   });
 
   it("falls back to a finite usable bounds when samples are empty or malformed", () => {

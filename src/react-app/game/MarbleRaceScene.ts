@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
-import { createRaceFocusDirector, getTrackBounds, writeCameraShot, writeControlledTrackFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName } from "./cameraPlan";
+import { createRaceFocusDirector, getBirdViewUp, getTrackBounds, writeCameraShot, writeControlledTrackFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
@@ -343,6 +343,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
     if (birdView) {
       activeShot = "bird"; controls = initialCameraControls;
+      localUp = getBirdViewUp(course.samples);
       writeCameraShot(cameraShot, activeShot, bounds);
     } else if (reducedMotion) {
       activeShot = "overview";
