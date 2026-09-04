@@ -17,6 +17,9 @@ type ModularValidationResult = Readonly<{
 }>;
 type ModularValidationRunner = (options: Readonly<{ track: ReturnType<typeof createWorstCaseTrackDesign>; seed: number; marbleCount: number; durationSeconds: number }>) => Promise<ModularValidationResult>;
 
+const isPassingQualificationResult = (result: ModularValidationResult): boolean =>
+  result.nonFinite.length === 0 && result.escapes.length === 0 && result.stalls.length === 0 && result.boosterCapViolations.length === 0 && new Set(result.finishOrder).size === result.finishOrder.length;
+
 const loadModularValidationRace = async (): Promise<ModularValidationRunner> => {
   const module = await import("./modularTrackPhysics");
   const run = (module as typeof module & { runModularValidationRace?: ModularValidationRunner }).runModularValidationRace;
@@ -25,6 +28,14 @@ const loadModularValidationRace = async (): Promise<ModularValidationRunner> => 
 };
 
 describe.sequential("modular track physics qualification", () => {
+  it("reports a qualification row as failed for any invalid result", () => {
+    const passing: ModularValidationResult = { finishOrder: [1, 2], escapes: [], stalls: [], nonFinite: [], boosterCapViolations: [] };
+    expect(isPassingQualificationResult(passing)).toBe(true);
+    for (const result of [
+      { ...passing, escapes: [{}] }, { ...passing, stalls: [{}] }, { ...passing, nonFinite: [{}] }, { ...passing, boosterCapViolations: [{}] }, { ...passing, finishOrder: [1, 1] },
+    ]) expect(isPassingQualificationResult(result)).toBe(false);
+  });
+
   it("accepts only the pending canonical seed suffix", () => {
     const rows = ledgerRows();
     const recorded = rows.filter((row) => row.state === "recorded").map((row) => row.seed);
@@ -42,7 +53,7 @@ describe.sequential("modular track physics qualification", () => {
     for (const seed of seeds) {
       try {
         const result = await run({ track: createWorstCaseTrackDesign(), seed, marbleCount: 100, durationSeconds: 60 });
-        console.log(JSON.stringify({ seed, state: "recorded", finishers: result.finishOrder.length, escapes: result.escapes.length, stalls: result.stalls.length, nonFinite: result.nonFinite.length, capViolations: result.boosterCapViolations.length, result: "PASS" }));
+        console.log(JSON.stringify({ seed, state: "recorded", finishers: result.finishOrder.length, escapes: result.escapes.length, stalls: result.stalls.length, nonFinite: result.nonFinite.length, capViolations: result.boosterCapViolations.length, result: isPassingQualificationResult(result) ? "PASS" : "FAIL" }));
         results.push(result);
       } catch (error) {
         const failure = { seed, message: error instanceof Error ? error.message : String(error) };
