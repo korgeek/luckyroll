@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildObstacleGeometry } from "./obstacleGeometry";
+import { buildObstacleGeometry, buildStartRampBridge } from "./obstacleGeometry";
 import { MIN_DEVICE_CLEARANCE } from "./obstacleLayout";
 import { buildValidatedTrack } from "./trackBuild";
 import { projectToTrack } from "./trackSampler";
@@ -109,6 +109,28 @@ describe("neon obstacle geometry", () => {
   });
   it("uses a multi-section rounded profile for the start throat floor and walls", () => {
     const r = buildObstacleGeometry(track.geometry, resolved); expect(r.startThroat.positions.length / 3).toBeGreaterThan(16); expect(new Set(Array.from({ length: r.startThroat.positions.length / 3 }, (_, i) => point(r.startThroat, i)[1].toFixed(3))).size).toBeGreaterThan(3);
+  });
+  it("builds an upward-wound start ramp bridge across the bowl-to-track overlap", () => {
+    const bridge = buildStartRampBridge(resolved.start.frame);
+    const frame = resolved.start.frame;
+    const local = (index: number) => {
+      const p = point(bridge, index);
+      const delta = [p[0] - frame.position.x, p[1] - frame.position.y, p[2] - frame.position.z] as const;
+      return { along: dot(delta, frame.tangent), side: dot(delta, frame.side), up: dot(delta, frame.up) };
+    };
+    expect(bridge.positions.length / 3).toBe(12);
+    expect([0, 4, 8].map((index) => local(index).along)).toEqual([4.3, 6.5, 8.7].map((value) => expect.closeTo(value, 5)));
+    expect([0, 4, 8].map((index) => local(index).up)).toEqual([-0.72, -0.34285714285714286, 0].map((value) => expect.closeTo(value, 5)));
+    expect(local(0).side).toBeCloseTo(-1.7, 5);
+    expect(local(1).side).toBeCloseTo(1.7, 5);
+    const normal = (offset: number) => {
+      const a = point(bridge, bridge.indices[offset]); const b = point(bridge, bridge.indices[offset + 1]); const c = point(bridge, bridge.indices[offset + 2]);
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]; const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      return [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]] as const;
+    };
+    expect(dot(normal(0), frame.up)).toBeGreaterThan(0);
+    expect(dot(normal(6), frame.side)).toBeGreaterThan(0);
+    expect(dot(normal(12), frame.side)).toBeLessThan(0);
   });
   it("has finite non-degenerate indexed triangles in every generated static buffer", () => {
     const r = buildObstacleGeometry(track.geometry, resolved);

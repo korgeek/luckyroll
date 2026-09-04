@@ -16,7 +16,7 @@ import {
   initializeTrackPhysics,
 } from "../track/trackPhysics";
 import { resolveModuleDevices } from "./moduleDevices";
-import { buildStartThroat } from "../track/obstacleGeometry";
+import { buildStartRampBridge } from "../track/obstacleGeometry";
 
 const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => ({
   x: (1 - 2 * (quaternion.y ** 2 + quaternion.z ** 2)) * vector.x + 2 * (quaternion.x * quaternion.y - quaternion.z * quaternion.w) * vector.y + 2 * (quaternion.x * quaternion.z + quaternion.y * quaternion.w) * vector.z,
@@ -41,17 +41,10 @@ describe("modular track physics", () => {
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
-    const expectedThroat = buildStartThroat(resolveModuleDevices(built.track, built.route, built.samples).start.frame, 6);
-    const throat = resources.fixedColliders.find((collider) => collider.shapeType() === rapier.ShapeType.TriMesh && (collider.shape as InstanceType<typeof rapier.TriMesh>).vertices.length === expectedThroat.positions.length);
-    expect(throat).toBeDefined();
-    if (throat) expect((throat.shape as InstanceType<typeof rapier.TriMesh>).vertices).toEqual(expectedThroat.positions);
-    const along = (offset: number): number => {
-      const point = { x: expectedThroat.positions[offset], y: expectedThroat.positions[offset + 1], z: expectedThroat.positions[offset + 2] };
-      return (point.x - built.samples[0].position.x) * built.samples[0].tangent.x + (point.y - built.samples[0].position.y) * built.samples[0].tangent.y + (point.z - built.samples[0].position.z) * built.samples[0].tangent.z + 8.5;
-    };
-    const throatAlong = Array.from({ length: expectedThroat.positions.length / 3 }, (_, index) => along(index * 3));
-    expect(Math.min(...throatAlong)).toBeCloseTo(4.5, 5);
-    expect(Math.max(...throatAlong)).toBeCloseTo(10.5, 5);
+    const expectedRamp = buildStartRampBridge(resolveModuleDevices(built.track, built.route, built.samples).start.frame);
+    const ramp = resources.fixedColliders.find((collider) => collider.shapeType() === rapier.ShapeType.TriMesh && (collider.shape as InstanceType<typeof rapier.TriMesh>).vertices.length === expectedRamp.positions.length);
+    expect(ramp).toBeDefined();
+    if (ramp) expect((ramp.shape as InstanceType<typeof rapier.TriMesh>).vertices).toEqual(expectedRamp.positions);
     resources.dispose();
     world.free();
   });

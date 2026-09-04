@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildStartThroat, buildTrackShell, buildWalledBowl, type IndexedGeometry } from "../track/obstacleGeometry";
+import { buildStartRampBridge, buildTrackShell, buildWalledBowl, type IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
 import {
@@ -128,7 +128,7 @@ const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMater
 
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, accent: THREE.Material, refs: ModularDeviceRefs): void => {
   const bowl = new THREE.Mesh(toGeometry(buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight)), dark); bowl.name = "modular-start-bowl";
-  const throat = new THREE.Mesh(toGeometry(buildStartThroat(devices.start.frame, 6)), dark); throat.name = "modular-start-throat"; group.add(bowl, throat);
+  const ramp = new THREE.Mesh(toGeometry(buildStartRampBridge(devices.start.frame)), dark); ramp.name = "modular-start-ramp-bridge"; group.add(bowl, ramp);
   const agitatorBase = new THREE.Group(); agitatorBase.name = "modular-start-agitator"; agitatorBase.position.copy(toVector(devices.start.agitator.center)); agitatorBase.quaternion.copy(frameQuaternion(devices.start.agitator));
   const agitator = new THREE.Group(); agitator.name = "modular-start-agitator-spin";
   const armGeometry = new THREE.BoxGeometry(devices.start.agitator.width, devices.start.agitator.height, devices.start.agitator.depth);

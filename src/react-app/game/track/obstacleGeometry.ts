@@ -112,7 +112,25 @@ const channelThroat = (frame: ResolvedFrame, centerAlong: number, width: number,
   return indexed(positions, indices);
 };
 
-export const buildStartThroat = (frame: ResolvedFrame, length = 4.2): IndexedGeometry => channelThroat(frame, 7.5, 3.4, length, 0.72);
+export const buildStartThroat = (frame: ResolvedFrame): IndexedGeometry => channelThroat(frame, 7.5, 3.4, 4.2, 0.72);
+
+/** The modular start's short bridge overlaps the bowl at 4.3 and the track at 8.7. */
+export const buildStartRampBridge = (frame: ResolvedFrame): IndexedGeometry => {
+  const rows = [4.3, 6.5, 8.7];
+  const positions: number[] = [];
+  for (const along of rows) {
+    const height = -0.72 + 0.72 * Math.max(0, Math.min(1, (along - 4.3) / 4.2));
+    for (const [side, up] of [[-1.7, height], [1.7, height], [1.7, height + 1.7], [-1.7, height + 1.7]] as const) write(positions, inFrame(frame, along, side, up));
+  }
+  const indices: number[] = [];
+  for (let row = 0; row < rows.length - 1; row += 1) {
+    const current = row * 4; const next = current + 4;
+    indices.push(current, current + 1, next, current + 1, next + 1, next);
+    indices.push(current, next, current + 3, next, next + 3, current + 3);
+    indices.push(current + 1, current + 2, next + 1, current + 2, next + 2, next + 1);
+  }
+  return indexed(positions, indices);
+};
 
 const sampleBranchPath = (samples: readonly TrackGeometry["samples"][number][], kind: "left" | "middle" | "right"): Float32Array => {
   const values: number[] = []; const count = 17;

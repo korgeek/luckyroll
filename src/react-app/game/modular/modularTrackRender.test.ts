@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
 import { createModularTrackRender, disposeModularTrackRender, setModularDevicePose } from "./modularTrackRender";
-import { buildStartThroat } from "../track/obstacleGeometry";
+import { buildStartRampBridge } from "../track/obstacleGeometry";
 
 describe("modular track rendering", () => {
   it("renders exact board buffers and collider-free booster chevrons", () => {
@@ -11,9 +11,9 @@ describe("modular track rendering", () => {
     const rendered = createModularTrackRender(built);
     const surface = rendered.group.getObjectByName("modular-channel") as THREE.Mesh;
     expect(surface.geometry.getAttribute("position").array).toBe(built.geometry.positions);
-    const throat = rendered.group.getObjectByName("modular-start-throat") as THREE.Mesh;
-    expect(throat).toBeInstanceOf(THREE.Mesh);
-    expect(throat.geometry.getAttribute("position").array).toEqual(buildStartThroat(rendered.devices.start.frame, 6).positions);
+    const ramp = rendered.group.getObjectByName("modular-start-ramp-bridge") as THREE.Mesh;
+    expect(ramp).toBeInstanceOf(THREE.Mesh);
+    expect(ramp.geometry.getAttribute("position").array).toEqual(buildStartRampBridge(rendered.devices.start.frame).positions);
     expect(rendered.group.getObjectByName("booster-chevrons")?.userData.collider).toBe(false);
     const chevrons = rendered.group.getObjectByName("booster-chevrons");
     expect(chevrons?.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
