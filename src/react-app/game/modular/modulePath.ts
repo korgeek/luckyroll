@@ -191,7 +191,7 @@ const gradeFrame = (planarTangent: Vec3, planarSide: Vec3, bankRadians: number) 
     y: -Math.sin(ROUTE_GRADE),
     z: planarTangent.z * Math.cos(ROUTE_GRADE),
   });
-  const flatSide = normalize({ x: planarSide.x, y: 0, z: planarSide.z });
+  const flatSide = normalize(subtract(planarSide, scale(planarTangent, dot(planarSide, planarTangent))));
   const flatUp = normalize(cross(flatSide, tangent));
   const side = normalize(add(scale(flatSide, Math.cos(bankRadians)), scale(flatUp, -Math.sin(bankRadians))));
   return { tangent, side, up: normalize(cross(side, tangent)) };

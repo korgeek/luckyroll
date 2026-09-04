@@ -147,4 +147,18 @@ describe("canonical modular module paths", () => {
     }
     expect(validateModuleGeometry(buildModuleGeometry(samples))).toEqual([]);
   });
+
+  it("keeps worst-case graded and banked frames orthonormal", () => {
+    const track = createWorstCaseTrackDesign();
+    const samples = sampleModulePath(track, assertValidTrackDesign(track));
+
+    for (const { tangent, side, up } of samples) {
+      expect(distance(tangent, { x: 0, y: 0, z: 0 })).toBeCloseTo(1, 10);
+      expect(distance(side, { x: 0, y: 0, z: 0 })).toBeCloseTo(1, 10);
+      expect(distance(up, { x: 0, y: 0, z: 0 })).toBeCloseTo(1, 10);
+      expect(dot(tangent, side)).toBeCloseTo(0, 10);
+      expect(dot(tangent, up)).toBeCloseTo(0, 10);
+      expect(dot(side, up)).toBeCloseTo(0, 10);
+    }
+  });
 });
