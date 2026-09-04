@@ -32,17 +32,22 @@ const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b
 const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), z: 0, w: Math.cos(radians / 2) });
 
 describe("modular track physics", () => {
-  it("creates one welded track mesh and four solid start enclosure colliders", async () => {
+  it("creates one welded track mesh with only rear start containment", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
-    const enclosure = resources.fixedColliders.slice(0, 4);
-    expect(enclosure.every((collider) => collider.shapeType() === rapier.ShapeType.Cuboid)).toBe(true);
-    expect(enclosure.every((collider) => collider.parent()?.numColliders() === 4)).toBe(true);
+    expect(resources.fixedColliders).toHaveLength(1);
+    const rear = resources.fixedColliders[0]!;
+    expect(rear.shapeType()).toBe(rapier.ShapeType.Cuboid);
+    expect(rear.parent()?.numColliders()).toBe(1);
+    expect(rear.halfExtents().x).toBeCloseTo(devices.start.width / 2, 6);
+    expect(rear.halfExtents().y).toBeCloseTo(devices.start.wallHeight / 2, 6);
+    expect(rear.halfExtents().z).toBeCloseTo(0.25, 6);
     resources.dispose();
     world.free();
   });
@@ -175,8 +180,8 @@ describe("modular track physics", () => {
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
-    expect(world.colliders.len()).toBe(6 + devices.bumpers.length * 3 + devices.pinwheels.length * 3);
-    expect(resources.fixedColliders).toHaveLength(4 + devices.bumpers.length * 3);
+    expect(world.colliders.len()).toBe(3 + devices.bumpers.length * 3 + devices.pinwheels.length * 3);
+    expect(resources.fixedColliders).toHaveLength(1 + devices.bumpers.length * 3);
     const [body] = createMarbleBodies(world, createModularLaunchPositions(1, built, 11));
     let firstOpenStep;
     let launchedVelocity;

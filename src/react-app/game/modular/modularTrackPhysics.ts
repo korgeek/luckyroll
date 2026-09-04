@@ -200,9 +200,6 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     .setTranslation(devices.start.frame.position.x, devices.start.frame.position.y, devices.start.frame.position.z)
     .setRotation(gateRotation));
   addFixedBody(startBody, [
-    world.createCollider(rapier.ColliderDesc.cuboid(devices.start.width / 2, wallThickness / 2, devices.start.runoutLength / 2).setTranslation(0, -wallThickness / 2, -devices.start.runoutLength / 2).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
-    world.createCollider(rapier.ColliderDesc.cuboid(wallThickness / 2, devices.start.wallHeight / 2, devices.start.runoutLength / 2).setTranslation(-devices.start.width / 2, devices.start.wallHeight / 2, -devices.start.runoutLength / 2).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
-    world.createCollider(rapier.ColliderDesc.cuboid(wallThickness / 2, devices.start.wallHeight / 2, devices.start.runoutLength / 2).setTranslation(devices.start.width / 2, devices.start.wallHeight / 2, -devices.start.runoutLength / 2).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
     world.createCollider(rapier.ColliderDesc.cuboid(devices.start.width / 2, devices.start.wallHeight / 2, wallThickness / 2).setTranslation(0, devices.start.wallHeight / 2, 0).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
   ]);
   const gateBody = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased()
