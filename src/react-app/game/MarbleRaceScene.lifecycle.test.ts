@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const seams = vi.hoisted(() => ({
-  frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as string[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
+  frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as unknown[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 }));
@@ -105,7 +105,7 @@ const canvasDrag = (canvas: HTMLCanvasElement): void => {
 const addListener = vi.spyOn(EventTarget.prototype, "addEventListener");
 const removeListener = vi.spyOn(EventTarget.prototype, "removeEventListener");
 const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { kind: "custom", track: createValidTrackDesign("Scene") }) => {
-  const scene = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event.type); seams.order.push(`emit:${event.type}`); }, selection);
+  const scene = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event); seams.order.push(`emit:${event.type}`); }, selection);
   await settle(); scene.start([marble(1)], 11); await settle(); return scene;
 };
 
@@ -118,15 +118,15 @@ describe("race scene lifecycle boundary", () => {
 
   it("emits a custom build error before creating a renderer", () => {
     const bad = createValidTrackDesign("Bad"); const cells = [...bad.cells]; cells[1] = null;
-    const scene = createRaceScene(document.createElement("canvas"), (event) => seams.emitted.push(event.type), { kind: "custom", track: { ...bad, cells } });
-    expect(seams.emitted).toEqual(["error"]); scene.dispose(); expect(seams.frames).toHaveLength(0); expect(seams.rendererDisposals).toBe(0);
+    const scene = createRaceScene(document.createElement("canvas"), (event) => seams.emitted.push(event), { kind: "custom", track: { ...bad, cells } });
+    expect(seams.emitted.map((event) => (event as { type: string }).type)).toEqual(["error"]); scene.dispose(); expect(seams.frames).toHaveLength(0); expect(seams.rendererDisposals).toBe(0);
   });
 
   it("uses custom samples, orders fixed work, pauses it, and times out custom races", async () => {
     const scene = await startScene(); const now = performance.now(); scene.setPaused(true); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
     expect(seams.order.filter((entry) => /^(before|world:|after)/.test(entry))).toEqual([]); expect(seams.worldSteps).toBe(0);
     scene.setPaused(false); seams.frames.shift()?.(now + 34); expect(seams.order.slice(-4, -1)).toEqual(["before:1", "world:2", "after:1"]); expect(seams.projectedSamples).toContain(seams.courseSamples);
-    seams.frames.shift()?.(now + 60_100); expect(seams.emitted).toContain("timeout"); scene.dispose();
+    seams.frames.shift()?.(now + 60_100); expect(seams.emitted.map((event) => (event as { type: string }).type)).toContain("timeout"); scene.dispose();
   });
 
   it("orients bird view along the race and resumes the directed camera frame when disabled", async () => {
@@ -158,7 +158,7 @@ describe("race scene lifecycle boundary", () => {
 
   it("registers a canvas context-menu guard alongside recoverable pointer controls", async () => {
     const canvas = document.createElement("canvas");
-    const scene = createRaceScene(canvas, (event) => { seams.emitted.push(event.type); }, { kind: "custom", track: createValidTrackDesign("Input") });
+    const scene = createRaceScene(canvas, (event) => { seams.emitted.push(event); }, { kind: "custom", track: createValidTrackDesign("Input") });
     await settle();
     const contextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
 
@@ -289,11 +289,11 @@ describe("race scene lifecycle boundary", () => {
 
   it("emits one DNF and cleans up before a begin or initialization error", async () => {
     const scene = await startScene(); const now = performance.now(); seams.badBody = true; seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17); seams.frames.shift()?.(now + 34);
-    expect(seams.emitted.filter((event) => event === "dnf")).toHaveLength(1); scene.dispose();
+    expect(seams.emitted.filter((event) => (event as { type: string }).type === "dnf")).toHaveLength(1); scene.dispose();
 
     seams.order.length = 0; seams.emitted.length = 0; seams.failRun = true;
     const failedStart = await startScene();
-    expect(seams.emitted).toEqual(["error"]);
+    expect(seams.emitted.map((event) => (event as { type: string }).type)).toEqual(["error"]);
     const lastWorldFree = seams.order.reduce((last, entry, index) => entry.startsWith("world-free:") ? index : last, -1);
     expect(lastWorldFree).toBeGreaterThan(-1); expect(seams.order.indexOf("emit:error")).toBeGreaterThan(lastWorldFree);
     expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("course-dispose"));
@@ -301,10 +301,18 @@ describe("race scene lifecycle boundary", () => {
     const startCleanup = [...seams.order]; failedStart.dispose(); expect(seams.order).toEqual(startCleanup);
 
     seams.order.length = 0; seams.emitted.length = 0; seams.failRun = false; seams.failWorld = true;
-    const failedInit = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event.type); seams.order.push(`emit:${event.type}`); }, { kind: "custom", track: createValidTrackDesign("Init") }); await settle();
-    expect(seams.emitted).toEqual(["error"]);
+    const failedInit = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event); seams.order.push(`emit:${event.type}`); }, { kind: "custom", track: createValidTrackDesign("Init") }); await settle();
+    expect(seams.emitted.map((event) => (event as { type: string }).type)).toEqual(["error"]);
     expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("course-dispose"));
     expect(seams.order.indexOf("emit:error")).toBeGreaterThan(seams.order.indexOf("renderer-dispose"));
     const initCleanup = [...seams.order]; failedInit.dispose(); expect(seams.order).toEqual(initCleanup);
+  });
+
+  it("reports a DNF as eliminated rather than finished", async () => {
+    const scene = await startScene();
+    seams.badBody = true;
+    seams.frames.shift()?.(performance.now());
+    expect(seams.emitted.find((event) => (event as { type: string }).type === "tick")).toMatchObject({ type: "tick", finishedCount: 0, eliminatedCount: 1 });
+    scene.dispose();
   });
 });

@@ -16,13 +16,13 @@ import type { TrackSample, Vec3 } from "./track/trackTypes";
 import { createBuiltInTrackResources, createRaceCourse, type RaceCourse, type RaceCourseRun, type RapierBody, type RapierWorld } from "./raceCourse";
 
 export type SceneEvent =
-  | { type: "tick"; elapsedMs: number; finishedCount: number; remaining: Marble[]; leader?: Marble; trailer?: Marble }
+  | { type: "tick"; elapsedMs: number; finishedCount: number; eliminatedCount: number; remaining: Marble[]; leader?: Marble; trailer?: Marble }
   | { type: "finish"; marble: Marble }
   | { type: "dnf"; marble: Marble; reason: "escape" | "non-finite" }
   | { type: "error"; message: string }
   | { type: "timeout"; remaining: Marble[] };
 export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; setPaused: (paused: boolean) => void; setBirdView: (enabled: boolean) => void; reset: () => void; dispose: () => void };
-type Ball = { id: number; marble: Marble; body: RapierBody; done: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
+type Ball = { id: number; marble: Marble; body: RapierBody; done: boolean; eliminated: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
 type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 export type CameraRankItem = Readonly<{ done: boolean; progress: number }>;
 
@@ -357,7 +357,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       world,
       launchPositions,
     );
-    balls = marbles.map((marble, index) => ({ id: marble.id, marble, body: bodies[index], done: false, progress: 0, sampleIndex: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
+    balls = marbles.map((marble, index) => ({ id: marble.id, marble, body: bodies[index], done: false, eliminated: false, progress: 0, sampleIndex: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
     liveBalls.length = 0; rankedCameraBalls.length = 0; raceFocus.reset(); raceClock.reset(); running = true; timedOut = false; fixedAccumulator = 0; last = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? last : 0;
   };
 
@@ -421,11 +421,11 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         const position = ball.body.translation();
         const finite = [position.x, position.y, position.z].every(Number.isFinite);
         if (!finite) {
-          ball.done = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "non-finite" }); return;
+          ball.done = true; ball.eliminated = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "non-finite" }); return;
         }
         const raceState = evaluateRaceBody(ball.body, course.samples);
         if (!Number.isFinite(raceState.projection.progress) || distanceSquaredToSample(position, course.samples[raceState.projection.sampleIndex]) > 15 ** 2) {
-          ball.done = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "escape" }); return;
+          ball.done = true; ball.eliminated = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "escape" }); return;
         }
         ball.progress = raceState.projection.progress; ball.sampleIndex = raceState.projection.sampleIndex; ball.position = raceState.position;
         if (raceState.finished) {
@@ -438,7 +438,9 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       balls.forEach((ball) => { if (!ball.done) liveBalls.push(ball); });
       refreshCameraRankView(liveBalls, rankedCameraBalls);
       const leader = rankedCameraBalls[0]; const trailer = rankedCameraBalls[rankedCameraBalls.length - 1];
-      updateCamera(elapsedMs, leader?.progress ?? 0); emit({ type: "tick", elapsedMs, finishedCount: balls.length - liveBalls.length, remaining: liveBalls.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
+      const eliminatedCount = balls.reduce((count, ball) => count + Number(ball.eliminated), 0);
+      const finishedCount = balls.reduce((count, ball) => count + Number(ball.done && !ball.eliminated), 0);
+      updateCamera(elapsedMs, leader?.progress ?? 0); emit({ type: "tick", elapsedMs, finishedCount, eliminatedCount, remaining: liveBalls.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
       if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }

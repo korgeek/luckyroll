@@ -18,7 +18,7 @@ import { retroSounds } from "./game/retroSounds";
 import "./App.css";
 
 type Session = SetupValues & { marbles: Marble[]; seed: number; course: RaceCourseSelection };
-type Hud = { elapsedMs: number; finishedCount: number; leader?: Marble; trailer?: Marble };
+type Hud = { elapsedMs: number; finishedCount: number; eliminatedCount: number; leader?: Marble; trailer?: Marble };
 type View = "setup" | "editor" | "race" | "results";
 const EMPTY_LIBRARY: TrackLibrary = { version: 1, tracks: [] };
 const SELECTED_TRACK_KEY = "luckyroll.selectedTrack";
@@ -38,7 +38,7 @@ function App() {
 	const [libraryError, setLibraryError] = useState(false);
 	const [session, setSession] = useState<Session>();
 	const [finished, setFinished] = useState<Marble[]>([]);
-	const [hud, setHud] = useState<Hud>({ elapsedMs: 0, finishedCount: 0 });
+	const [hud, setHud] = useState<Hud>({ elapsedMs: 0, finishedCount: 0, eliminatedCount: 0 });
 	const [remaining, setRemaining] = useState<Marble[]>();
 	const [teams, setTeams] = useState<Team[]>();
 	const [paused, setPaused] = useState(false);
@@ -76,7 +76,7 @@ function App() {
 		const marbles = values.mode === "race" ? allocateMarbles(values.participants) : values.participants.map((participant, index) => ({ id: index + 1, ownerId: participant.id, color: participant.color, symbol: participant.symbol }));
 		retroSounds.start(); setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setRaceReturnView(returnView);
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
-		setFinished([]); setTeams(undefined); setRemaining(undefined); setHud({ elapsedMs: 0, finishedCount: 0 }); setView("race");
+		setFinished([]); setTeams(undefined); setRemaining(undefined); setHud({ elapsedMs: 0, finishedCount: 0, eliminatedCount: 0 }); setView("race");
 	};
 
 	useEffect(() => {
@@ -85,7 +85,7 @@ function App() {
 		void import("./game/MarbleRaceScene").then(({ createRaceScene }) => {
 			if (!active || !canvasRef.current) return;
 			scene = createRaceScene(canvasRef.current, (event) => {
-				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, finishedCount: event.finishedCount, leader: event.leader, trailer: event.trailer });
+				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, finishedCount: event.finishedCount, eliminatedCount: event.eliminatedCount, leader: event.leader, trailer: event.trailer });
 				if (event.type === "timeout") { retroSounds.timeout(); setRemaining(event.remaining); }
 				if (event.type === "error") { setMessage(event.message); setView(raceReturnView); }
 				if ((event.type === "finish" || event.type === "dnf") && session.mode === "race") {
@@ -120,7 +120,7 @@ function App() {
 	const editTrack = (id: string) => { const track = trackById(id); if (track) { setEditor(createEditorState(track, id)); setView("editor"); } };
 	const openShare = (track: TrackDesign | undefined) => { if (track) setShareTrack(track); };
 	const showResults = () => { setRemaining(undefined); setView("results"); };
-	const restartAll = () => { if (!session) return; setFinished([]); setRemaining(undefined); setBirdView(false); setSceneReady(false); setSession({ ...session, seed: Date.now() }); };
+	const restartAll = () => { if (!session) return; setFinished([]); setRemaining(undefined); setHud({ elapsedMs: 0, finishedCount: 0, eliminatedCount: 0 }); setBirdView(false); setSceneReady(false); setSession({ ...session, seed: Date.now() }); };
 	const restartRemaining = () => { if (!remaining) return; setRemaining(undefined); sceneRef.current?.restartRemaining(remaining); };
 	const again = () => { setSession(undefined); setFinished([]); setTeams(undefined); setPaused(false); setBirdView(false); setSceneReady(false); setView(raceReturnView); };
 	const selectTrack = (id?: string) => { setSelectedTrackId(id); if (id) window.localStorage.setItem(SELECTED_TRACK_KEY, id); else window.localStorage.removeItem(SELECTED_TRACK_KEY); };
@@ -131,7 +131,7 @@ function App() {
 		{message && <div className="app-message" role="status">{message}{libraryError && <button onClick={() => { try { const next = resetTrackLibrary(window.localStorage); setLibrary(next); setLibraryError(false); setMessage("Saved track storage reset."); } catch (error) { setMessage(error instanceof Error ? error.message : "Saved track storage could not be reset."); } }}>Reset saved tracks</button>}</div>}
 		{view === "setup" && <SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onNewTrack={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEditTrack={editTrack} onSelectTrack={selectTrack} onPlayTrack={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track); } }} onShareTrack={(id) => openShare(trackById(id))} onDeleteTrack={removeTrack} onImportTrack={importTrack} />}
 		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("setup")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
-		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} finishedCount={hud.finishedCount} total={session.marbles.length} leader={hud.leader} trailer={hud.trailer} /><div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>Exit</button></div>{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
+		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} finishedCount={hud.finishedCount} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} leader={hud.leader} trailer={hud.trailer} /><div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>Exit</button></div>{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
 		{view === "results" && <ResultsScreen rankings={session?.mode === "race" ? reverseRank(finished) : undefined} participants={participants} prizePool={session?.prizePool ?? 0} teams={teams} onAgain={again} />}
 		{shareTrack && <ShareTrackDialog track={shareTrack} baseHref={window.location.href} share={navigator.share?.bind(navigator)} writeText={navigator.clipboard?.writeText.bind(navigator.clipboard)} onImport={importTrack} onClose={() => setShareTrack(undefined)} />}
 	</main>;

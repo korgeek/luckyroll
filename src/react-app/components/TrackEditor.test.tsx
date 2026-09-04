@@ -78,6 +78,15 @@ describe("TrackEditor", () => {
 		expect(screen.getByRole("gridcell", { name: /row 1 column 2, booster module/i })).toBeInTheDocument();
 	});
 
+	it("keeps the selected cell visible and names the armed replacement", async () => {
+		const user = userEvent.setup(); render(<ControlledEditor track={createDefaultTrackDesign("Course")} />);
+		const cell = screen.getByRole("gridcell", { name: /row 1 column 2/i });
+		await user.click(cell);
+		expect(cell).toHaveAttribute("aria-selected", "true");
+		await user.click(screen.getByRole("button", { name: "Booster module" }));
+		expect(screen.getByRole("button", { name: /replace cell 2 with booster/i })).toBeEnabled();
+	});
+
 	it("moves by arrow, rotates occupied cells, and shows kind plus direction", async () => {
 		const user = userEvent.setup(); render(<ControlledEditor track={createDefaultTrackDesign("Course")} />);
 		const cell = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); cell.focus(); await user.keyboard("{ArrowRight}");
@@ -115,12 +124,12 @@ describe("TrackEditor", () => {
 		try {
 			render(<ControlledEditor track={createEmptyTrackDesign("Course")} />);
 			const cell = screen.getByRole("gridcell", { name: /row 1 column 2, empty/i });
-			expect(screen.getByRole("button", { name: "Replace" })).toBeVisible(); expect(screen.getByRole("button", { name: "Clear" })).toBeVisible();
+			expect(screen.getByRole("button", { name: /replace cell 2 with straight/i })).toBeVisible(); expect(screen.getByRole("button", { name: "Clear" })).toBeVisible();
 			fireEvent.pointerDown(cell); fireEvent.pointerMove(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); fireEvent.pointerUp(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); fireEvent.pointerCancel(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.getByRole("dialog")).toBeInTheDocument();
-			fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+			fireEvent.click(screen.getByRole("button", { name: /replace cell 2 with straight/i }));
 			expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }).querySelector("svg")).toBeTruthy();
 			fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 			expect(screen.getByRole("gridcell", { name: /row 1 column 2, empty/i })).toHaveTextContent("+");

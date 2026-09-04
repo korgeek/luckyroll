@@ -33,6 +33,7 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 	const [menuCell, setMenuCell] = useState<number | null>(null);
 	const [paletteArmed, setPaletteArmed] = useState(false);
 	const dispatch = (action: EditorAction) => onChange(editorReducer(state, action));
+	const actionCell = menuCell ?? state.selectedCell;
 	const clearTimer = () => { if (timer.current !== undefined) window.clearTimeout(timer.current); timer.current = undefined; };
 	const startLongPress = (cellIndex: number) => {
 		clearTimer(); longPress.current = false;
@@ -65,13 +66,14 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 			<div className="palette" aria-label="Module palette">{PALETTE.map(([kind, label]) => <button key={kind} className={state.selectedKind === kind ? "selected" : ""} aria-pressed={state.selectedKind === kind} onClick={() => { dispatch({ type: "palette", kind }); setPaletteArmed(true); }}>{label}</button>)}</div>
 			<div className="track-board" role="grid" aria-label="5 column by 8 row track board">
 				{Array.from({ length: ROWS }, (_, row) => <div role="row" key={row}>{Array.from({ length: COLUMNS }, (_, column) => {
-					const index = row * COLUMNS + column; const cell = state.draft.cells[index]; const fixed = cell?.kind === "start" || cell?.kind === "finish";
-					return <button role="gridcell" className={`track-cell ${cell === null ? "empty" : "occupied"} ${fixed ? "fixed" : ""}`} data-cell-index={index} key={index} disabled={fixed} tabIndex={state.selectedCell === index ? 0 : -1} aria-label={cellLabel(cell, index)} onFocus={() => dispatch({ type: "focus", cellIndex: index })} onClick={() => handleCellClick(index)} onKeyDown={(event) => onCellKeyDown(event, index)} onPointerDown={() => startLongPress(index)} onPointerMove={clearTimer} onPointerUp={clearTimer} onPointerCancel={() => { clearTimer(); longPress.current = false; }}><span className="track-cell-kind" aria-hidden="true">{cell === null ? "+" : <TrackCellDiagram cell={cell} />}</span></button>;
+					const index = row * COLUMNS + column; const cell = state.draft.cells[index]; const fixed = cell?.kind === "start" || cell?.kind === "finish"; const selected = state.selectedCell === index;
+					return <button role="gridcell" className={`track-cell ${cell === null ? "empty" : "occupied"} ${fixed ? "fixed" : ""} ${selected ? "selected" : ""}`} data-cell-index={index} key={index} disabled={fixed} tabIndex={selected ? 0 : -1} aria-selected={selected} aria-label={cellLabel(cell, index)} onFocus={() => dispatch({ type: "focus", cellIndex: index })} onClick={() => handleCellClick(index)} onKeyDown={(event) => onCellKeyDown(event, index)} onPointerDown={() => startLongPress(index)} onPointerMove={clearTimer} onPointerUp={clearTimer} onPointerCancel={() => { clearTimer(); longPress.current = false; }}><span className="track-cell-kind" aria-hidden="true">{cell === null ? "+" : <TrackCellDiagram cell={cell} />}</span></button>;
 				})}</div>)}
 			</div>
 			<p className="track-editor-help">Choose a module, then tap a cell to place or replace it. Hold a cell for more actions.</p>
+			{paletteArmed && <p aria-live="polite">{state.selectedKind} selected. Tap a cell to place or replace it.</p>}
 		</section>
-		<section className="cell-actions" role={menuCell === null ? undefined : "dialog"} aria-label="Cell actions"><span>{menuCell === null ? "Selected cell" : `Cell ${menuCell + 1}`}</span><button onClick={() => { dispatch({ type: "replace", cellIndex: menuCell ?? state.selectedCell }); setMenuCell(null); }}>Replace</button><button onClick={() => { dispatch({ type: "clear", cellIndex: menuCell ?? state.selectedCell }); setMenuCell(null); }}>Clear</button></section>
+		<section className="cell-actions" role={menuCell === null ? undefined : "dialog"} aria-label="Cell actions"><span>{menuCell === null ? "Selected cell" : `Cell ${menuCell + 1}`}</span><button onClick={() => { dispatch({ type: "replace", cellIndex: actionCell }); setMenuCell(null); }}>{`Replace cell ${actionCell + 1} with ${state.selectedKind}`}</button><button onClick={() => { dispatch({ type: "clear", cellIndex: actionCell }); setMenuCell(null); }}>Clear</button></section>
 		<div className="track-editor-footer"><button className="secondary-button" disabled={!state.validation.ok} onClick={onShare}>Share</button><button className="primary-button" disabled={!state.validation.ok} onClick={onPlay}>Test Play</button></div>
 		<div className="track-validation" role="status" aria-live="polite">{state.validation.ok ? "Route is valid." : [...new Set(state.validation.failures.map((failure) => failure.message))].join(" ")}</div>
 	</main>;

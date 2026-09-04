@@ -46,4 +46,18 @@ describe("default race course and camera controls", () => {
     await user.click(screen.getByRole("button", { name: "Auto Camera" }));
     expect(scene.setBirdView).toHaveBeenLastCalledWith(false);
   });
+
+  it("shows finishers separately from eliminations and leaves OUT unchanged on timeout", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("region", { name: "Game setup" });
+    await user.click(screen.getByRole("button", { name: "START RACE" }));
+    await waitFor(() => expect(scene.create).toHaveBeenCalled());
+    const emit = scene.create.mock.calls[0]?.[1] as (event: { type: string; elapsedMs?: number; finishedCount?: number; eliminatedCount?: number; remaining?: []; leader?: undefined; trailer?: undefined }) => void;
+    emit({ type: "tick", elapsedMs: 1000, finishedCount: 3, eliminatedCount: 2, remaining: [], leader: undefined, trailer: undefined });
+    expect(await screen.findByText("DONE 3/100")).toBeInTheDocument();
+    expect(screen.getByText("OUT 2")).toBeInTheDocument();
+    emit({ type: "timeout", remaining: [] });
+    expect(screen.getByText("OUT 2")).toBeInTheDocument();
+  });
 });
