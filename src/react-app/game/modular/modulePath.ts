@@ -183,7 +183,7 @@ const surfaceTurnExceeds = (path: CellPath, kind: ModuleKind | "start" | "finish
     const planarTangent = normalize({ x: point.derivative.x, y: 0, z: point.derivative.z });
     const planarSide = path.sideAt(localU);
     const frame = gradeFrame(planarTangent, planarSide, bankAt(kind, localU, dot(curvature(point), planarSide)));
-    return profileNormalsAt(frame, widthAt(localU));
+    return profileNormalsAt({ ...frame, centerlineCurvature: curvature(point) }, widthAt(localU));
   });
   for (let column = 0; column < rows[0].length; column += 1) {
     if (turnBetween(rows[0][column], rows[1][column]) > MAX_TURN

@@ -1,1 +1,1 @@
-export const RACE_TIMEOUT_MS = 60_000;
+export const RACE_TIMEOUT_MS = 120_000;

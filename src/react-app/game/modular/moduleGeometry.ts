@@ -1,8 +1,10 @@
 import type { TrackGeometry, Vec3 } from "../track/trackTypes";
 import {
   CHANNEL_WIDTH,
+  MAX_CURVE_BANK,
   MARBLE_DIAMETER,
   RAIL_HEIGHT,
+  ROUTE_GRADE,
   type ModulePathSample,
 } from "./modularTypes";
 
@@ -11,6 +13,7 @@ export const FLOOR_SPAN = 0.55;
 const WALL_SEGMENTS = 62;
 const FLOOR_SEGMENTS = PROFILE_SEGMENTS - WALL_SEGMENTS * 2;
 const WALL_RISE_HEIGHT = RAIL_HEIGHT * 0.7875;
+const CURVE_INNER_RAIL_HEIGHT = 5;
 
 export type ChannelProfilePoint = Readonly<{ lateral: number; height: number }>;
 
@@ -31,21 +34,28 @@ const bezier = (
 };
 
 /** The one cross-section used by every modular render and collider row. */
-export const profileAt = (width: number): readonly ChannelProfilePoint[] => {
+export const profileAt = (width: number, leftHeight = RAIL_HEIGHT, rightHeight = RAIL_HEIGHT): readonly ChannelProfilePoint[] => {
   const half = width / 2;
   const floorHalf = width * FLOOR_SPAN / 2;
-  const tip = { lateral: half, height: RAIL_HEIGHT };
   const floor = { lateral: floorHalf, height: 0 };
   const points: ChannelProfilePoint[] = [];
 
   const wallSpan = half - floorHalf;
-  const rightHalf: ChannelProfilePoint[] = [];
-  const append = (a: ChannelProfilePoint, b: ChannelProfilePoint, c: ChannelProfilePoint, d: ChannelProfilePoint, segments: number): void => {
-    for (let index = 0; index <= segments; index += 1) rightHalf.push(freeze(bezier(a, b, c, d, index / segments)));
+  const wall = (height: number): readonly ChannelProfilePoint[] => {
+    const tip = { lateral: half, height };
+    const result: ChannelProfilePoint[] = [];
+    for (let index = 0; index <= WALL_SEGMENTS; index += 1) result.push(freeze(bezier(
+      floor,
+      { lateral: floor.lateral + wallSpan * 0.42, height: 0 },
+      { lateral: tip.lateral, height: height / RAIL_HEIGHT * WALL_RISE_HEIGHT },
+      tip,
+      index / WALL_SEGMENTS,
+    )));
+    return result;
   };
-  append(floor, { lateral: floor.lateral + wallSpan * 0.42, height: 0 }, { lateral: tip.lateral, height: WALL_RISE_HEIGHT }, tip, WALL_SEGMENTS);
+  const rightHalf = wall(rightHeight);
   const floorPoints = Array.from({ length: FLOOR_SEGMENTS + 1 }, (_, index) => freeze({ lateral: lerp(-floorHalf, floorHalf, index / FLOOR_SEGMENTS), height: 0 }));
-  const leftHalf = rightHalf.map((point) => freeze({ lateral: -point.lateral, height: point.height })).reverse();
+  const leftHalf = wall(leftHeight).map((point) => freeze({ lateral: -point.lateral, height: point.height })).reverse();
   points.push(...leftHalf, ...floorPoints.slice(1), ...rightHalf.slice(1));
   return Object.freeze(points);
 };
@@ -61,11 +71,18 @@ const normalize = (a: Vec3): Vec3 => {
   return length === 0 ? { x: 0, y: 0, z: 0 } : scale(a, 1 / length);
 };
 
+const profileForFrame = (frame: Pick<ModulePathSample, "side" | "width"> & Readonly<{ centerlineCurvature: Vec3 }>): readonly ChannelProfilePoint[] => {
+  const signedCurvature = frame.centerlineCurvature.x * frame.side.x + frame.centerlineCurvature.y * frame.side.y + frame.centerlineCurvature.z * frame.side.z;
+  const bankBlend = Math.min(1, Math.abs(frame.side.y) / (Math.sin(MAX_CURVE_BANK) * Math.cos(ROUTE_GRADE)));
+  const innerHeight = lerp(RAIL_HEIGHT, CURVE_INNER_RAIL_HEIGHT, bankBlend);
+  return profileAt(frame.width, signedCurvature < 0 ? innerHeight : RAIL_HEIGHT, signedCurvature > 0 ? innerHeight : RAIL_HEIGHT);
+};
+
 export const profileNormalsAt = (
-  frame: Pick<ModulePathSample, "tangent" | "side" | "up">,
+  frame: Pick<ModulePathSample, "tangent" | "side" | "up" | "centerlineCurvature">,
   width: number,
 ): readonly Vec3[] => {
-  const profile = profileAt(width);
+  const profile = profileForFrame({ ...frame, width });
   return profile.slice(1).map((right, column) => {
     const left = profile[column];
     const transverse = add(
@@ -118,7 +135,7 @@ export const buildModuleGeometry = (samples: readonly ModulePathSample[]): Modul
   for (let row = 0; row < samples.length; row += 1) {
     const sample = samples[row];
     sourceCellBySample[row] = sample.cellIndex;
-    const profile = profileAt(sample.width);
+    const profile = profileForFrame(sample);
     for (let column = 0; column < rowSize; column += 1) {
       const point = profile[column];
       const position = add(sample.position, add(scale(sample.side, point.lateral), scale(sample.up, point.height)));
@@ -213,7 +230,7 @@ export const validateModuleGeometry = (geometry: ModularTrackGeometry): readonly
   const rowSize = geometry.profileSegments + 1;
   if (geometry.profileSegments !== PROFILE_SEGMENTS || geometry.samples.length * rowSize * 3 !== geometry.positions.length) failures.push(failure("profile", "Modular geometry does not use the canonical profile topology."));
   for (let row = 0; row < geometry.samples.length; row += 1) {
-    const profile = profileAt(geometry.samples[row].width);
+    const profile = profileForFrame(geometry.samples[row]);
     for (let column = 0; column < rowSize; column += 1) {
       const expected = add(geometry.samples[row].position, add(scale(geometry.samples[row].side, profile[column].lateral), scale(geometry.samples[row].up, profile[column].height)));
       const actual = row * rowSize + column;

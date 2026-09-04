@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { assertValidTrackDesign } from "../../designer/trackValidation";
-import { CHANNEL_WIDTH, RAIL_HEIGHT, sampleModulePath } from "./modulePath";
+import { CHANNEL_WIDTH, MARBLE_DIAMETER, RAIL_HEIGHT, ROUTE_GRADE, sampleModulePath } from "./modulePath";
 import { buildModularTrack } from "./modularTrackBuild";
 import { buildModuleGeometry, validateModuleGeometry, PROFILE_SEGMENTS, profileAt } from "./moduleGeometry";
 
@@ -133,6 +133,37 @@ describe("welded modular channel geometry", () => {
         expect(a.z).toBeCloseTo(b.z, 5);
       }
     }
+  });
+
+  it("keeps every banked inner rail outside the curve center with marble clearance", () => {
+    const track = createWorstCaseTrackDesign();
+    const samples = sampleModulePath(track, assertValidTrackDesign(track));
+    const geometry = buildModuleGeometry(samples);
+    const curveRows = samples
+      .map((sample, row) => ({ sample, row }))
+      .filter(({ sample }) => track.cells[sample.cellIndex]?.kind === "curve" && Math.hypot(sample.centerlineCurvature.x, sample.centerlineCurvature.z) > 1e-9);
+
+    expect(curveRows.length).toBeGreaterThan(0);
+    let minimumInnerNormalDot = 1;
+    let worstRow = -1;
+    for (const { sample, row } of curveRows) {
+      const curvatureMagnitude = Math.hypot(sample.centerlineCurvature.x, sample.centerlineCurvature.z);
+      const inward = { x: sample.centerlineCurvature.x / curvatureMagnitude, z: sample.centerlineCurvature.z / curvatureMagnitude };
+      const radius = Math.cos(ROUTE_GRADE) ** 2 / curvatureMagnitude;
+      const inwardRail = Math.max(...[vertex(geometry, row, 0), vertex(geometry, row, PROFILE_SEGMENTS)].map((point) =>
+        (point.x - sample.position.x) * inward.x + (point.z - sample.position.z) * inward.z));
+      expect(inwardRail).toBeLessThan(radius - MARBLE_DIAMETER / 2);
+
+      const previous = samples[row - 1]; const next = samples[row + 1];
+      if (previous?.cellIndex !== sample.cellIndex || next?.cellIndex !== sample.cellIndex) continue;
+      const signedCurvature = sample.centerlineCurvature.x * sample.side.x + sample.centerlineCurvature.y * sample.side.y + sample.centerlineCurvature.z * sample.side.z;
+      const innerColumn = signedCurvature < 0 ? 0 : PROFILE_SEGMENTS - 1;
+      const before = triangleNormal(geometry, ((row - 1) * PROFILE_SEGMENTS + innerColumn) * 2 + 1);
+      const after = triangleNormal(geometry, (row * PROFILE_SEGMENTS + innerColumn) * 2);
+      const normalDot = before.x * after.x + before.y * after.y + before.z * after.z;
+      if (normalDot < minimumInnerNormalDot) { minimumInnerNormalDot = normalDot; worstRow = row; }
+    }
+    expect(minimumInnerNormalDot, `worst row ${worstRow}, u=${samples[worstRow]?.localU}`).toBeGreaterThan(Math.cos(45 * Math.PI / 180));
   });
 
   it("rejects a longitudinal mesh-strip normal turn even when path tangents are unchanged", () => {
