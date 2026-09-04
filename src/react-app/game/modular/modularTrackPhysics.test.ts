@@ -6,6 +6,7 @@ import {
   createModularLaunchPositions,
   createBoosterState,
   createModularPhysics,
+  runModularValidationRace,
   runModularSeamProbe,
 } from "./modularTrackPhysics";
 import {
@@ -193,5 +194,15 @@ describe("modular track physics", () => {
     body.setTranslation(at(outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
     expect(resources.stepAfterWorld([body])).toHaveLength(1);
     resources.dispose(); world.free();
+  });
+
+  it("runs a deterministic small modular validation race without requiring completion", async () => {
+    const options = { track: createValidTrackDesign(), seed: 23, marbleCount: 2, durationSeconds: 1 } as const;
+    const first = await runModularValidationRace(options);
+    const second = await runModularValidationRace(options);
+    expect(second).toEqual(first);
+    expect(first.seed).toBe(23);
+    expect(first.finishOrder).toEqual([]);
+    expect(first.boosterCapViolations).toEqual([]);
   });
 });

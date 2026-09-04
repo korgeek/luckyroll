@@ -1,13 +1,19 @@
 import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
+import type { TrackDesign } from "../../designer/trackDesign";
 import { buildWalledBowl } from "../track/obstacleGeometry";
 import { createBowlLaunchPositions } from "../track/obstaclePhysics";
 import {
+  createMarbleBodies,
   createTrackPhysicsWorld,
+  distanceSquaredToSample,
   getInitializedTrackPhysicsRapier,
+  insideFinishVolume,
   initializeTrackPhysics,
+  speed,
 } from "../track/trackPhysics";
+import { projectToTrack } from "../track/trackSampler";
 import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
-import type { BuiltModularTrack } from "./modularTrackBuild";
+import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { profileAt } from "./moduleGeometry";
@@ -53,6 +59,33 @@ export type ModularPhysicsResources = Readonly<{
   stepAfterWorld: (bodies: readonly RapierBody[]) => readonly BoosterEvent[];
   reset: (remainingRestart?: boolean) => ModularDevicePose;
   dispose: () => void;
+}>;
+
+export type ModularMarbleFailure = Readonly<{
+  seed: number;
+  marbleId: number;
+  elapsedMs: number;
+  position: Vec3;
+  velocity: Vec3;
+  nearestSampleIndex: number;
+  category: "escape" | "stall" | "non-finite";
+}>;
+
+export type ModularValidationOptions = Readonly<{
+  track: TrackDesign;
+  seed: number;
+  marbleCount: number;
+  durationSeconds: number;
+}>;
+
+export type ModularValidationResult = Readonly<{
+  seed: number;
+  finishOrder: readonly number[];
+  finishTimesMs: readonly number[];
+  escapes: readonly ModularMarbleFailure[];
+  stalls: readonly ModularMarbleFailure[];
+  nonFinite: readonly ModularMarbleFailure[];
+  boosterCapViolations: readonly BoosterEvent[];
 }>;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
@@ -372,4 +405,85 @@ export const runModularSeamProbe = async (options: SeamProbeOptions): Promise<Se
     || Math.abs(welded.position.z) > CHANNEL_WIDTH / 2 - MARBLE_DIAMETER / 2
     || welded.position.y < -MARBLE_DIAMETER;
   return Object.freeze({ maxNormalVelocityDelta: normalDelta, maxForwardLossRatio: forwardLoss, escapes: escaped ? 1 : 0 });
+};
+
+export const runModularValidationRace = async (
+  options: ModularValidationOptions,
+): Promise<ModularValidationResult> => {
+  if (!Number.isInteger(options.marbleCount) || options.marbleCount < 0 || options.marbleCount > 100) throw new Error("Modular validation supports 0 through 100 marbles.");
+  if (!Number.isFinite(options.durationSeconds) || options.durationSeconds < 0) throw new Error("Modular validation duration must be a finite non-negative number.");
+  await initializeTrackPhysics();
+  const built = buildModularTrack(options.track);
+  const world = createTrackPhysicsWorld();
+  world.timestep = TIMESTEP_SECONDS;
+  let resources: ModularPhysicsResources | undefined;
+  try {
+    resources = createModularPhysics(world, built);
+    const bodies = createMarbleBodies(world, createModularLaunchPositions(options.marbleCount, built, options.seed));
+    const stationaryMs = new Array<number>(bodies.length).fill(0);
+    const finished = new Set<number>();
+    const failed = new Set<number>();
+    const finishOrder: number[] = [];
+    const finishTimesMs: number[] = [];
+    const escapes: ModularMarbleFailure[] = [];
+    const stalls: ModularMarbleFailure[] = [];
+    const nonFinite: ModularMarbleFailure[] = [];
+    const boosterCapViolations: BoosterEvent[] = [];
+    const durationSteps = Math.floor(options.durationSeconds / TIMESTEP_SECONDS);
+    let raceElapsedMs = 0;
+    for (let step = 1; step <= durationSteps; step += 1) {
+      const pose = resources.stepBeforeWorld();
+      world.step();
+      const events = resources.stepAfterWorld(bodies);
+      boosterCapViolations.push(...events.filter((event) => event.afterForwardSpeed > event.beforeForwardSpeed && event.afterForwardSpeed > MAX_BOOSTER_SPEED));
+      if (pose.gateOpen) raceElapsedMs += TIMESTEP_SECONDS * 1_000;
+
+      for (let index = 0; index < bodies.length; index += 1) {
+        const marbleId = index + 1;
+        if (finished.has(marbleId) || failed.has(marbleId)) continue;
+        const body = bodies[index];
+        const position = toVec3(body.translation());
+        const velocity = toVec3(body.linvel());
+        if (![position.x, position.y, position.z, velocity.x, velocity.y, velocity.z].every(Number.isFinite)) {
+          nonFinite.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity, nearestSampleIndex: -1, category: "non-finite" });
+          failed.add(marbleId);
+          continue;
+        }
+        const projection = projectToTrack(position, built.samples);
+        const nearestSample = built.samples[projection.sampleIndex];
+        if (distanceSquaredToSample(position, nearestSample) > 15 ** 2) {
+          escapes.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity, nearestSampleIndex: projection.sampleIndex, category: "escape" });
+          failed.add(marbleId);
+          continue;
+        }
+        stationaryMs[index] = pose.gateOpen && speed(velocity) < 0.12
+          ? stationaryMs[index] + TIMESTEP_SECONDS * 1_000
+          : 0;
+        if (stationaryMs[index] >= 3_000) {
+          stalls.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity, nearestSampleIndex: projection.sampleIndex, category: "stall" });
+          failed.add(marbleId);
+          continue;
+        }
+        if (projection.progress >= 0.995 && insideFinishVolume(position, built.samples[built.samples.length - 1])) {
+          finishOrder.push(marbleId);
+          finishTimesMs.push(raceElapsedMs);
+          finished.add(marbleId);
+          body.setEnabled(false);
+        }
+      }
+      if (finished.size + failed.size === bodies.length) break;
+    }
+    return Object.freeze({
+      seed: options.seed,
+      finishOrder: Object.freeze(finishOrder),
+      finishTimesMs: Object.freeze(finishTimesMs),
+      escapes: Object.freeze(escapes),
+      stalls: Object.freeze(stalls),
+      nonFinite: Object.freeze(nonFinite),
+      boosterCapViolations: Object.freeze(boosterCapViolations),
+    });
+  } finally {
+    resources?.dispose();
+    world.free();
+  }
 };
