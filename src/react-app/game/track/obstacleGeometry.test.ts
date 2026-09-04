@@ -121,8 +121,8 @@ describe("neon obstacle geometry", () => {
     expect(bridge.positions.length / 3).toBe(12);
     expect([0, 4, 8].map((index) => local(index).along)).toEqual([4.3, 6.5, 8.7].map((value) => expect.closeTo(value, 5)));
     expect([0, 4, 8].map((index) => local(index).up)).toEqual([-0.72, -0.34285714285714286, 0].map((value) => expect.closeTo(value, 5)));
-    expect(local(0).side).toBeCloseTo(-1.7, 5);
-    expect(local(1).side).toBeCloseTo(1.7, 5);
+    expect(local(0).side).toBeCloseTo(-3, 5);
+    expect(local(1).side).toBeCloseTo(3, 5);
     const normal = (offset: number) => {
       const a = point(bridge, bridge.indices[offset]); const b = point(bridge, bridge.indices[offset + 1]); const c = point(bridge, bridge.indices[offset + 2]);
       const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]; const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];

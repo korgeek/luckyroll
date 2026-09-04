@@ -120,7 +120,7 @@ export const buildStartRampBridge = (frame: ResolvedFrame): IndexedGeometry => {
   const positions: number[] = [];
   for (const along of rows) {
     const height = -0.72 + 0.72 * Math.max(0, Math.min(1, (along - 4.3) / 4.2));
-    for (const [side, up] of [[-1.7, height], [1.7, height], [1.7, height + 1.7], [-1.7, height + 1.7]] as const) write(positions, inFrame(frame, along, side, up));
+    for (const [side, up] of [[-3, height], [3, height], [3, height + 1.7], [-3, height + 1.7]] as const) write(positions, inFrame(frame, along, side, up));
   }
   const indices: number[] = [];
   for (let row = 0; row < rows.length - 1; row += 1) {
