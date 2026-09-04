@@ -97,6 +97,30 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
+  it("rebounds a marble from a bumper like a pinball", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const bumper = resolveModuleDevices(built.track, built.route, built.samples).bumpers[0]!;
+    const rapier = getInitializedTrackPhysicsRapier();
+    const rawNormal = {
+      x: bumper.up.y * bumper.axis.z - bumper.up.z * bumper.axis.y,
+      y: bumper.up.z * bumper.axis.x - bumper.up.x * bumper.axis.z,
+      z: bumper.up.x * bumper.axis.y - bumper.up.y * bumper.axis.x,
+    };
+    const length = Math.hypot(rawNormal.x, rawNormal.y, rawNormal.z);
+    const normal = { x: rawNormal.x / length, y: rawNormal.y / length, z: rawNormal.z / length };
+    const clearance = bumper.thickness / 2 + MARBLE_DIAMETER / 2 + 0.08;
+    const start = { x: bumper.center.x + normal.x * clearance, y: bumper.center.y + normal.y * clearance, z: bumper.center.z + normal.z * clearance };
+    const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(start.x, start.y, start.z).setCcdEnabled(true));
+    world.createCollider(rapier.ColliderDesc.ball(MARBLE_DIAMETER / 2).setRestitution(0.08), body);
+    body.setLinvel({ x: -normal.x * 8, y: -normal.y * 8, z: -normal.z * 8 }, true);
+    for (let step = 0; step < 120 && dot(body.linvel(), normal) <= 0.5; step += 1) world.step();
+    expect(dot(body.linvel(), normal)).toBeGreaterThan(0.5);
+    resources.dispose(); world.free();
+  });
+
   it.each([
     [0.5, 18],
     [10, 18],
@@ -177,6 +201,7 @@ describe("modular track physics", () => {
     body.setRotation(baseRotation, false);
     world.propagateModifiedBodyPositionsToColliders();
     const first = resources.stepBeforeWorld();
+    expect(first.pinwheelAngles[0]).toBeCloseTo(pinwheel.angularSpeed / 60, 12);
     world.step();
     const expectedRotation = multiplyQuaternion(baseRotation, rotationAroundY(first.pinwheelAngles[0]!));
     const actualRotation = body.rotation();

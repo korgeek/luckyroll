@@ -63,6 +63,10 @@ describe("modular track rendering", () => {
     expect(arms).toBeInstanceOf(THREE.InstancedMesh);
     expect(arms.count).toBe(3);
     expect(arms.geometry.type).toBe("CapsuleGeometry");
+    const pinwheelLayout = rendered.devices.pinwheels[0]!;
+    const armGeometry = arms.geometry as THREE.CapsuleGeometry;
+    expect(armGeometry.parameters.radius).toBe(pinwheelLayout.armThickness / 2);
+    expect(armGeometry.parameters.length).toBe(pinwheelLayout.radius - pinwheelLayout.armThickness);
     const gate = rendered.group.getObjectByName("modular-release-gate") as THREE.Mesh;
     const pusher = rendered.group.getObjectByName("modular-start-pusher") as THREE.Mesh;
     expect(gate.position.toArray()).toEqual([rendered.devices.start.gate.center.x, rendered.devices.start.gate.center.y, rendered.devices.start.gate.center.z]);
@@ -74,7 +78,6 @@ describe("modular track rendering", () => {
     expect((gate.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.gate.width); expect((gate.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.gate.height); expect((gate.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.gate.depth);
     expect(pusher.position.toArray()).toEqual([rendered.devices.start.pusher.center.x, rendered.devices.start.pusher.center.y, rendered.devices.start.pusher.center.z]);
     expect((pusher.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.pusher.width); expect((pusher.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.pusher.height); expect((pusher.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.pusher.depth);
-    const pinwheelLayout = rendered.devices.pinwheels[0]!;
     const pinwheel = rendered.group.getObjectByName(`pinwheel-${pinwheelLayout.cellIndex}`)!;
     setModularDevicePose(rendered, { elapsedSeconds: 0, gateOpen: false, pusherCenter: rendered.devices.start.pusher.center, pinwheelAngles: [0] });
     expect(gate.visible).toBe(true);

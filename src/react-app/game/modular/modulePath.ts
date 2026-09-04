@@ -83,7 +83,7 @@ export const moduleWidthAt = (kind: ModuleKind, localU: number): number => {
   const u = clamp(localU, 0, 1);
   if (u <= 0.1 || u >= 0.9) return CHANNEL_WIDTH;
   const interior = (u - 0.1) / 0.8;
-  const taper = 0.4375;
+  const taper = 0.25;
   if (interior <= taper) return CHANNEL_WIDTH - (CHANNEL_WIDTH - MIN_FUNNEL_WIDTH) * funnelSmoothStep(interior / taper);
   if (interior >= 1 - taper) return CHANNEL_WIDTH - (CHANNEL_WIDTH - MIN_FUNNEL_WIDTH) * funnelSmoothStep((1 - interior) / taper);
   return MIN_FUNNEL_WIDTH;
@@ -231,7 +231,7 @@ const adaptiveParameters = (
       output.set(end, Math.max(output.get(end) ?? 0, acceptedError));
     }
   };
-  const seeds = kind === "funnel" ? [0, 0.1, 0.45, 0.5, 0.55, 0.9, 1] : [0, 0.1, 0.9, 1];
+  const seeds = kind === "funnel" ? [0, 0.1, 0.3, 0.5, 0.7, 0.9, 1] : [0, 0.1, 0.9, 1];
   for (let index = 0; index < seeds.length - 1; index += 1) visit(seeds[index], seeds[index + 1], 0);
   return [...output.entries()].sort(([left], [right]) => left - right).map(([localU, acceptedError]) => ({ localU, chordError: acceptedError }));
 };

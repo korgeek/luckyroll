@@ -13,14 +13,17 @@ const BUMPER_LENGTH = 4;
 const BUMPER_THICKNESS = 0.45 * MARBLE_DIAMETER;
 const BUMPER_HEIGHT = 1.4 * MARBLE_DIAMETER;
 const BUMPER_TIP_ANGLE = Math.PI / 6;
-const PINWHEEL_RADIUS = 0.28 * CHANNEL_WIDTH;
+const BUMPER_PLACEMENTS = [[0.25, -1], [0.375, 1], [0.5, -1], [0.625, 1], [0.75, -1]] as const;
+const PINWHEEL_RADIUS = 4;
 const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
+const PINWHEEL_ANGULAR_SPEED = 5;
 const START_LENGTH = 10.2;
 const START_WIDTH = 10.4;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
 const subtract = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const scale = (a: Vec3, amount: number): Vec3 => ({ x: a.x * amount, y: a.y * amount, z: a.z * amount });
+const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const normalize = (a: Vec3): Vec3 => {
   const length = Math.hypot(a.x, a.y, a.z);
   return length === 0 ? { x: 0, y: 1, z: 0 } : scale(a, 1 / length);
@@ -135,12 +138,12 @@ const frameAtCellU = (samples: readonly ModulePathSample[], cellIndex: number, l
 };
 const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[]): readonly BumperBar[] => {
   const values: BumperBar[] = [];
-  for (const [localU, sign] of [[0.35, -1], [0.5, 1], [0.65, -1]] as const) {
+  for (const [localU, sign] of BUMPER_PLACEMENTS) {
     const frame = frameAtCellU(samples, cellIndex, localU);
     if (frame === undefined) continue;
     const inward = scale(frame.side, -sign);
     const axis = rotate(inward, frame.tangent, BUMPER_TIP_ANGLE);
-    const up = normalize(subtract(frame.up, scale(axis, frame.up.x * axis.x + frame.up.y * axis.y + frame.up.z * axis.z)));
+    const up = normalize(subtract(frame.up, scale(axis, dot(frame.up, axis))));
     values.push(Object.freeze({
       cellIndex,
       localU,
@@ -198,8 +201,8 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
         axis: middle.up,
         radius: PINWHEEL_RADIUS,
         armThickness: PINWHEEL_ARM_THICKNESS,
-        angularSpeed: 2,
-        minimumPassage: 3 * MARBLE_DIAMETER,
+        angularSpeed: PINWHEEL_ANGULAR_SPEED,
+        minimumPassage: CHANNEL_WIDTH - 2 * PINWHEEL_RADIUS,
       }));
     }
   }

@@ -21,7 +21,7 @@ const TIMESTEP_SECONDS = 1 / 60;
 const TRACK_FRICTION = 0.05;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
-const BUMPER_RESTITUTION = 0.28;
+const BUMPER_RESTITUTION = 0.65;
 const MAX_BOOSTER_SPEED = 42;
 const DEFAULT_CELL_COUNT = 40;
 
@@ -215,15 +215,15 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     const body = world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(bumper.center.x, bumper.center.y, bumper.center.z).setRotation(rotation));
     const coreLength = Math.max(0, bumper.length - bumper.thickness);
     const shaft = world.createCollider(rapier.ColliderDesc.cuboid(bumper.height / 2, coreLength / 2, bumper.thickness / 2)
-      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION), body);
+      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION).setRestitutionCombineRule(rapier.CoefficientCombineRule.Max), body);
     const capDescriptor = rapier.ColliderDesc.cylinder(bumper.height / 2, bumper.thickness / 2)
       .setRotation(rotationAround({ x: 0, y: 0, z: 1 }, Math.PI / 2))
-      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION);
+      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION).setRestitutionCombineRule(rapier.CoefficientCombineRule.Max);
     const firstCap = world.createCollider(capDescriptor, body);
     firstCap.setTranslation({ x: 0, y: -coreLength / 2, z: 0 });
     const secondCap = world.createCollider(rapier.ColliderDesc.cylinder(bumper.height / 2, bumper.thickness / 2)
       .setRotation(rotationAround({ x: 0, y: 0, z: 1 }, Math.PI / 2))
-      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION), body);
+      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION).setRestitutionCombineRule(rapier.CoefficientCombineRule.Max), body);
     secondCap.setTranslation({ x: 0, y: coreLength / 2, z: 0 });
     addFixedBody(body, [shaft, firstCap, secondCap]);
   }
@@ -280,7 +280,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   const stepBeforeWorld = (): ModularDevicePose => {
     ensureLive();
     elapsedSeconds += TIMESTEP_SECONDS;
-    angles = angles.map(() => elapsedSeconds * 2);
+    angles = angles.map((_angle, index) => elapsedSeconds * (devices.pinwheels[index]?.angularSpeed ?? 0));
     gateOpen = forceGateOpen || elapsedSeconds * 1_000 >= devices.start.shuffleMs;
     const elapsedMs = elapsedSeconds * 1_000;
     const pusherElapsedMs = forceGateOpen ? elapsedMs : Math.max(0, elapsedMs - devices.start.shuffleMs);

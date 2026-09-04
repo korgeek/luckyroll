@@ -18,15 +18,15 @@ describe("canonical modular devices", () => {
   it("mirrors bumper tips downstream and keeps all obstacles out of landings", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
-    expect(devices.bumpers.length % 3).toBe(0);
-    expect(new Set(devices.bumpers.map((bumper) => bumper.cellIndex)).size * 3).toBe(devices.bumpers.length);
+    expect(devices.bumpers.length % 5).toBe(0);
+    expect(new Set(devices.bumpers.map((bumper) => bumper.cellIndex)).size * 5).toBe(devices.bumpers.length);
     for (const cellIndex of new Set(devices.bumpers.map((bumper) => bumper.cellIndex))) {
       const bars = devices.bumpers.filter((bumper) => bumper.cellIndex === cellIndex);
-      expect(bars.map((bumper) => bumper.localU)).toEqual([0.35, 0.5, 0.65]);
+      expect(bars.map((bumper) => bumper.localU)).toEqual([0.25, 0.375, 0.5, 0.625, 0.75]);
       const rows = built.samples.filter((sample) => sample.cellIndex === cellIndex);
-      for (const [index, localU] of [0.35, 0.5, 0.65].entries()) {
+      for (const [index, localU] of [0.25, 0.375, 0.5, 0.625, 0.75].entries()) {
         const frame = frameAt(rows, localU);
-        const sign = index === 1 ? 1 : -1;
+        const sign = index % 2 === 0 ? -1 : 1;
         const expected = { x: frame.position.x + frame.side.x * sign * 4 + frame.up.x * 1.4 * 0.68 / 2, y: frame.position.y + frame.side.y * sign * 4 + frame.up.y * 1.4 * 0.68 / 2, z: frame.position.z + frame.side.z * sign * 4 + frame.up.z * 1.4 * 0.68 / 2 };
         expect(distance(bars[index].center, expected)).toBeLessThan(1e-6);
       }
@@ -44,8 +44,8 @@ describe("canonical modular devices", () => {
   it("resolves fixed pinwheel and centered booster dimensions", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
-    expect(devices.pinwheels[0]).toMatchObject({ radius: 0.28 * 12, armThickness: 0.5 * 0.68, angularSpeed: 2 });
-    expect(devices.pinwheels[0]?.minimumPassage).toBeGreaterThanOrEqual(3 * 0.68);
+    expect(devices.pinwheels[0]).toMatchObject({ radius: 4, armThickness: 0.5 * 0.68, angularSpeed: 5 });
+    expect(devices.pinwheels[0]?.minimumPassage).toBe(12 - 2 * 4);
     const booster = devices.boosters[0];
     expect(booster).toBeDefined();
     if (booster) {

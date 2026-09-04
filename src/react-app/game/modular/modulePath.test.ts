@@ -84,18 +84,18 @@ describe("canonical modular module paths", () => {
     expect(Math.max(...lateralOffsets)).toBeGreaterThan(0.1);
   });
 
-  it("samples the funnel waist and its 0.10S hold", () => {
+  it("samples the funnel waist and its 0.40S hold", () => {
     const track = createValidTrackDesign();
     const samples = sampleModulePath(track, assertValidTrackDesign(track)).filter((sample) => sample.cellIndex === 2);
     const waist = samples.filter((sample) => sample.width === 9.6);
     const taper = samples.filter((sample) => sample.localU > 0.1 && sample.localU < 0.45);
 
-    expect(moduleWidthAt("funnel", 0.45)).toBeCloseTo(9.6, 12);
-    expect(moduleWidthAt("funnel", 0.55)).toBeCloseTo(9.6, 12);
-    expect(waist.map((sample) => sample.localU)).toEqual(expect.arrayContaining([0.45, 0.5, 0.55]));
+    expect(moduleWidthAt("funnel", 0.3)).toBeCloseTo(9.6, 12);
+    expect(moduleWidthAt("funnel", 0.7)).toBeCloseTo(9.6, 12);
+    expect(waist.map((sample) => sample.localU)).toEqual(expect.arrayContaining([0.3, 0.5, 0.7]));
     expect(taper.length).toBeGreaterThan(2);
     expect(taper.some((sample) => sample.width > 9.6 && sample.width < 12)).toBe(true);
-    expect(waist[waist.length - 1].distance - waist[0].distance).toBeCloseTo(2 / Math.cos(7 * Math.PI / 180), 6);
+    expect(waist[waist.length - 1].distance - waist[0].distance).toBeCloseTo(8 / Math.cos(7 * Math.PI / 180), 6);
     expect(moduleWidthAt("funnel", 0)).toBe(12);
     expect(moduleWidthAt("funnel", 1)).toBe(12);
   });
