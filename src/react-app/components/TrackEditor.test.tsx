@@ -61,16 +61,22 @@ describe("TrackEditor", () => {
 		const cell = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); cell.focus(); await user.keyboard("{ArrowRight}");
 		expect(document.activeElement).toHaveAttribute("aria-label", expect.stringMatching(/row 1 column 3/i));
 		const occupied = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); await user.click(occupied);
-		expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i })).not.toHaveTextContent(/STR|90°/);
+		const rotatedStraight = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i });
+		expect(rotatedStraight).not.toHaveTextContent(/STR|90°/);
+		expect(rotatedStraight.querySelector("path")).toHaveAttribute("d", "M 50 0 L 50 100");
 	});
 
 	it("draws connected ports for a curve and updates them on rotation", async () => {
 		const user = userEvent.setup(); render(<ControlledEditor track={createDefaultTrackDesign("Course")} />);
 		const curve = screen.getByRole("gridcell", { name: /row 3 column 1, curve module, rotation 0/i });
+		expect(curve).not.toHaveTextContent(/CUR|0°/);
+		expect(curve.querySelector("path")).toHaveAttribute("d", "M 50 0 Q 50 50 100 50");
 		expect(curve.querySelector('[data-port="north"]')).toBeTruthy();
 		expect(curve.querySelector('[data-port="east"]')).toBeTruthy();
 		await user.click(curve);
 		const rotated = screen.getByRole("gridcell", { name: /row 3 column 1, curve module, rotation 90/i });
+		expect(rotated).not.toHaveTextContent(/CUR|90°/);
+		expect(rotated.querySelector("path")).toHaveAttribute("d", "M 100 50 Q 50 50 50 100");
 		expect(rotated.querySelector('[data-port="east"]')).toBeTruthy();
 		expect(rotated.querySelector('[data-port="south"]')).toBeTruthy();
 	});

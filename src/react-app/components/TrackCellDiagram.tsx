@@ -8,7 +8,7 @@ const GLYPHS: Readonly<Record<ModuleKind, string>> = { straight: "", curve: "", 
 export function TrackCellDiagram({ cell }: { cell: Exclude<TrackCell, null> }): ReactElement {
 	const ports = portsFor(cell);
 	const d = ports.length === 2
-		? ((ports.includes("north") || ports.includes("south")) === (ports.includes("east") || ports.includes("west"))
+		? ((ports.includes("north") && ports.includes("south")) || (ports.includes("east") && ports.includes("west"))
 			? `M ${POINTS[ports[0]].join(" ")} L ${POINTS[ports[1]].join(" ")}`
 			: `M ${POINTS[ports[0]].join(" ")} Q 50 50 ${POINTS[ports[1]].join(" ")}`)
 		: ports.map((port) => `M 50 50 L ${POINTS[port].join(" ")}`).join(" ");
