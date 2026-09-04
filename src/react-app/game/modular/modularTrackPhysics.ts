@@ -1,6 +1,6 @@
 import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import type { TrackDesign } from "../../designer/trackDesign";
-import { buildWalledBowl } from "../track/obstacleGeometry";
+import { buildStartThroat, buildWalledBowl } from "../track/obstacleGeometry";
 import { createBowlLaunchPositions } from "../track/obstaclePhysics";
 import {
   createMarbleBodies,
@@ -197,7 +197,11 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   };
   const startBowl = buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight, 0, 32);
   const bowlBody = world.createRigidBody(rapier.RigidBodyDesc.fixed());
-  addFixedBody(bowlBody, [world.createCollider(rapier.ColliderDesc.trimesh(startBowl.positions, startBowl.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody)]);
+  const startThroat = buildStartThroat(devices.start.frame);
+  addFixedBody(bowlBody, [
+    world.createCollider(rapier.ColliderDesc.trimesh(startBowl.positions, startBowl.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody),
+    world.createCollider(rapier.ColliderDesc.trimesh(startThroat.positions, startThroat.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody),
+  ]);
 
   const gateRotation = rotationFromBasis(devices.start.gate.side, devices.start.gate.up, scale(devices.start.gate.tangent, -1));
   const gateBody = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased()

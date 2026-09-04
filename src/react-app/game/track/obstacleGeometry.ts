@@ -112,6 +112,8 @@ const channelThroat = (frame: ResolvedFrame, centerAlong: number, width: number,
   return indexed(positions, indices);
 };
 
+export const buildStartThroat = (frame: ResolvedFrame): IndexedGeometry => channelThroat(frame, 7.5, 3.4, 4.2, 0.72);
+
 const sampleBranchPath = (samples: readonly TrackGeometry["samples"][number][], kind: "left" | "middle" | "right"): Float32Array => {
   const values: number[] = []; const count = 17;
   for (let i = 0; i < count; i += 1) {
@@ -164,7 +166,7 @@ const catchChannel = (samples: readonly TrackGeometry["samples"][number][], fram
 
 export const buildObstacleGeometry = (track: TrackGeometry, layout: ValidResolvedObstacleLayout): ObstacleGeometryResources => {
   const outletRadius = layout.vortex.outletDiameter / 2; const outletAlong = 0.28; const predecessor = track.samples[Math.max(0, layout.vortex.frame.sampleIndex - 1)]; const towardIncomingRoute = sub(predecessor.position, layout.vortex.frame.position); const vortexEntryAngle = Math.atan2(towardIncomingRoute.x * layout.vortex.frame.side.x + towardIncomingRoute.y * layout.vortex.frame.side.y + towardIncomingRoute.z * layout.vortex.frame.side.z, towardIncomingRoute.x * layout.vortex.frame.tangent.x + towardIncomingRoute.y * layout.vortex.frame.tangent.y + towardIncomingRoute.z * layout.vortex.frame.tangent.z);
-  const startThroat = channelThroat(layout.start.frame, 7.5, 3.4, 4.2, 0.72); const branchResources = branch(track, layout);
+  const startThroat = buildStartThroat(layout.start.frame); const branchResources = branch(track, layout);
   return Object.freeze({
     shell: buildTrackShell(track), startBowl: walledBowl(layout.start.frame, layout.start.radius, 1.55, 0.72, 6.05, layout.start.wallHeight), startThroat,
     pegHallSurface: wideHall(layout.pegHall.frame, layout.pegHall.width, 10), pusherHallSurface: wideHall(layout.pushers.frame, layout.pushers.hallWidth, 9), pegs: layout.pegs,

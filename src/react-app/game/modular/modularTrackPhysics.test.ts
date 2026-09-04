@@ -16,6 +16,7 @@ import {
   initializeTrackPhysics,
 } from "../track/trackPhysics";
 import { resolveModuleDevices } from "./moduleDevices";
+import { buildStartThroat } from "../track/obstacleGeometry";
 
 const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => ({
   x: (1 - 2 * (quaternion.y ** 2 + quaternion.z ** 2)) * vector.x + 2 * (quaternion.x * quaternion.y - quaternion.z * quaternion.w) * vector.y + 2 * (quaternion.x * quaternion.z + quaternion.y * quaternion.w) * vector.z,
@@ -35,10 +36,15 @@ describe("modular track physics", () => {
   it("creates one fixed welded trimesh with internal-edge fixing", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
-    const resources = createModularPhysics(world, buildModularTrack(createValidTrackDesign()));
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
+    const expectedThroat = buildStartThroat(resolveModuleDevices(built.track, built.route, built.samples).start.frame);
+    const throat = resources.fixedColliders.find((collider) => collider.shapeType() === rapier.ShapeType.TriMesh && (collider.shape as InstanceType<typeof rapier.TriMesh>).vertices.length === expectedThroat.positions.length);
+    expect(throat).toBeDefined();
+    if (throat) expect((throat.shape as InstanceType<typeof rapier.TriMesh>).vertices).toEqual(expectedThroat.positions);
     resources.dispose();
     world.free();
   });
