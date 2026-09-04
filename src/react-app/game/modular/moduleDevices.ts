@@ -15,6 +15,7 @@ const BUMPER_HEIGHT = 1.4 * MARBLE_DIAMETER;
 const BUMPER_TIP_ANGLE = Math.PI / 6;
 const PINWHEEL_RADIUS = 0.28 * CHANNEL_WIDTH;
 const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
+const START_RADIUS = 8.5;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
 const subtract = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
@@ -157,7 +158,7 @@ const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[])
 export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samples: readonly ModulePathSample[]): ModuleDevices => {
   const first = samples[0];
   if (first === undefined) throw new Error("A modular device layout requires a sampled route.");
-  const startFrame = frameFromSample(first);
+  const startFrame = Object.freeze({ ...frameFromSample(first), position: add(first.position, scale(first.tangent, -START_RADIUS)) });
   const gateFrame = Object.freeze({
     center: add(add(startFrame.position, scale(startFrame.tangent, 6.05)), scale(startFrame.up, 1.24 / 2)),
     tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
@@ -167,7 +168,7 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
     center: startFrame.position, tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
     width: 4.7, height: 0.24, depth: 0.32,
   });
-  const start = Object.freeze({ frame: startFrame, gate: gateFrame, agitator: agitatorFrame, radius: 8.5, shuffleMs: 700, wallHeight: 4 });
+  const start = Object.freeze({ frame: startFrame, gate: gateFrame, agitator: agitatorFrame, radius: START_RADIUS, shuffleMs: 700, wallHeight: 4 });
   const boosters: BoosterTrigger[] = [];
   const bumpers: BumperBar[] = [];
   const pinwheels: PinwheelLayout[] = [];

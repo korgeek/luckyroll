@@ -58,6 +58,18 @@ describe("canonical modular devices", () => {
     }
   });
 
+  it("places the start bowl upstream so its throat reaches the track entrance", () => {
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+    const first = built.samples[0]!;
+    const fromStart = { x: first.position.x - devices.start.frame.position.x, y: first.position.y - devices.start.frame.position.y, z: first.position.z - devices.start.frame.position.z };
+    const along = dot(fromStart, devices.start.frame.tangent);
+    expect(devices.start.radius).toBe(8.5);
+    expect(along).toBeCloseTo(8.5, 8);
+    expect(along).toBeGreaterThanOrEqual(7.5 - 4.2 / 2);
+    expect(along).toBeLessThanOrEqual(7.5 + 4.2 / 2);
+  });
+
   it("uses symmetric bars and no arrow for an unresolved bumper preview", () => {
     const preview = resolveModulePreview({ kind: "bumper", rotation: 0 });
     expect(preview.directionArrow).toBeUndefined();
