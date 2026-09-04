@@ -2,11 +2,26 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { createEmptyTrackDesign, createDefaultTrackDesign } from "../designer/trackDesign";
+import { createEmptyTrackDesign, createDefaultTrackDesign, type Direction, type ModuleKind, type TrackCell } from "../designer/trackDesign";
 import { createEditorState } from "../designer/editorState";
 import { TrackEditor } from "./TrackEditor";
+import { TrackCellDiagram } from "./TrackCellDiagram";
 
 const props = () => ({ onChange: vi.fn(), onBack: vi.fn(), onSave: vi.fn(), onShare: vi.fn(), onPlay: vi.fn() });
+type DiagramCase = readonly [name: string, cell: Exclude<TrackCell, null>, ports: readonly Direction[], path: string, glyph: string];
+const diagramGlyphs: Partial<Record<ModuleKind, string>> = { funnel: "⌄", wave: "≈", pinwheel: "✣", booster: "»", bumper: "●" };
+const diagramCases: readonly DiagramCase[] = [
+  ["curve 0", { kind: "curve", rotation: 0 }, ["north", "east"], "M 50 0 Q 50 50 100 50", ""],
+  ["curve 1", { kind: "curve", rotation: 1 }, ["east", "south"], "M 100 50 Q 50 50 50 100", ""],
+  ["curve 2", { kind: "curve", rotation: 2 }, ["south", "west"], "M 50 100 Q 50 50 0 50", ""],
+  ["curve 3", { kind: "curve", rotation: 3 }, ["west", "north"], "M 0 50 Q 50 50 50 0", ""],
+  ...(["straight", "funnel", "wave", "pinwheel", "booster", "bumper"] as const).flatMap((kind): DiagramCase[] => [
+    [`${kind} horizontal`, { kind, rotation: 0 }, ["west", "east"], "M 0 50 L 100 50", diagramGlyphs[kind] ?? ""],
+    [`${kind} vertical`, { kind, rotation: 1 }, ["north", "south"], "M 50 0 L 50 100", diagramGlyphs[kind] ?? ""],
+  ]),
+  ["start", { kind: "start", rotation: 0 }, ["east"], "M 50 50 L 100 50", "START"],
+  ["finish", { kind: "finish", rotation: 0 }, ["west"], "M 50 50 L 0 50", "FINISH"],
+];
 const ControlledEditor = ({ track }: { track: ReturnType<typeof createDefaultTrackDesign> }) => {
 	const [state, setState] = useState(() => createEditorState(track));
 	return <TrackEditor state={state} onChange={setState} onBack={vi.fn()} onSave={vi.fn()} onShare={vi.fn()} onPlay={vi.fn()} />;
@@ -66,7 +81,7 @@ describe("TrackEditor", () => {
 		expect(rotatedStraight.querySelector("path")).toHaveAttribute("d", "M 50 0 L 50 100");
 	});
 
-	it("draws connected ports for a curve and updates them on rotation", async () => {
+  it("draws connected ports for a curve and updates them on rotation", async () => {
 		const user = userEvent.setup(); render(<ControlledEditor track={createDefaultTrackDesign("Course")} />);
 		const curve = screen.getByRole("gridcell", { name: /row 3 column 1, curve module, rotation 0/i });
 		expect(curve).not.toHaveTextContent(/CUR|0°/);
@@ -79,7 +94,14 @@ describe("TrackEditor", () => {
 		expect(rotated.querySelector("path")).toHaveAttribute("d", "M 100 50 Q 50 50 50 100");
 		expect(rotated.querySelector('[data-port="east"]')).toBeTruthy();
 		expect(rotated.querySelector('[data-port="south"]')).toBeTruthy();
-	});
+  });
+
+  it.each(diagramCases)("draws %s from canonical ports", (_name, cell, ports, path, glyph) => {
+    const { container } = render(<TrackCellDiagram cell={cell} />);
+    expect(container.querySelector("path")).toHaveAttribute("d", path);
+    expect([...container.querySelectorAll("[data-port]")].map((port) => port.getAttribute("data-port"))).toEqual(ports);
+    expect(container).toHaveTextContent(glyph);
+  });
 
 	it("opens long-press actions and cancels pending presses on movement, up, and cancel", () => {
 		vi.useFakeTimers();

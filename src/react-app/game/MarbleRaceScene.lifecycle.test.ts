@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const seams = vi.hoisted(() => ({
-  frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as string[], projectedSamples: [] as unknown[][],
+  frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as string[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as unknown[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 }));
@@ -14,7 +14,10 @@ vi.mock("three", async () => {
     setPixelRatio(): void {} setSize(): void {} render(): void {}
     dispose(): void { seams.rendererDisposals += 1; seams.order.push("renderer-dispose"); }
   }
-  return { ...actual, WebGLRenderer: TestRenderer };
+  class TestInstancedMesh extends actual.InstancedMesh {
+    constructor(geometry: THREE.BufferGeometry, material: THREE.Material, count: number) { super(geometry, material, count); seams.marbleMeshes.push(this); }
+  }
+  return { ...actual, WebGLRenderer: TestRenderer, InstancedMesh: TestInstancedMesh };
 });
 
 import * as THREE from "three";
@@ -60,7 +63,7 @@ vi.mock("./track/trackPhysics", () => ({
     const id = seams.worlds.length + 1; const world = { id, freeCount: 0, timestep: 1 / 60, step: () => { seams.worldSteps += 1; seams.order.push(`world:${id}`); }, free: () => { world.freeCount += 1; seams.order.push(`world-free:${id}`); } };
     seams.worlds.push(world); return world;
   },
-  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => [{ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : positions[0], setEnabled: () => undefined }],
+  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : position, setEnabled: () => undefined })),
   distanceSquaredToSample: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
 }));
 
@@ -108,8 +111,9 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
 
   it("emits a custom build error before creating a renderer", () => {
@@ -170,6 +174,41 @@ describe("race scene lifecycle boundary", () => {
     expect(recovery?.args[1]).toBeGreaterThan(0);
     expect(recovery?.args[1]).toBeLessThan(1);
     scene.dispose();
+  });
+
+  it("keeps reduced-motion camera input until idle, then snaps to rest", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const canvas = prepareCanvas(); const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign("Reduced") });
+    await settle(); scene.start([marble(1)], 11); await settle(); seams.frames.shift()?.(1_000);
+    canvasDrag(canvas);
+    seams.frames.shift()?.(3_999);
+    expect(seams.cameraCalls.filter(({ type }) => type === "relax")).toHaveLength(0);
+    seams.frames.shift()?.(4_000);
+    const relaxes = seams.cameraCalls.filter(({ type }) => type === "relax");
+    expect(relaxes[relaxes.length - 1]?.args[1]).toBe(1);
+    now.mockRestore(); scene.dispose();
+  });
+
+  it("uses lit marble batches and releases their GPU resources on restart and disposal", async () => {
+    const scene = createRaceScene(prepareCanvas(), () => undefined, { kind: "custom", track: createValidTrackDesign("Marbles") });
+    await settle(); scene.start([marble(1), { ...marble(2), color: "#0f0" }], 11); await settle();
+    const first = [...seams.marbleMeshes];
+    expect(first).toHaveLength(2);
+    first.forEach((mesh) => {
+      expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial);
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      expect(material.roughness).toBe(0.28); expect(material.metalness).toBe(0.18);
+    });
+    const firstGeometryDisposals = first.map((mesh) => vi.spyOn(mesh.geometry, "dispose"));
+    const firstMaterialDisposals = first.map((mesh) => vi.spyOn(mesh.material as THREE.Material, "dispose"));
+    scene.restartRemaining([marble(1)]); await settle();
+    expect(firstGeometryDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    expect(firstMaterialDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    const restarted = seams.marbleMeshes[seams.marbleMeshes.length - 1]!;
+    const restartedGeometryDispose = vi.spyOn(restarted.geometry, "dispose"); const restartedMaterialDispose = vi.spyOn(restarted.material as THREE.Material, "dispose");
+    scene.dispose();
+    expect(restartedGeometryDispose).toHaveBeenCalledOnce(); expect(restartedMaterialDispose).toHaveBeenCalledOnce();
   });
 
   it("makes right-drag change the controlled pose versus an identical no-drag scene", async () => {

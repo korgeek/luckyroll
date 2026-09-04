@@ -56,12 +56,13 @@ describe("modular track rendering", () => {
     const rimMaterial = rim.material as THREE.MeshBasicMaterial;
     expect(rimMaterial.color.getHexString()).toBe("ffffff"); expect(rimMaterial.vertexColors).toBe(true); expect(rimMaterial.toneMapped).toBe(false);
     expect(rim.instanceColor).not.toBeNull();
-    const rimColor = new THREE.Color(); const rimScale = new THREE.Vector3(); const rimMatrix = new THREE.Matrix4(); let rimIndex = 0; const row = built.geometry.profileSegments + 1;
+    const rimColor = new THREE.Color(); const rimScale = new THREE.Vector3(); const rimMatrix = new THREE.Matrix4(); const row = built.geometry.profileSegments + 1;
     for (let index = 1; index < built.samples.length; index += 1) for (const column of [0, built.geometry.profileSegments]) {
       const previousOffset = ((index - 1) * row + column) * 3; const currentOffset = (index * row + column) * 3;
       const edgeLength = Math.hypot(built.geometry.positions[currentOffset] - built.geometry.positions[previousOffset], built.geometry.positions[currentOffset + 1] - built.geometry.positions[previousOffset + 1], built.geometry.positions[currentOffset + 2] - built.geometry.positions[previousOffset + 2]);
-      rim.getColorAt(rimIndex, rimColor); expect(rimColor.getHexString()).toBe(rimIndex % 2 === 0 ? "ffd21f" : "111319");
-      rim.getMatrixAt(rimIndex++, rimMatrix); rimMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), rimScale); expect(rimScale.z).toBeCloseTo(edgeLength, 5);
+      const rimIndex = (index - 1) * 2 + (column === 0 ? 0 : 1);
+      rim.getColorAt(rimIndex, rimColor); expect(rimColor.getHexString()).toBe((index - 1) % 2 === 0 ? "ffd21f" : "111319");
+      rim.getMatrixAt(rimIndex, rimMatrix); rimMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), rimScale); expect(rimScale.z).toBeCloseTo(edgeLength, 5);
     }
     disposeModularTrackRender(rendered);
   });

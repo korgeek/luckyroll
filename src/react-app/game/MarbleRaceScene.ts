@@ -374,8 +374,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (disposed) return;
     frameId = requestAnimationFrame(loop);
     const delta = Math.min(33, now - last); last = now;
-    if (reducedMotion) controls = relaxControls(controls, 1);
-    else if (now - lastCameraInputAt >= 3_000) controls = relaxControls(controls, delta / 3_000);
+    if (now - lastCameraInputAt >= 3_000) controls = relaxControls(controls, reducedMotion ? 1 : delta / 3_000);
     const paused = manualPaused || debug.isPaused();
     if (running && paused && !debugWasPaused) pauseStarted = now;
     if (running && !paused && debugWasPaused) pausedDuration += now - pauseStarted;
