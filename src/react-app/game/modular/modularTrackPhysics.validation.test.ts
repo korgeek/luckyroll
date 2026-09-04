@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { FIXED_VALIDATION_SEEDS, validateQualificationSeeds } from "../track/trackPhysics";
 import { createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 
-const ledgerPath = resolve(process.cwd(), ".superpowers/sdd/2026-09-03-modular-track-designer/physics-run-ledger.md");
+const ledgerPath = resolve(process.cwd(), ".superpowers/sdd/2026-09-04-track-visuals-camera-editor/physics-run-ledger.md");
 const ledgerRows = () => Array.from(readFileSync(ledgerPath, "utf8").matchAll(/^\|\s*(\d+)\s*\|\s*(pending|recorded)\s*\|/gm), ([, seed, state]) => ({ seed: Number(seed), state: state as "pending" | "recorded" }));
 const runQualification = process.env.RUN_MODULAR_TRACK_QUALIFICATION === "1";
 
