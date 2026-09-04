@@ -161,19 +161,24 @@ describe("modular track physics", () => {
     }
   });
 
-  it("opens the physical gate before launching at exactly eight forward units per second", async () => {
+  it("keeps the start gate visual-only and delays launch until the countdown opens", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+    expect(world.colliders.len()).toBe(3 + devices.bumpers.length * 3 + devices.pinwheels.length * 3);
     const [body] = createMarbleBodies(world, createModularLaunchPositions(1, built, 11));
+    let firstOpenStep;
     let launchedVelocity;
     for (let step = 0; step < 43; step += 1) {
       const pose = resources.stepBeforeWorld();
       world.step();
       resources.stepAfterWorld([body]);
+      if (pose.gateOpen && firstOpenStep === undefined) firstOpenStep = step + 1;
       if (pose.gateOpen && launchedVelocity === undefined) launchedVelocity = body.linvel();
     }
+    expect(firstOpenStep).toBe(42);
     const forward = built.samples[0].tangent;
     expect(launchedVelocity).toBeDefined();
     if (launchedVelocity === undefined) throw new Error("Gate did not launch the marble.");

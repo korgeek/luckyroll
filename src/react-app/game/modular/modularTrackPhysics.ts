@@ -208,8 +208,6 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     .setTranslation(devices.start.gate.center.x, devices.start.gate.center.y, devices.start.gate.center.z)
     .setRotation(gateRotation));
   ownedBodies.push(gateBody);
-  const gateCollider = world.createCollider(rapier.ColliderDesc.cuboid(devices.start.gate.width / 2, devices.start.gate.height / 2, devices.start.gate.depth / 2)
-    .setFriction(FRICTION).setRestitution(RESTITUTION), gateBody);
 
   for (const bumper of devices.bumpers) {
     const axis = normalize(bumper.axis);
@@ -264,7 +262,6 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     const closedGate = devices.start.gate.center;
     const openGate = add(closedGate, scale(devices.start.gate.up, devices.start.gate.height * 2));
     setPose(gateBody, gateOpen ? openGate : closedGate, gateRotation, next);
-    gateCollider.setEnabled(!gateOpen);
     pinwheelBodies.forEach((body, index) => {
       const angle = angles[index] ?? 0;
       const base = rotationFromUp(devices.pinwheels[index]?.axis ?? { x: 0, y: 1, z: 0 });
