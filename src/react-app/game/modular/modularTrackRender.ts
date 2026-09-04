@@ -47,33 +47,6 @@ const planeQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.
 };
 const material = (color: string, emissive?: string): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, ...(emissive === undefined ? {} : { emissive }), roughness: 0.48, metalness: 0.3 });
 
-const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THREE.InstancedMesh => {
-  const geometry = new THREE.BoxGeometry(0.22, 0.18, 1);
-  const rim = new THREE.InstancedMesh(geometry, rimMaterial, Math.max(0, (built.geometry.samples.length - 1) * 2));
-  rim.name = "modular-neon-rims";
-  const transform = new THREE.Object3D(); const colors = [new THREE.Color("#ffd21f"), new THREE.Color("#111319")];
-  let instance = 0;
-  const row = built.geometry.profileSegments + 1;
-  for (let index = 1; index < built.geometry.samples.length; index += 1) {
-    for (const column of [0, built.geometry.profileSegments]) {
-      const previousOffset = ((index - 1) * row + column) * 3;
-      const currentOffset = (index * row + column) * 3;
-      const previous = new THREE.Vector3(built.geometry.positions[previousOffset], built.geometry.positions[previousOffset + 1], built.geometry.positions[previousOffset + 2]);
-      const current = new THREE.Vector3(built.geometry.positions[currentOffset], built.geometry.positions[currentOffset + 1], built.geometry.positions[currentOffset + 2]);
-      const direction = current.clone().sub(previous);
-      const length = direction.length();
-      transform.position.copy(previous).add(current).multiplyScalar(0.5);
-      transform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
-      transform.scale.set(1, 1, length);
-      transform.updateMatrix();
-      rim.setColorAt(instance, colors[(index - 1) % 2]);
-      rim.setMatrixAt(instance++, transform.matrix);
-    }
-  }
-  rim.instanceMatrix.needsUpdate = true; if (rim.instanceColor !== null) rim.instanceColor.needsUpdate = true;
-  return rim;
-};
-
 const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMaterial: THREE.Material): void => {
   if (devices.bumpers.length === 0) return;
   const shafts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), bumperMaterial, devices.bumpers.length);
@@ -148,10 +121,9 @@ const disposeGroup = (group: THREE.Group): void => {
 export const createModularTrackRender = (built: BuiltModularTrack, _options: ModularRenderOptions = {}): ModularRenderResources => {
   void _options;
   const group = new THREE.Group(); group.name = "modular-track";
-  const dark = material("#090b12"); const channel = new THREE.MeshStandardMaterial({ color: "#3f4650", roughness: 0.34, metalness: 0.62 }); const shellMaterial = new THREE.MeshStandardMaterial({ color: "#626a73", roughness: 0.88, metalness: 0.04 }); const rim = new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true, toneMapped: false }); const device = material("#e73da7", "#5f0a40");
+  const dark = material("#090b12"); const channel = new THREE.MeshStandardMaterial({ color: "#3f4650", roughness: 0.34, metalness: 0.62 }); const shellMaterial = new THREE.MeshStandardMaterial({ color: "#626a73", roughness: 0.88, metalness: 0.04 }); const device = material("#e73da7", "#5f0a40");
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#3f4650"; group.add(surface);
   const shell = new THREE.Mesh(toGeometry(buildTrackShell(built.geometry)), shellMaterial); shell.name = "modular-channel-shell"; group.add(shell);
-  group.add(createRims(built, rim));
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), pusher: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);

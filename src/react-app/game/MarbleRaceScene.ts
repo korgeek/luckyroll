@@ -29,6 +29,18 @@ export type CameraRankItem = Readonly<{ done: boolean; progress: number }>;
 const FINISH_PROGRESS = 0.995;
 export const productionSceneStyle = Object.freeze({ background: "#050713", pointLightCount: 2, bloom: false });
 
+export const createMarbleRollTexture = (): THREE.DataTexture => {
+  const width = 32; const height = 16; const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    const stripe = Math.abs(x - width * 0.28) < 3 || Math.hypot(x - 23, y - 5) < 2.5;
+    const value = stripe ? 70 : 255; const offset = (y * width + x) * 4;
+    data[offset] = value; data[offset + 1] = value; data[offset + 2] = value; data[offset + 3] = 255;
+  }
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.colorSpace = THREE.SRGBColorSpace; texture.needsUpdate = true;
+  return texture;
+};
+
 export type SceneTrackResources = Readonly<{ built: BuiltTrack; renderGroup: THREE.Group }>;
 export type SceneObstacleResources = Readonly<{
   geometry: ObstacleGeometryResources;
@@ -250,6 +262,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const trackDebug = debugEnabled ? createSceneDebugOverlay(canvas.parentElement ?? document.body, debug) : undefined;
   const track = course.renderGroup;
   const marbleGroup = new THREE.Group();
+  const marbleRollTexture = createMarbleRollTexture();
   scene.add(track, marbleGroup);
   let world: RapierWorld | undefined; let raceRun: RaceCourseRun | undefined; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
   const liveBalls: Ball[] = [];
@@ -293,7 +306,15 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const onWheel = (event: WheelEvent) => { event.preventDefault(); controls = applyZoom(controls, event.deltaY); lastCameraInputAt = performance.now(); };
   const onContextMenu = (event: MouseEvent) => event.preventDefault();
   canvas.addEventListener("pointerdown", onPointerDown); canvas.addEventListener("pointermove", onPointerMove); canvas.addEventListener("pointerup", onPointerUp); canvas.addEventListener("pointercancel", onPointerUp); canvas.addEventListener("wheel", onWheel, { passive: false }); canvas.addEventListener("contextmenu", onContextMenu);
-  const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
+  const clearMarbles = () => {
+    marbleGroup.traverse((object) => {
+      const renderable = object as THREE.Mesh | THREE.InstancedMesh;
+      if ("material" in renderable) for (const material of Array.isArray(renderable.material) ? renderable.material : [renderable.material]) {
+        if (material instanceof THREE.MeshStandardMaterial) material.map = null;
+      }
+    });
+    disposeTrackRenderGroup(marbleGroup);
+  };
 
   type SceneStartRequest = { marbles: Marble[]; seed: number; remainingRestart?: boolean };
   const stopRace = () => {
@@ -309,6 +330,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     starts?.dispose();
     stopRace();
     course.dispose();
+    marbleRollTexture.dispose();
     trackDebug?.dispose();
     if (frameId !== undefined) { cancelAnimationFrame(frameId); frameId = undefined; }
     pointers.forEach((_point, pointerId) => { if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId); });
@@ -326,7 +348,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     clearMarbles();
     const renderBindings = new Map<number, { mesh: THREE.InstancedMesh; renderIndex: number }>(); renderMeshes = [];
     createColorBatches(marbles).forEach((batch) => {
-      const colorMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.34, 14, 12), new THREE.MeshStandardMaterial({ color: batch.color, roughness: 0.28, metalness: 0.18 }), batch.sourceIndexes.length);
+      const colorMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.34, 14, 12), new THREE.MeshStandardMaterial({ color: batch.color, map: marbleRollTexture, roughness: 0.28, metalness: 0.18 }), batch.sourceIndexes.length);
       colorMesh.frustumCulled = false; colorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); marbleGroup.add(colorMesh); renderMeshes.push(colorMesh);
       batch.sourceIndexes.forEach((sourceIndex, renderIndex) => renderBindings.set(sourceIndex, { mesh: colorMesh, renderIndex }));
     });
@@ -410,7 +432,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
           ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble });
         }
       });
-      balls.forEach((ball) => { dummy.position.set(ball.position.x, ball.position.y, ball.position.z); dummy.scale.setScalar(ball.done ? 0 : 1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); });
+      balls.forEach((ball) => { const rotation = ball.body.rotation(); dummy.position.set(ball.position.x, ball.position.y, ball.position.z); dummy.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w); dummy.scale.setScalar(ball.done ? 0 : 1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); });
       renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
       liveBalls.length = 0;
       balls.forEach((ball) => { if (!ball.done) liveBalls.push(ball); });

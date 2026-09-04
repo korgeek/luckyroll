@@ -63,7 +63,7 @@ vi.mock("./track/trackPhysics", () => ({
     const id = seams.worlds.length + 1; const world = { id, freeCount: 0, timestep: 1 / 60, step: () => { seams.worldSteps += 1; seams.order.push(`world:${id}`); }, free: () => { world.freeCount += 1; seams.order.push(`world-free:${id}`); } };
     seams.worlds.push(world); return world;
   },
-  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : position, setEnabled: () => undefined })),
+  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : position, rotation: () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }), setEnabled: () => undefined })),
   distanceSquaredToSample: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
 }));
 
@@ -81,7 +81,7 @@ vi.mock("./cameraControls", async () => {
 
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import type { Marble } from "../domain/types";
-import { createRaceScene } from "./MarbleRaceScene";
+import { createMarbleRollTexture, createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -221,15 +221,38 @@ describe("race scene lifecycle boundary", () => {
       const material = mesh.material as THREE.MeshStandardMaterial;
       expect(material.roughness).toBe(0.28); expect(material.metalness).toBe(0.18);
     });
+    const marbleTexture = (first[0]!.material as THREE.MeshStandardMaterial).map;
+    expect(marbleTexture).toBeInstanceOf(THREE.DataTexture);
+    expect(first.every((mesh) => (mesh.material as THREE.MeshStandardMaterial).map === marbleTexture)).toBe(true);
+    const marbleTextureDispose = vi.spyOn(marbleTexture!, "dispose");
     const firstGeometryDisposals = first.map((mesh) => vi.spyOn(mesh.geometry, "dispose"));
     const firstMaterialDisposals = first.map((mesh) => vi.spyOn(mesh.material as THREE.Material, "dispose"));
     scene.restartRemaining([marble(1)]); await settle();
     expect(firstGeometryDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
     expect(firstMaterialDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    expect(marbleTextureDispose).not.toHaveBeenCalled();
     const restarted = seams.marbleMeshes[seams.marbleMeshes.length - 1]!;
     const restartedGeometryDispose = vi.spyOn(restarted.geometry, "dispose"); const restartedMaterialDispose = vi.spyOn(restarted.material as THREE.Material, "dispose");
+    expect((restarted.material as THREE.MeshStandardMaterial).map).toBe(marbleTexture);
     scene.dispose();
     expect(restartedGeometryDispose).toHaveBeenCalledOnce(); expect(restartedMaterialDispose).toHaveBeenCalledOnce();
+    expect(marbleTextureDispose).toHaveBeenCalledOnce();
+  });
+
+  it("creates one asymmetric repeating marble roll texture", () => {
+    const texture = createMarbleRollTexture();
+    expect(texture).toBeInstanceOf(THREE.DataTexture);
+    expect(new Set(Array.from(texture.image.data as Uint8Array))).not.toEqual(new Set([255]));
+    texture.dispose();
+  });
+
+  it("copies each marble body rotation into its rendered instance", async () => {
+    const scene = await startScene();
+    seams.frames.shift()?.(performance.now());
+    const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const quaternion = new THREE.Quaternion(); const scale = new THREE.Vector3();
+    seams.marbleMeshes[0]!.getMatrixAt(0, matrix); matrix.decompose(position, quaternion, scale);
+    expect(Math.abs(quaternion.dot(new THREE.Quaternion(0, Math.SQRT1_2, 0, Math.SQRT1_2)))).toBeCloseTo(1, 5);
+    scene.dispose();
   });
 
   it("makes right-drag change the controlled pose versus an identical no-drag scene", async () => {
