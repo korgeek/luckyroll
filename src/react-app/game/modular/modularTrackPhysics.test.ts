@@ -6,6 +6,7 @@ import {
   createModularLaunchPositions,
   createBoosterState,
   createModularPhysics,
+  runModularCurveProbe,
   runModularValidationRace,
   runModularSeamProbe,
 } from "./modularTrackPhysics";
@@ -191,6 +192,15 @@ describe("modular track physics", () => {
       expect(result.maxNormalVelocityDelta).toBeLessThanOrEqual(0.05);
       expect(result.maxForwardLossRatio).toBeLessThanOrEqual(0.01);
       expect(result.escapes).toBe(0);
+    }
+  });
+
+  it.each([8, 18, 42] as const)("contains center and near-wall marbles through a curve at %s", async (speed) => {
+    for (const lateral of [0, -(12 / 2 - 1.5 * MARBLE_DIAMETER)]) {
+      const result = await runModularCurveProbe({ track: createValidTrackDesign(), speed, lateral });
+      expect(result.escaped).toBe(false);
+      expect(result.exited).toBe(true);
+      expect(result.forwardSpeed).toBeGreaterThan(0);
     }
   });
 

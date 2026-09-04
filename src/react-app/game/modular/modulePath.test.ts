@@ -29,20 +29,15 @@ const portPosition = (cellIndex: number, direction: keyof typeof directionVector
   { x: (cellIndex % 5 + 0.5) * 20, y: 0, z: (Math.floor(cellIndex / 5) + 0.5) * 20 },
   scale(directionVector[direction], 10),
 );
-const quintic = (p0: number, p1: number, d0: number, d1: number, t: number): number => {
-  const t2 = t * t; const t3 = t2 * t; const t4 = t3 * t; const t5 = t4 * t;
-  return p0 * (1 - 10 * t3 + 15 * t4 - 6 * t5) + d0 * (t - 6 * t3 + 8 * t4 - 3 * t5)
-    + p1 * (10 * t3 - 15 * t4 + 6 * t5) + d1 * (-4 * t3 + 7 * t4 - 3 * t5);
+const circularCurvePoint = (p0: { x: number; y: number; z: number }, incoming: { x: number; y: number; z: number }, outgoing: { x: number; y: number; z: number }, localU: number) => {
+  const angle = (localU - 0.1) / 0.8 * Math.PI / 2;
+  return add(p0, add(scale(incoming, 8 * Math.sin(angle)), scale(outgoing, 8 * (1 - Math.cos(angle)))));
 };
 const analyticPoint = (cellIndex: number, kind: string, entry: keyof typeof directionVector, exit: keyof typeof directionVector, localU: number) => {
   const entryPort = portPosition(cellIndex, entry); const exitPort = portPosition(cellIndex, exit);
   const incoming = directionVector[opposite(entry)]; const outgoing = directionVector[exit];
   if (kind === "curve" && localU > 0.1 && localU < 0.9) {
-    const p0 = add(entryPort, scale(incoming, 2)); const p1 = add(exitPort, scale(outgoing, -2));
-    const d0 = scale(incoming, 16); const d1 = scale(outgoing, 16); const t = (localU - 0.1) / 0.8;
-    return {
-      x: quintic(p0.x, p1.x, d0.x, d1.x, t), y: quintic(p0.y, p1.y, d0.y, d1.y, t), z: quintic(p0.z, p1.z, d0.z, d1.z, t),
-    };
+    return circularCurvePoint(add(entryPort, scale(incoming, 2)), incoming, outgoing, localU);
   }
   if (kind === "wave" && localU > 0.1 && localU < 0.9) {
     const chord = normalize({ x: exitPort.x - entryPort.x, y: 0, z: exitPort.z - entryPort.z });
@@ -103,6 +98,17 @@ describe("canonical modular module paths", () => {
     expect(waist[waist.length - 1].distance - waist[0].distance).toBeCloseTo(2 / Math.cos(7 * Math.PI / 180), 6);
     expect(moduleWidthAt("funnel", 0)).toBe(12);
     expect(moduleWidthAt("funnel", 1)).toBe(12);
+  });
+
+  it("keeps every curve at radius eight without folding the six-unit inner profile", () => {
+    const track = createValidTrackDesign();
+    const route = assertValidTrackDesign(track);
+    const curves = sampleModulePath(track, route).filter((sample) => track.cells[sample.cellIndex]?.kind === "curve");
+    for (const sample of curves.filter((item) => item.localU > 0.1 && item.localU < 0.9)) {
+      const planarCurvature = Math.hypot(sample.centerlineCurvature.x, sample.centerlineCurvature.z) / Math.cos(7 * Math.PI / 180) ** 2;
+      expect(planarCurvature).toBeCloseTo(1 / 8, 5);
+      expect(1 / planarCurvature).toBeGreaterThan(12 / 2);
+    }
   });
 
   it("keeps adaptive tangent turns and midpoint chord errors within bounds", () => {

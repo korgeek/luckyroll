@@ -44,6 +44,9 @@ export type SeamProbeResult = Readonly<{
   escapes: number;
 }>;
 
+export type CurveProbeOptions = Readonly<{ track: TrackDesign; speed: 8 | 18 | 42; lateral: number }>;
+export type CurveProbeResult = Readonly<{ escaped: boolean; exited: boolean; forwardSpeed: number }>;
+
 export type ModularPhysicsResources = Readonly<{
   trackCollider: RapierCollider;
   fixedColliders: readonly RapierCollider[];
@@ -415,6 +418,40 @@ export const runModularSeamProbe = async (options: SeamProbeOptions): Promise<Se
     || Math.abs(welded.position.z) > CHANNEL_WIDTH / 2 - MARBLE_DIAMETER / 2
     || welded.position.y < -MARBLE_DIAMETER;
   return Object.freeze({ maxNormalVelocityDelta: normalDelta, maxForwardLossRatio: forwardLoss, escapes: escaped ? 1 : 0 });
+};
+
+export const runModularCurveProbe = async ({ track, speed, lateral }: CurveProbeOptions): Promise<CurveProbeResult> => {
+  await initializeTrackPhysics();
+  const built = buildModularTrack(track);
+  const curveCell = built.route.route.find((step) => built.track.cells[step.cellIndex]?.kind === "curve")!.cellIndex;
+  const rows = built.samples.filter((sample) => sample.cellIndex === curveCell);
+  const entry = rows.find((sample) => sample.localU === 0.1)!;
+  const exit = rows.find((sample) => sample.localU === 0.9)!;
+  const world = createTrackPhysicsWorld();
+  const resources = createModularPhysics(world, built);
+  try {
+    const profile = profileAt(CHANNEL_WIDTH);
+    const surface = Math.max(0, profile.findIndex((candidate, index) => index > 0 && lateral <= candidate.lateral) - 1);
+    const lower = profile[surface]!; const upper = profile[Math.min(profile.length - 1, surface + 1)]!;
+    const amount = (lateral - lower.lateral) / (upper.lateral - lower.lateral || 1);
+    const height = lower.height + (upper.height - lower.height) * amount;
+    const normal = normalize(add(scale(entry.side, -(upper.height - lower.height)), scale(entry.up, upper.lateral - lower.lateral)));
+    const position = add(entry.position, add(scale(entry.side, lateral), add(scale(entry.up, height), scale(normal, MARBLE_DIAMETER / 2 + 0.02))));
+    const [body] = createMarbleBodies(world, [{ ...position, crossOffset: lateral, row: 0, column: 0, physicalLaunchPosition: true }]);
+    body.setLinvel(scale(entry.tangent, speed), true);
+    let escaped = false; let exited = false; let forwardSpeed = 0;
+    for (let step = 0; step < 3 / TIMESTEP_SECONDS; step += 1) {
+      resources.stepBeforeWorld(); world.step(); resources.stepAfterWorld([body]);
+      const current = toVec3(body.translation()); const projection = projectToTrack(current, built.samples);
+      if (distanceSquaredToSample(current, built.samples[projection.sampleIndex]) > 15 ** 2) { escaped = true; break; }
+      if ((built.samples[projection.sampleIndex]?.distance ?? -Infinity) >= exit.distance) {
+        exited = true; forwardSpeed = dot(toVec3(body.linvel()), exit.tangent); break;
+      }
+    }
+    return Object.freeze({ escaped, exited, forwardSpeed });
+  } finally {
+    resources.dispose(); world.free();
+  }
 };
 
 export const runModularValidationRace = async (

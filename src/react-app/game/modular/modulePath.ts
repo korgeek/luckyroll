@@ -20,7 +20,7 @@ export * from "./modularTypes";
 const MIN_CHORD_ERROR = MARBLE_DIAMETER * 0.02;
 const MAX_TURN = 2 * Math.PI / 180;
 const HALF_SIZE = MODULE_SIZE / 2;
-const INTERIOR_LENGTH = MODULE_SIZE * 0.8;
+const CURVE_RADIUS = (MODULE_SIZE - 2 * LANDING_LENGTH) / 2;
 const MIN_FUNNEL_WIDTH = 9.6;
 const COLUMNS = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -54,25 +54,6 @@ const cellPortPosition = (cellIndex: number, direction: Direction): Vec3 => {
   const column = cellIndex % COLUMNS;
   const center = { x: (column + 0.5) * MODULE_SIZE, y: 0, z: (row + 0.5) * MODULE_SIZE };
   return add(center, scale(directionVector[direction], HALF_SIZE));
-};
-
-const quinticBasis = (t: number): readonly [number, number, number, number] => {
-  const t2 = t * t; const t3 = t2 * t; const t4 = t3 * t; const t5 = t4 * t;
-  return [1 - 10 * t3 + 15 * t4 - 6 * t5, t - 6 * t3 + 8 * t4 - 3 * t5, 10 * t3 - 15 * t4 + 6 * t5, -4 * t3 + 7 * t4 - 3 * t5];
-};
-const quintic = (p0: number, p1: number, d0: number, d1: number, t: number): number => {
-  const [h00, h10, h01, h11] = quinticBasis(t);
-  return p0 * h00 + d0 * h10 + p1 * h01 + d1 * h11;
-};
-const quinticDerivative = (p0: number, p1: number, d0: number, d1: number, t: number): number => {
-  const t2 = t * t; const t3 = t2 * t; const t4 = t3 * t;
-  return p0 * (-30 * t2 + 60 * t3 - 30 * t4) + d0 * (1 - 18 * t2 + 32 * t3 - 15 * t4)
-    + p1 * (30 * t2 - 60 * t3 + 30 * t4) + d1 * (-12 * t2 + 28 * t3 - 15 * t4);
-};
-const quinticSecondDerivative = (p0: number, p1: number, d0: number, d1: number, t: number): number => {
-  const t2 = t * t; const t3 = t2 * t;
-  return p0 * (-60 * t + 180 * t2 - 120 * t3) + d0 * (-36 * t + 96 * t2 - 60 * t3)
-    + p1 * (60 * t - 180 * t2 + 120 * t3) + d1 * (-24 * t + 84 * t2 - 60 * t3);
 };
 
 const waveOffsetAt = (localU: number): number => {
@@ -141,9 +122,7 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
 
   if (kind === "curve") {
     const p0 = add(entryPort, scale(incoming, LANDING_LENGTH));
-    const p1 = add(exitPort, scale(outgoing, -LANDING_LENGTH));
-    const d0 = scale(incoming, INTERIOR_LENGTH);
-    const d1 = scale(outgoing, INTERIOR_LENGTH);
+    const angularScale = Math.PI / 2 / 0.8;
     const coordinate = (point: Vec3, derivative: Vec3, secondDerivative: Vec3): AnalyticPoint => ({
       position: point, derivative, secondDerivative,
     });
@@ -154,16 +133,10 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
       pointAt(localU) {
         if (localU <= 0.1) return coordinate(add(entryPort, scale(incoming, MODULE_SIZE * localU)), incoming, { x: 0, y: 0, z: 0 });
         if (localU >= 0.9) return coordinate(add(exitPort, scale(outgoing, MODULE_SIZE * (localU - 1))), outgoing, { x: 0, y: 0, z: 0 });
-        const t = (localU - 0.1) / 0.8;
-        const position = {
-          x: quintic(p0.x, p1.x, d0.x, d1.x, t), y: quintic(p0.y, p1.y, d0.y, d1.y, t), z: quintic(p0.z, p1.z, d0.z, d1.z, t),
-        };
-        const derivative = scale({
-          x: quinticDerivative(p0.x, p1.x, d0.x, d1.x, t), y: quinticDerivative(p0.y, p1.y, d0.y, d1.y, t), z: quinticDerivative(p0.z, p1.z, d0.z, d1.z, t),
-        }, 1 / 0.8);
-        const secondDerivative = scale({
-          x: quinticSecondDerivative(p0.x, p1.x, d0.x, d1.x, t), y: quinticSecondDerivative(p0.y, p1.y, d0.y, d1.y, t), z: quinticSecondDerivative(p0.z, p1.z, d0.z, d1.z, t),
-        }, 1 / 0.8 ** 2);
+        const angle = (localU - 0.1) * angularScale;
+        const position = add(p0, add(scale(incoming, CURVE_RADIUS * Math.sin(angle)), scale(outgoing, CURVE_RADIUS * (1 - Math.cos(angle)))));
+        const derivative = scale(add(scale(incoming, Math.cos(angle)), scale(outgoing, Math.sin(angle))), CURVE_RADIUS * angularScale);
+        const secondDerivative = scale(add(scale(incoming, -Math.sin(angle)), scale(outgoing, Math.cos(angle))), CURVE_RADIUS * angularScale ** 2);
         return coordinate(position, derivative, secondDerivative);
       },
     };
