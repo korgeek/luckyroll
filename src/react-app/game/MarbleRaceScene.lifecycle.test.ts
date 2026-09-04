@@ -18,9 +18,9 @@ vi.mock("three", async () => {
 });
 
 import * as THREE from "three";
-const cameraPoses: { position: THREE.Vector3; lookAt: THREE.Vector3 }[] = [];
+const cameraPoses: { camera: THREE.PerspectiveCamera; position: THREE.Vector3; lookAt: THREE.Vector3 }[] = [];
 const cameraLookAt = vi.spyOn(THREE.PerspectiveCamera.prototype, "lookAt").mockImplementation(function (this: THREE.PerspectiveCamera, targetOrX: THREE.Vector3 | number) {
-  if (targetOrX instanceof THREE.Vector3) cameraPoses.push({ position: this.position.clone(), lookAt: targetOrX.clone() });
+  if (targetOrX instanceof THREE.Vector3) cameraPoses.push({ camera: this, position: this.position.clone(), lookAt: targetOrX.clone() });
 });
 
 vi.mock("./raceCourse", async () => {
@@ -82,10 +82,22 @@ import { createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const prepareCanvas = (): HTMLCanvasElement => {
+  const canvas = document.createElement("canvas");
+  Object.defineProperty(canvas, "setPointerCapture", { value: vi.fn() });
+  Object.defineProperty(canvas, "hasPointerCapture", { value: () => false });
+  Object.defineProperty(canvas, "releasePointerCapture", { value: vi.fn() });
+  return canvas;
+};
+const latestPose = (camera: THREE.PerspectiveCamera) => { const poses = cameraPoses.filter((pose) => pose.camera === camera); return poses[poses.length - 1]; };
 const pointerEvent = (type: string, values: { pointerId: number; clientX: number; clientY: number; button?: number }): PointerEvent => {
   const event = new Event(type, { bubbles: true, cancelable: true }) as PointerEvent;
   Object.defineProperties(event, { pointerId: { value: values.pointerId }, clientX: { value: values.clientX }, clientY: { value: values.clientY }, button: { value: values.button ?? 0 } });
   return event;
+};
+const canvasDrag = (canvas: HTMLCanvasElement): void => {
+  canvas.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 10, clientY: 10, button: 2 }));
+  canvas.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 30, clientY: 4, button: 2 }));
 };
 const addListener = vi.spyOn(EventTarget.prototype, "addEventListener");
 const removeListener = vi.spyOn(EventTarget.prototype, "removeEventListener");
@@ -132,10 +144,7 @@ describe("race scene lifecycle boundary", () => {
   });
 
   it("routes right-drag, pinch distance, and idle recovery through camera controls", async () => {
-    const canvas = document.createElement("canvas");
-    Object.defineProperty(canvas, "setPointerCapture", { value: vi.fn() });
-    Object.defineProperty(canvas, "hasPointerCapture", { value: () => false });
-    Object.defineProperty(canvas, "releasePointerCapture", { value: vi.fn() });
+    const canvas = prepareCanvas();
     const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign("Input") });
     await settle();
     scene.start([marble(1)], 11);
@@ -161,6 +170,28 @@ describe("race scene lifecycle boundary", () => {
     expect(recovery?.args[1]).toBeGreaterThan(0);
     expect(recovery?.args[1]).toBeLessThan(1);
     scene.dispose();
+  });
+
+  it("makes right-drag change the controlled pose versus an identical no-drag scene", async () => {
+    const noDragCanvas = prepareCanvas();
+    const dragCanvas = prepareCanvas();
+    const noDrag = createRaceScene(noDragCanvas, () => undefined, { kind: "custom", track: createValidTrackDesign("NoDrag") });
+    const dragged = createRaceScene(dragCanvas, () => undefined, { kind: "custom", track: createValidTrackDesign("Dragged") });
+    await settle();
+    noDrag.start([marble(1)], 11); dragged.start([marble(1)], 11);
+    await settle();
+    const timestamp = performance.now();
+    seams.frames.shift()?.(timestamp); seams.frames.shift()?.(timestamp);
+    const noDragCamera = latestPose(cameraPoses[0].camera).camera;
+    const dragCamera = latestPose(cameraPoses[1].camera).camera;
+    canvasDrag(dragCanvas);
+    seams.frames.shift()?.(timestamp + 17); seams.frames.shift()?.(timestamp + 17);
+
+    const noDragPose = latestPose(noDragCamera);
+    const dragPose = latestPose(dragCamera);
+    expect(dragPose.position.distanceTo(noDragPose.position)).toBeGreaterThan(0);
+    expect(dragPose.lookAt.distanceTo(noDragPose.lookAt)).toBeGreaterThan(0);
+    noDrag.dispose(); dragged.dispose();
   });
 
   it("emits one DNF and cleans up before a begin or initialization error", async () => {
