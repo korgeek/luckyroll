@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildStartEnclosure, buildTrackShell, type IndexedGeometry } from "../track/obstacleGeometry";
+import { buildTrackShell, type IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
 import {
@@ -49,12 +49,12 @@ const material = (color: string, emissive?: string): THREE.MeshStandardMaterial 
 
 const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THREE.InstancedMesh => {
   const geometry = new THREE.BoxGeometry(0.22, 0.18, 1);
-  const rim = new THREE.InstancedMesh(geometry, rimMaterial, Math.max(0, (built.samples.length - 1) * 2));
+  const rim = new THREE.InstancedMesh(geometry, rimMaterial, Math.max(0, (built.geometry.samples.length - 1) * 2));
   rim.name = "modular-neon-rims";
   const transform = new THREE.Object3D(); const colors = [new THREE.Color("#ffd21f"), new THREE.Color("#111319")];
   let instance = 0;
   const row = built.geometry.profileSegments + 1;
-  for (let index = 1; index < built.samples.length; index += 1) {
+  for (let index = 1; index < built.geometry.samples.length; index += 1) {
     for (const column of [0, built.geometry.profileSegments]) {
       const previousOffset = ((index - 1) * row + column) * 3;
       const currentOffset = (index * row + column) * 3;
@@ -129,7 +129,6 @@ const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMater
 };
 
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, refs: ModularDeviceRefs): void => {
-  const enclosure = new THREE.Mesh(toGeometry(buildStartEnclosure(devices.start.frame, devices.start.runoutLength, devices.start.width, devices.start.wallHeight)), dark); enclosure.name = "modular-start-enclosure"; group.add(enclosure);
   const gate = new THREE.Mesh(new THREE.BoxGeometry(devices.start.gate.width, devices.start.gate.height, devices.start.gate.depth), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.center)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
   refs.gate = gate;
 };

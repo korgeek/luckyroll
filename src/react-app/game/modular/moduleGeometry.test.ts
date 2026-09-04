@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { assertValidTrackDesign } from "../../designer/trackValidation";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER, RAIL_HEIGHT, sampleModulePath } from "./modulePath";
+import { buildModularTrack } from "./modularTrackBuild";
 import { buildModuleGeometry, validateModuleGeometry, PROFILE_SEGMENTS, profileAt } from "./moduleGeometry";
 
 const vertex = (geometry: ReturnType<typeof buildModuleGeometry>, row: number, column: number) => {
@@ -73,6 +74,28 @@ describe("welded modular channel geometry", () => {
     const geometry = buildModuleGeometry(sampleModulePath(track, assertValidTrackDesign(track)));
     const rowSize = geometry.profileSegments + 1;
     expect(Array.from(geometry.indices.slice(0, 6))).toEqual([0, 1, rowSize, 1, rowSize + 1, rowSize]);
+  });
+
+  it("joins the start extension to the first module with one indexed strip", () => {
+    const built = buildModularTrack(createValidTrackDesign());
+    const geometry = built.geometry;
+    const rowSize = PROFILE_SEGMENTS + 1;
+    const startRow = Array.from({ length: rowSize }, (_, column) => vertex(geometry, 0, column));
+    const firstRow = Array.from({ length: rowSize }, (_, column) => vertex(geometry, 1, column));
+    const triangles = Array.from({ length: geometry.indices.length / 3 }, (_, triangle) =>
+      Array.from(geometry.indices.slice(triangle * 3, triangle * 3 + 3)));
+    const startJoin = triangles.filter((indices) => {
+      const rows = new Set(indices.map((index) => Math.floor(index / rowSize)));
+      return rows.size === 2 && rows.has(0) && rows.has(1);
+    });
+
+    expect(geometry.samples[1]).toBe(built.samples[0]);
+    expect(startRow).toHaveLength(firstRow.length);
+    expect(startJoin).toHaveLength(PROFILE_SEGMENTS * 2);
+    expect(triangles.some((indices) => indices.every((index) => Math.floor(index / rowSize) === 0))).toBe(false);
+    expect(triangles.some((indices) => indices.every((index) => Math.floor(index / rowSize) === 1))).toBe(false);
+    expect(new Set(triangles.map((indices) => [...indices].sort((a, b) => a - b).join(","))).size).toBe(triangles.length);
+    expect(validateModuleGeometry(geometry)).toEqual([]);
   });
 
   it("keeps profile rows canonical for funnel widths and longitudinal turns bounded", () => {

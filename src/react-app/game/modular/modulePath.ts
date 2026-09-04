@@ -9,6 +9,7 @@ import {
   MODULE_SIZE,
   RAIL_HEIGHT,
   ROUTE_GRADE,
+  START_LENGTH,
   type ModulePathSample,
   type ModulePort,
 } from "./modularTypes";
@@ -334,4 +335,27 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
     }
   }
   return Object.freeze(result);
+};
+
+export const createStartExtensionSamples = (samples: readonly ModulePathSample[]): readonly ModulePathSample[] => {
+  const first = samples[0];
+  if (first === undefined) throw new Error("A start extension requires a sampled route.");
+  const start = Object.freeze({
+    ...first,
+    index: -1,
+    distance: first.distance - START_LENGTH,
+    position: Object.freeze({
+      x: first.position.x - first.tangent.x * START_LENGTH,
+      y: first.position.y - first.tangent.y * START_LENGTH,
+      z: first.position.z - first.tangent.z * START_LENGTH,
+    }),
+    localU: -START_LENGTH / MODULE_SIZE,
+    width: CHANNEL_WIDTH,
+    bankRadians: 0,
+    centerlineCurvature: Object.freeze({ x: 0, y: 0, z: 0 }),
+    chordError: 0,
+    port: undefined,
+    ports: undefined,
+  });
+  return Object.freeze([start, ...samples]);
 };

@@ -20,7 +20,7 @@ describe("modular track rendering", () => {
     expect(rendered.group.getObjectByName("modular-start-bowl")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-ramp-bridge")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-agitator")).toBeUndefined();
-    expect(rendered.group.getObjectByName("modular-start-enclosure")).toBeInstanceOf(THREE.Mesh);
+    expect(rendered.group.getObjectByName("modular-start-enclosure")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-release-gate")).toBeInstanceOf(THREE.Mesh);
     expect(rendered.group.getObjectByName("booster-chevrons")?.userData.collider).toBe(false);
     const chevrons = rendered.group.getObjectByName("booster-chevrons");
@@ -58,7 +58,8 @@ describe("modular track rendering", () => {
     expect(rimMaterial.color.getHexString()).toBe("ffffff"); expect(rimMaterial.vertexColors).toBe(true); expect(rimMaterial.toneMapped).toBe(false);
     expect(rim.instanceColor).not.toBeNull();
     const rimColor = new THREE.Color(); const rimScale = new THREE.Vector3(); const rimMatrix = new THREE.Matrix4(); const row = built.geometry.profileSegments + 1;
-    for (let index = 1; index < built.samples.length; index += 1) for (const column of [0, built.geometry.profileSegments]) {
+    expect(rim.count).toBe((built.geometry.samples.length - 1) * 2);
+    for (let index = 1; index < built.geometry.samples.length; index += 1) for (const column of [0, built.geometry.profileSegments]) {
       const previousOffset = ((index - 1) * row + column) * 3; const currentOffset = (index * row + column) * 3;
       const edgeLength = Math.hypot(built.geometry.positions[currentOffset] - built.geometry.positions[previousOffset], built.geometry.positions[currentOffset + 1] - built.geometry.positions[previousOffset + 1], built.geometry.positions[currentOffset + 2] - built.geometry.positions[previousOffset + 2]);
       const rimIndex = (index - 1) * 2 + (column === 0 ? 0 : 1);
