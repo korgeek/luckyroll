@@ -18,6 +18,7 @@ import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { profileAt } from "./moduleGeometry";
 
 const TIMESTEP_SECONDS = 1 / 60;
+const TRACK_FRICTION = 0.05;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
 const BUMPER_RESTITUTION = 0.28;
@@ -183,7 +184,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     built.geometry.positions,
     built.geometry.indices,
     rapier.TriMeshFlags.FIX_INTERNAL_EDGES,
-  ).setFriction(FRICTION).setRestitution(RESTITUTION), trackBody);
+  ).setFriction(TRACK_FRICTION).setFrictionCombineRule(rapier.CoefficientCombineRule.Min).setRestitution(RESTITUTION), trackBody);
 
   const addFixedBody = (body: RapierBody, colliders: readonly RapierCollider[]): void => {
     ownedBodies.push(body);

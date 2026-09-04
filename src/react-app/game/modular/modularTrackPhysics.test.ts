@@ -35,6 +35,15 @@ const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b
 const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), z: 0, w: Math.cos(radians / 2) });
 
 describe("modular track physics", () => {
+  it("finishes at least 60 seed-23 marbles before the 60-second timeout", async () => {
+    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 60 });
+    expect(result.finishOrder.length).toBeGreaterThanOrEqual(60);
+    expect(result.finishTimesMs[0]).toBeLessThanOrEqual(55_000);
+    expect(result.nonFinite).toEqual([]);
+    expect(result.boosterCapViolations).toEqual([]);
+    expect(result.escapes.length + result.stalls.length).toBeLessThanOrEqual(5);
+  }, 180_000);
+
   it("creates one welded track mesh without a legacy rear collider", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
