@@ -1,6 +1,6 @@
 # Lucky Roll Modular Track Physics Qualification Ledger
 
-- Source commit: `1649bf1`
+- Source commit: `899d3bb`
 - Budget: 0/10 consumed
 - Command: `RUN_MODULAR_TRACK_QUALIFICATION=1 npm test -- --run src/react-app/game/modular/modularTrackPhysics.validation.test.ts`
 - Rule: a seed is consumed once its 100-marble world begins stepping; never rerun without user approval.
