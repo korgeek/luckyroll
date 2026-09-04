@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
-import { applyDrag, applyZoom, initialCameraControls } from "./cameraControls";
+import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
 import { createRaceFocusDirector, getTrackBounds, writeCameraShot, writeControlledTrackFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
@@ -257,7 +257,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   let running = false; let timedOut = false; let last = performance.now(); let fixedAccumulator = 0; let disposed = false;
   let manualPaused = false; let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
   let frameId: number | undefined;
-  let controls = initialCameraControls; let activePointer: number | undefined; let pointerX = 0; let pointerY = 0;
+  let controls = initialCameraControls; const pointers = new Map<number, { x: number; y: number }>(); const panPointers = new Set<number>(); let pinchDistance: number | undefined; let lastCameraInputAt = last;
   const dummy = new THREE.Object3D();
   const raceFocus = createRaceFocusDirector();
   const raceClock = createSceneRaceClock();
@@ -266,11 +266,33 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const controlledCameraShot: CameraShot = { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 };
   const resize = () => { const width = canvas.clientWidth || window.innerWidth; const height = canvas.clientHeight || window.innerHeight; renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); };
   window.addEventListener("resize", resize); canvas.style.touchAction = "none"; resize();
-  const onPointerDown = (event: PointerEvent) => { activePointer = event.pointerId; pointerX = event.clientX; pointerY = event.clientY; canvas.setPointerCapture(event.pointerId); };
-  const onPointerMove = (event: PointerEvent) => { if (event.pointerId !== activePointer) return; controls = applyDrag(controls, event.clientX - pointerX, event.clientY - pointerY); pointerX = event.clientX; pointerY = event.clientY; };
-  const onPointerUp = (event: PointerEvent) => { if (event.pointerId !== activePointer) return; activePointer = undefined; if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); };
-  const onWheel = (event: WheelEvent) => { event.preventDefault(); controls = applyZoom(controls, event.deltaY); };
-  canvas.addEventListener("pointerdown", onPointerDown); canvas.addEventListener("pointermove", onPointerMove); canvas.addEventListener("pointerup", onPointerUp); canvas.addEventListener("pointercancel", onPointerUp); canvas.addEventListener("wheel", onWheel, { passive: false });
+  const onPointerDown = (event: PointerEvent) => {
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (event.button === 2) panPointers.add(event.pointerId);
+    if (pointers.size === 2) {
+      const points = [...pointers.values()]; pinchDistance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    }
+    lastCameraInputAt = performance.now(); canvas.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: PointerEvent) => {
+    const previous = pointers.get(event.pointerId); if (!previous) return;
+    const deltaX = event.clientX - previous.x; const deltaY = event.clientY - previous.y;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size >= 2) {
+      const points = [...pointers.values()]; const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      if (pinchDistance !== undefined) controls = applyZoom(controls, -(distance - pinchDistance));
+      pinchDistance = distance;
+    } else if (panPointers.has(event.pointerId)) controls = applyPan(controls, deltaX, deltaY);
+    else controls = applyDrag(controls, deltaX, deltaY);
+    lastCameraInputAt = performance.now();
+  };
+  const onPointerUp = (event: PointerEvent) => {
+    pointers.delete(event.pointerId); panPointers.delete(event.pointerId); if (pointers.size < 2) pinchDistance = undefined;
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  };
+  const onWheel = (event: WheelEvent) => { event.preventDefault(); controls = applyZoom(controls, event.deltaY); lastCameraInputAt = performance.now(); };
+  const onContextMenu = (event: MouseEvent) => event.preventDefault();
+  canvas.addEventListener("pointerdown", onPointerDown); canvas.addEventListener("pointermove", onPointerMove); canvas.addEventListener("pointerup", onPointerUp); canvas.addEventListener("pointercancel", onPointerUp); canvas.addEventListener("wheel", onWheel, { passive: false }); canvas.addEventListener("contextmenu", onContextMenu);
   const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
 
   type SceneStartRequest = { marbles: Marble[]; seed: number; remainingRestart?: boolean };
@@ -289,7 +311,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     course.dispose();
     trackDebug?.dispose();
     if (frameId !== undefined) { cancelAnimationFrame(frameId); frameId = undefined; }
-    window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel);
+    pointers.forEach((_point, pointerId) => { if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId); });
+    window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel); canvas.removeEventListener("contextmenu", onContextMenu); pointers.clear(); panPointers.clear(); pinchDistance = undefined;
     renderer.dispose();
   };
 
@@ -303,7 +326,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     clearMarbles();
     const renderBindings = new Map<number, { mesh: THREE.InstancedMesh; renderIndex: number }>(); renderMeshes = [];
     createColorBatches(marbles).forEach((batch) => {
-      const colorMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.34, 14, 12), new THREE.MeshBasicMaterial({ color: batch.color, fog: false, toneMapped: false }), batch.sourceIndexes.length);
+      const colorMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.34, 14, 12), new THREE.MeshStandardMaterial({ color: batch.color, roughness: 0.28, metalness: 0.18 }), batch.sourceIndexes.length);
       colorMesh.frustumCulled = false; colorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); marbleGroup.add(colorMesh); renderMeshes.push(colorMesh);
       batch.sourceIndexes.forEach((sourceIndex, renderIndex) => renderBindings.set(sourceIndex, { mesh: colorMesh, renderIndex }));
     });
@@ -351,6 +374,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (disposed) return;
     frameId = requestAnimationFrame(loop);
     const delta = Math.min(33, now - last); last = now;
+    if (reducedMotion) controls = relaxControls(controls, 1);
+    else if (now - lastCameraInputAt >= 3_000) controls = relaxControls(controls, Math.min(1, (now - lastCameraInputAt) / 3_000));
     const paused = manualPaused || debug.isPaused();
     if (running && paused && !debugWasPaused) pauseStarted = now;
     if (running && !paused && debugWasPaused) pausedDuration += now - pauseStarted;

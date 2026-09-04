@@ -98,6 +98,18 @@ describe("race scene lifecycle boundary", () => {
     expect(seams.order.filter((entry) => entry === "course-dispose")).toHaveLength(1); expect(seams.rendererDisposals).toBe(1); expect(vi.mocked(cancelAnimationFrame)).toHaveBeenCalledTimes(1); expect(removeListener).toHaveBeenCalledTimes(addListener.mock.calls.length);
   });
 
+  it("registers a canvas context-menu guard alongside recoverable pointer controls", async () => {
+    const canvas = document.createElement("canvas");
+    const scene = createRaceScene(canvas, (event) => { seams.emitted.push(event.type); }, { kind: "custom", track: createValidTrackDesign("Input") });
+    await settle();
+    const contextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+
+    expect(canvas.dispatchEvent(contextMenu)).toBe(false);
+    expect(addListener.mock.calls.some(([type]) => type === "contextmenu")).toBe(true);
+    scene.dispose();
+    expect(removeListener.mock.calls.some(([type]) => type === "contextmenu")).toBe(true);
+  });
+
   it("emits one DNF and cleans up before a begin or initialization error", async () => {
     const scene = await startScene(); const now = performance.now(); seams.badBody = true; seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17); seams.frames.shift()?.(now + 34);
     expect(seams.emitted.filter((event) => event === "dnf")).toHaveLength(1); scene.dispose();

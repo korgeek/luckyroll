@@ -6,7 +6,7 @@ export type CameraShot = { position: { x: number; y: number; z: number }; lookAt
 export type RaceFocusTarget = Readonly<{ id: string | number; progress: number }>;
 export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number) => Target | undefined; reset: () => void }>;
 export type TrackFollowFrame = Readonly<{ tangent: Vec3; up: Vec3 }>;
-export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number }>;
+export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number; panX?: number; panY?: number }>;
 
 const fallbackBounds: TrackBounds = Object.freeze({ center: Object.freeze({ x: 0, y: 0, z: 0 }), radius: 1 });
 
@@ -143,6 +143,8 @@ export const writeControlledTrackFollowShot = (target: CameraShot, directed: Cam
   const yaw = Number.isFinite(controls.yaw) ? controls.yaw : 0;
   const pitch = Number.isFinite(controls.pitch) ? controls.pitch : 0;
   const zoom = Number.isFinite(controls.zoom) ? controls.zoom : 1;
+  const panX = typeof controls.panX === "number" && Number.isFinite(controls.panX) ? controls.panX : 0;
+  const panY = typeof controls.panY === "number" && Number.isFinite(controls.panY) ? controls.panY : 0;
   const offsetX = directed.position.x - directed.lookAt.x;
   const offsetY = directed.position.y - directed.lookAt.y;
   const offsetZ = directed.position.z - directed.lookAt.z;
@@ -152,9 +154,13 @@ export const writeControlledTrackFollowShot = (target: CameraShot, directed: Cam
   const crossX = up.y * offsetZ - up.z * offsetY;
   const crossY = up.z * offsetX - up.x * offsetZ;
   const crossZ = up.x * offsetY - up.y * offsetX;
-  target.lookAt.x = directed.lookAt.x;
-  target.lookAt.y = directed.lookAt.y;
-  target.lookAt.z = directed.lookAt.z;
+  const rightLength = Math.hypot(crossX, crossY, crossZ) || 1;
+  const rightX = crossX / rightLength;
+  const rightY = crossY / rightLength;
+  const rightZ = crossZ / rightLength;
+  target.lookAt.x = directed.lookAt.x + rightX * panX + up.x * panY;
+  target.lookAt.y = directed.lookAt.y + rightY * panX + up.y * panY;
+  target.lookAt.z = directed.lookAt.z + rightZ * panX + up.z * panY;
   target.position.x = target.lookAt.x + (offsetX * cosine + crossX * sine + up.x * projection * (1 - cosine)) * zoom + up.x * pitch * 25;
   target.position.y = target.lookAt.y + (offsetY * cosine + crossY * sine + up.y * projection * (1 - cosine)) * zoom + up.y * pitch * 25;
   target.position.z = target.lookAt.z + (offsetZ * cosine + crossZ * sine + up.z * projection * (1 - cosine)) * zoom + up.z * pitch * 25;
