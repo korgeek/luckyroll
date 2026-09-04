@@ -152,7 +152,7 @@ export const enforceCameraClearance = (target: CameraShot, up: Vec3, minimum = 5
   return target;
 };
 
-export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, samples: readonly TrackSample[], sampleIndex: number, bounds: TrackBounds): CameraShot => {
+export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, samples: readonly TrackSample[], sampleIndex: number, bounds: TrackBounds, minimumClearance = 5): CameraShot => {
   const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
   const focus = finiteVector(marblePosition) ? marblePosition : safeBounds.center;
   const frame = samples[Math.max(0, Math.min(samples.length - 1, sampleIndex))] ?? samples[0];
@@ -160,17 +160,17 @@ export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, s
   const anchor = cameraAnchor(samples, sampleIndex);
   const anchorPosition = finiteVector(anchor?.position) ? anchor.position : focus;
   const anchorUp = finiteVector(anchor?.up) ? anchor.up : up;
-  target.position.x = anchorPosition.x + anchorUp.x * 5;
-  target.position.y = anchorPosition.y + anchorUp.y * 5;
-  target.position.z = anchorPosition.z + anchorUp.z * 5;
+  target.position.x = anchorPosition.x + anchorUp.x * minimumClearance;
+  target.position.y = anchorPosition.y + anchorUp.y * minimumClearance;
+  target.position.z = anchorPosition.z + anchorUp.z * minimumClearance;
   target.lookAt.x = focus.x + up.x * 0.45;
   target.lookAt.y = focus.y + up.y * 0.45;
   target.lookAt.z = focus.z + up.z * 0.45;
   writeClip(target, safeBounds);
-  return enforceCameraClearance(target, up);
+  return enforceCameraClearance(target, up, minimumClearance);
 };
 
-export const writeControlledTrackFollowShot = (target: CameraShot, directed: CameraShot, localUp: Vec3, controls: CameraControlOffsets): CameraShot => {
+export const writeControlledTrackFollowShot = (target: CameraShot, directed: CameraShot, localUp: Vec3, controls: CameraControlOffsets, minimumClearance = 5): CameraShot => {
   const up = finiteVector(localUp) ? localUp : { x: 0, y: 1, z: 0 };
   const yaw = Number.isFinite(controls.yaw) ? controls.yaw : 0;
   const pitch = Number.isFinite(controls.pitch) ? controls.pitch : 0;
@@ -198,7 +198,7 @@ export const writeControlledTrackFollowShot = (target: CameraShot, directed: Cam
   target.position.z = target.lookAt.z + (offsetZ * cosine + crossZ * sine + up.z * projection * (1 - cosine)) * zoom + up.z * pitch * 25;
   target.near = directed.near;
   target.far = directed.far;
-  return enforceCameraClearance(target, up, 5, directed.lookAt);
+  return enforceCameraClearance(target, up, minimumClearance, directed.lookAt);
 };
 
 export const hasCameraClipChanged = (previous: Pick<CameraShot, "near" | "far">, next: Pick<CameraShot, "near" | "far">): boolean =>

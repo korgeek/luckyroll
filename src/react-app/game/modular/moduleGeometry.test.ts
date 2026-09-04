@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { assertValidTrackDesign } from "../../designer/trackValidation";
-import { CHANNEL_WIDTH, MARBLE_DIAMETER, RAIL_HEIGHT, sampleModulePath } from "./modulePath";
+import { CHANNEL_WIDTH, RAIL_HEIGHT, sampleModulePath } from "./modulePath";
 import { buildModularTrack } from "./modularTrackBuild";
 import { buildModuleGeometry, validateModuleGeometry, PROFILE_SEGMENTS, profileAt } from "./moduleGeometry";
 
@@ -27,28 +27,24 @@ const triangleNormal = (geometry: ReturnType<typeof buildModuleGeometry>, triang
 };
 
 describe("welded modular channel geometry", () => {
-  it("uses a symmetric profile with a 55 percent flat floor and inward 0.75D lips", () => {
+  it("uses a tall open profile without an inward wall hook", () => {
     const profile = profileAt(CHANNEL_WIDTH);
     const floor = profile.filter((point) => Math.abs(point.height) < 1e-9);
     expect(floor[0].lateral).toBeCloseTo(-CHANNEL_WIDTH * 0.275, 8);
     expect(floor[floor.length - 1]?.lateral).toBeCloseTo(CHANNEL_WIDTH * 0.275, 8);
     expect(profile).toHaveLength(PROFILE_SEGMENTS + 1);
     expect(profile.every((point, index) => Math.abs(point.lateral + profile[profile.length - index - 1].lateral) < 1e-9)).toBe(true);
-    const top = profile.filter((point) => point.height >= RAIL_HEIGHT - 1e-9).map((point) => point.lateral);
-    expect(top[top.length - 1]).toBeCloseTo(
-      CHANNEL_WIDTH / 2 - 0.75 * MARBLE_DIAMETER, 8,
-    );
+    expect(profile[0]).toEqual({ lateral: -CHANNEL_WIDTH / 2, height: RAIL_HEIGHT });
+    expect(profile[profile.length - 1]).toEqual({ lateral: CHANNEL_WIDTH / 2, height: RAIL_HEIGHT });
+    expect(profile.slice(1).every((point, index) => point.lateral > profile[index].lateral)).toBe(true);
     const rightFloorIndex = profile.findIndex((point) => Math.abs(point.lateral - CHANNEL_WIDTH * 0.275) < 1e-9 && point.height === 0);
-    const outerIndex = profile.reduce((best, point, index) => point.lateral > profile[best].lateral ? index : best, 0);
+    const outerIndex = profile.length - 1;
     const direction = (from: number, to: number) => ({ x: profile[to].lateral - profile[from].lateral, y: profile[to].height - profile[from].height });
     const dot = (a: { x: number; y: number }, b: { x: number; y: number }) => a.x * b.x + a.y * b.y;
     const length = (a: { x: number; y: number }) => Math.hypot(a.x, a.y);
     expect(dot(direction(rightFloorIndex - 1, rightFloorIndex), direction(rightFloorIndex, rightFloorIndex + 1)) /
       (length(direction(rightFloorIndex - 1, rightFloorIndex)) * length(direction(rightFloorIndex, rightFloorIndex + 1)))).toBeGreaterThan(0.99);
-    expect(dot(direction(outerIndex - 1, outerIndex), direction(outerIndex, outerIndex + 1)) /
-      (length(direction(outerIndex - 1, outerIndex)) * length(direction(outerIndex, outerIndex + 1)))).toBeGreaterThan(0.99);
     expect(profile.slice(rightFloorIndex, outerIndex + 1).every((point, index, wall) => index === 0 || point.height >= wall[index - 1].height)).toBe(true);
-    expect(profile.slice(outerIndex).every((point, index, lip) => index === 0 || point.height >= lip[index - 1].height)).toBe(true);
     const facetCosines = profile.slice(1, -1).map((_, index) => {
       const a = direction(index, index + 1); const b = direction(index + 1, Math.min(profile.length - 1, index + 2));
       return dot(a, b) / (length(a) * length(b));

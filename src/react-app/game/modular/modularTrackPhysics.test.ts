@@ -221,7 +221,7 @@ describe("modular track physics", () => {
   });
 
   it.each([8, 18, 42] as const)("contains center and near-wall marbles through a curve at %s", async (speed) => {
-    for (const lateral of [0, -(12 / 2 - 1.5 * MARBLE_DIAMETER)]) {
+    for (const lateral of [0, 12 / 2 - 1.5 * MARBLE_DIAMETER, -(12 / 2 - 1.5 * MARBLE_DIAMETER)]) {
       const result = await runModularCurveProbe({ track: createValidTrackDesign(), speed, lateral });
       expect(result.escaped).toBe(false);
       expect(result.exited).toBe(true);

@@ -26,7 +26,7 @@ export type { Direction, ModuleKind, TrackSample, Vec3 };
 export const MARBLE_DIAMETER = 0.68;
 export const MODULE_SIZE = 20;
 export const CHANNEL_WIDTH = 12;
-export const RAIL_HEIGHT = 4;
+export const RAIL_HEIGHT = 8;
 export const LANDING_LENGTH = MODULE_SIZE * 0.1;
 export const ROUTE_GRADE = 7 * Math.PI / 180;
 export const MAX_CURVE_BANK = 24 * Math.PI / 180;

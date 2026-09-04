@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildTrackShell, type IndexedGeometry } from "../track/obstacleGeometry";
+import type { IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
 import {
@@ -121,9 +121,8 @@ const disposeGroup = (group: THREE.Group): void => {
 export const createModularTrackRender = (built: BuiltModularTrack, _options: ModularRenderOptions = {}): ModularRenderResources => {
   void _options;
   const group = new THREE.Group(); group.name = "modular-track";
-  const dark = material("#090b12"); const channel = new THREE.MeshStandardMaterial({ color: "#3f4650", roughness: 0.34, metalness: 0.62 }); const shellMaterial = new THREE.MeshStandardMaterial({ color: "#626a73", roughness: 0.88, metalness: 0.04 }); const device = material("#e73da7", "#5f0a40");
+  const dark = material("#090b12"); const channel = new THREE.MeshStandardMaterial({ color: "#3f4650", roughness: 0.34, metalness: 0.62 }); const device = material("#e73da7", "#5f0a40");
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#3f4650"; group.add(surface);
-  const shell = new THREE.Mesh(toGeometry(buildTrackShell(built.geometry)), shellMaterial); shell.name = "modular-channel-shell"; group.add(shell);
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), pusher: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);

@@ -152,6 +152,14 @@ describe("track-bound race camera plan", () => {
     expect(dot(subtract(shot.position, shot.lookAt), samples[sampleIndex]!.up)).toBeGreaterThanOrEqual(5);
   });
 
+  it("keeps a follow camera above a tall open channel wall", () => {
+    const sample = { index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 8, bankRadians: 0, zone: "run" as const };
+    const directed = mutableShot(); const controlled = mutableShot();
+    writeTrackFollowShot(directed, sample.position, [sample], 0, canonicalTrackBounds, 9);
+    writeControlledTrackFollowShot(controlled, directed, sample.up, { yaw: 0, pitch: -0.55, zoom: 0.55, panY: -24 }, 9);
+    expect(dot(subtract(controlled.position, directed.lookAt), sample.up)).toBeGreaterThanOrEqual(9);
+  });
+
   it("applies pointer, touch, and zoom offsets after the directed pose without changing its target", () => {
     const directed = mutableShot();
     const controlled = mutableShot();

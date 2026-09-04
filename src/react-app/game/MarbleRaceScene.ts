@@ -363,6 +363,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   const updateCamera = (elapsedMs: number, leaderProgress: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
+    let cameraClearance = 5;
     if (birdView) {
       activeShot = "bird"; controls = initialCameraControls;
       localUp = getBirdViewUp(course.samples);
@@ -378,14 +379,15 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (target) {
         const sample = course.samples[target.sampleIndex] ?? course.samples[0];
         localUp = sample.up;
+        cameraClearance = Math.max(5, sample.channelDepth + 1);
         activeShot = target === rankedCameraBalls[0] ? "leader" : target === rankedCameraBalls[rankedCameraBalls.length - 1] ? "trailer" : "profile";
-        writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds);
+        writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds, cameraClearance);
       } else {
         activeShot = "overview";
         writeCameraShot(cameraShot, activeShot, bounds);
       }
     }
-    writeControlledTrackFollowShot(controlledCameraShot, cameraShot, localUp, controls);
+    writeControlledTrackFollowShot(controlledCameraShot, cameraShot, localUp, controls, cameraClearance);
     if (camera.near !== controlledCameraShot.near || camera.far !== controlledCameraShot.far) {
       camera.near = controlledCameraShot.near; camera.far = controlledCameraShot.far; camera.updateProjectionMatrix();
     }

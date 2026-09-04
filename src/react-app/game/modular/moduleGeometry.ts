@@ -8,10 +8,8 @@ import {
 
 export const PROFILE_SEGMENTS = 128;
 export const FLOOR_SPAN = 0.55;
-export const LIP_INSET = 0.75 * MARBLE_DIAMETER;
-const WALL_SEGMENTS = 40;
-const LIP_SEGMENTS = 22;
-const FLOOR_SEGMENTS = PROFILE_SEGMENTS - WALL_SEGMENTS * 2 - LIP_SEGMENTS * 2;
+const WALL_SEGMENTS = 62;
+const FLOOR_SEGMENTS = PROFILE_SEGMENTS - WALL_SEGMENTS * 2;
 const WALL_RISE_HEIGHT = RAIL_HEIGHT * 0.7875;
 
 export type ChannelProfilePoint = Readonly<{ lateral: number; height: number }>;
@@ -36,19 +34,16 @@ const bezier = (
 export const profileAt = (width: number): readonly ChannelProfilePoint[] => {
   const half = width / 2;
   const floorHalf = width * FLOOR_SPAN / 2;
-  const tip = { lateral: half - LIP_INSET, height: RAIL_HEIGHT };
-  const outer = { lateral: half, height: WALL_RISE_HEIGHT };
+  const tip = { lateral: half, height: RAIL_HEIGHT };
   const floor = { lateral: floorHalf, height: 0 };
   const points: ChannelProfilePoint[] = [];
 
-  // Rounded lips ease into the wall and return inward by exactly 0.75D.
   const wallSpan = half - floorHalf;
   const rightHalf: ChannelProfilePoint[] = [];
-  const appendHalfBezier = (a: ChannelProfilePoint, b: ChannelProfilePoint, c: ChannelProfilePoint, d: ChannelProfilePoint, segments: number, includeStart: boolean): void => {
-    for (let index = includeStart ? 0 : 1; index <= segments; index += 1) rightHalf.push(freeze(bezier(a, b, c, d, index / segments)));
+  const append = (a: ChannelProfilePoint, b: ChannelProfilePoint, c: ChannelProfilePoint, d: ChannelProfilePoint, segments: number): void => {
+    for (let index = 0; index <= segments; index += 1) rightHalf.push(freeze(bezier(a, b, c, d, index / segments)));
   };
-  appendHalfBezier(floor, { lateral: floor.lateral + wallSpan * 0.42, height: 0 }, { lateral: outer.lateral, height: WALL_RISE_HEIGHT - 0.35 }, outer, WALL_SEGMENTS, true);
-  appendHalfBezier(outer, { lateral: outer.lateral, height: WALL_RISE_HEIGHT + 0.35 }, { lateral: tip.lateral + LIP_INSET / 2, height: RAIL_HEIGHT }, tip, LIP_SEGMENTS, false);
+  append(floor, { lateral: floor.lateral + wallSpan * 0.42, height: 0 }, { lateral: tip.lateral, height: WALL_RISE_HEIGHT }, tip, WALL_SEGMENTS);
   const floorPoints = Array.from({ length: FLOOR_SEGMENTS + 1 }, (_, index) => freeze({ lateral: lerp(-floorHalf, floorHalf, index / FLOOR_SEGMENTS), height: 0 }));
   const leftHalf = rightHalf.map((point) => freeze({ lateral: -point.lateral, height: point.height })).reverse();
   points.push(...leftHalf, ...floorPoints.slice(1), ...rightHalf.slice(1));

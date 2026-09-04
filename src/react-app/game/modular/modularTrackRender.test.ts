@@ -13,10 +13,7 @@ describe("modular track rendering", () => {
     expect(surface.material).toBeInstanceOf(THREE.MeshStandardMaterial);
     const channelMaterial = surface.material as THREE.MeshStandardMaterial;
     expect(channelMaterial.color.getHexString()).toBe("3f4650"); expect(channelMaterial.roughness).toBe(0.34); expect(channelMaterial.metalness).toBe(0.62);
-    const shell = rendered.group.getObjectByName("modular-channel-shell") as THREE.Mesh;
-    expect(shell.material).toBeInstanceOf(THREE.MeshStandardMaterial);
-    const shellMaterial = shell.material as THREE.MeshStandardMaterial;
-    expect(shellMaterial.color.getHexString()).toBe("626a73"); expect(shellMaterial.roughness).toBe(0.88); expect(shellMaterial.metalness).toBe(0.04);
+    expect(rendered.group.getObjectByName("modular-channel-shell")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-bowl")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-ramp-bridge")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-agitator")).toBeUndefined();
