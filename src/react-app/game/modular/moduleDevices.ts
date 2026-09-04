@@ -74,7 +74,7 @@ export type PinwheelLayout = Readonly<{
 export type ModuleDevices = Readonly<{
   start: ResolvedStart & Readonly<{
     gate: StartDeviceDescriptor;
-    agitator: StartDeviceDescriptor;
+    pusher: StartDeviceDescriptor & Readonly<{ endCenter: Vec3; durationMs: number }>;
     length: number;
     runoutLength: number;
     width: number;
@@ -95,7 +95,7 @@ const neutralBumperOffsets = Object.freeze([-CHANNEL_WIDTH / 2 + BUMPER_LENGTH /
 export type ModularDevicePose = Readonly<{
   elapsedSeconds: number;
   gateOpen: boolean;
-  agitatorAngle: number;
+  pusherCenter: Vec3;
   pinwheelAngles: readonly number[];
 }>;
 
@@ -168,11 +168,13 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
     tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
     width: START_WIDTH, height: 1.24, depth: 0.36,
   });
-  const agitatorFrame = Object.freeze({
-    center: startFrame.position, tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
-    width: 4.7, height: 0.24, depth: 0.32,
+  const pusher = Object.freeze({
+    center: add(startFrame.position, scale(startFrame.up, 1.6)),
+    endCenter: add(add(startFrame.position, scale(startFrame.tangent, 8.8)), scale(startFrame.up, 1.6)),
+    tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
+    width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 0.36, durationMs: 650,
   });
-  const start = Object.freeze({ frame: startFrame, gate: gateFrame, agitator: agitatorFrame, length: START_LENGTH, runoutLength: START_LENGTH + 20, width: START_WIDTH, radius: START_WIDTH / 2, shuffleMs: 700, wallHeight: 4 });
+  const start = Object.freeze({ frame: startFrame, gate: gateFrame, pusher, length: START_LENGTH, runoutLength: START_LENGTH + 20, width: START_WIDTH, radius: START_WIDTH / 2, shuffleMs: 700, wallHeight: 4 });
   const boosters: BoosterTrigger[] = [];
   const bumpers: BumperBar[] = [];
   const pinwheels: PinwheelLayout[] = [];

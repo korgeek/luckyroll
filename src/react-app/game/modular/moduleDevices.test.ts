@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, resolveModulePreview } from "./moduleDevices";
+import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const lerp = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, amount: number) => ({ x: a.x + (b.x - a.x) * amount, y: a.y + (b.y - a.y) * amount, z: a.z + (b.z - a.z) * amount });
@@ -67,6 +68,16 @@ describe("canonical modular devices", () => {
     expect(devices.start).toMatchObject({ length: 10.2, runoutLength: 30.2, width: 10.4, wallHeight: 4 });
     expect(along).toBeCloseTo(devices.start.length, 8);
     expect(dot({ x: devices.start.gate.center.x - devices.start.frame.position.x, y: devices.start.gate.center.y - devices.start.frame.position.y, z: devices.start.gate.center.z - devices.start.frame.position.z }, devices.start.frame.tangent)).toBeCloseTo(9.4, 8);
+    expect(devices.start.pusher).toBeDefined();
+    if (devices.start.pusher) {
+      const pusher = devices.start.pusher;
+      const initialAlong = dot({ x: pusher.center.x - devices.start.frame.position.x, y: pusher.center.y - devices.start.frame.position.y, z: pusher.center.z - devices.start.frame.position.z }, devices.start.frame.tangent);
+      const finalAlong = dot({ x: pusher.endCenter.x - devices.start.frame.position.x, y: pusher.endCenter.y - devices.start.frame.position.y, z: pusher.endCenter.z - devices.start.frame.position.z }, devices.start.frame.tangent);
+      const gateAlong = dot({ x: devices.start.gate.center.x - devices.start.frame.position.x, y: devices.start.gate.center.y - devices.start.frame.position.y, z: devices.start.gate.center.z - devices.start.frame.position.z }, devices.start.frame.tangent);
+      expect(pusher).toMatchObject({ width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 0.36, durationMs: 650 });
+      expect(initialAlong + pusher.depth / 2).toBeLessThan(0.62 - MARBLE_DIAMETER / 2);
+      expect(finalAlong + pusher.depth / 2).toBeLessThan(gateAlong - devices.start.gate.depth / 2);
+    }
   });
 
   it("uses symmetric bars and no arrow for an unresolved bumper preview", () => {

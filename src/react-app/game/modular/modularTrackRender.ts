@@ -19,7 +19,7 @@ export type ModularRenderResources = Readonly<{
 const REFS = "modularDeviceRefs";
 type ModularDeviceRefs = {
   gate: THREE.Object3D;
-  agitator: THREE.Object3D;
+  pusher: THREE.Object3D;
   pinwheels: THREE.Object3D[];
 };
 
@@ -130,7 +130,8 @@ const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMater
 
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, refs: ModularDeviceRefs): void => {
   const gate = new THREE.Mesh(new THREE.BoxGeometry(devices.start.gate.width, devices.start.gate.height, devices.start.gate.depth), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.center)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
-  refs.gate = gate;
+  const pusher = new THREE.Mesh(new THREE.BoxGeometry(devices.start.pusher.width, devices.start.pusher.height, devices.start.pusher.depth), dark); pusher.name = "modular-start-pusher"; pusher.position.copy(toVector(devices.start.pusher.center)); pusher.quaternion.copy(frameQuaternion(devices.start.pusher)); group.add(pusher);
+  refs.gate = gate; refs.pusher = pusher;
 };
 
 const disposeGroup = (group: THREE.Group): void => {
@@ -151,7 +152,7 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#3f4650"; group.add(surface);
   const shell = new THREE.Mesh(toGeometry(buildTrackShell(built.geometry)), shellMaterial); shell.name = "modular-channel-shell"; group.add(shell);
   group.add(createRims(built, rim));
-  const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), agitator: new THREE.Object3D(), pinwheels: [] };
+  const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), pusher: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
@@ -164,7 +165,7 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
 export const setModularDevicePose = (resources: ModularRenderResources, pose: ModularDevicePose): void => {
   if (resources.group.userData[REFS] === undefined) return;
   const refs = resources.group.userData[REFS] as ModularDeviceRefs;
-  refs.gate.visible = !pose.gateOpen; refs.agitator.rotation.y = pose.agitatorAngle;
+  refs.gate.visible = !pose.gateOpen; refs.pusher.position.copy(toVector(pose.pusherCenter));
   refs.pinwheels.forEach((pinwheel, index) => {
     const angle = pose.pinwheelAngles[index] ?? pose.elapsedSeconds * (resources.devices.pinwheels[index]?.angularSpeed ?? 2);
     pinwheel.quaternion.copy(pinwheel.userData.baseQuaternion as THREE.Quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle));

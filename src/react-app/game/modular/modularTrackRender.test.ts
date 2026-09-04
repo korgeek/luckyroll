@@ -22,6 +22,7 @@ describe("modular track rendering", () => {
     expect(rendered.group.getObjectByName("modular-start-agitator")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-enclosure")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-release-gate")).toBeInstanceOf(THREE.Mesh);
+    expect(rendered.group.getObjectByName("modular-start-pusher")).toBeInstanceOf(THREE.Mesh);
     expect(rendered.group.getObjectByName("booster-chevrons")?.userData.collider).toBe(false);
     const chevrons = rendered.group.getObjectByName("booster-chevrons");
     expect(chevrons?.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
@@ -76,6 +77,7 @@ describe("modular track rendering", () => {
     expect(arms.count).toBe(3);
     expect(arms.geometry.type).toBe("CapsuleGeometry");
     const gate = rendered.group.getObjectByName("modular-release-gate") as THREE.Mesh;
+    const pusher = rendered.group.getObjectByName("modular-start-pusher") as THREE.Mesh;
     expect(gate.position.toArray()).toEqual([rendered.devices.start.gate.center.x, rendered.devices.start.gate.center.y, rendered.devices.start.gate.center.z]);
     const startTangent = new THREE.Vector3(rendered.devices.start.gate.tangent.x, rendered.devices.start.gate.tangent.y, rendered.devices.start.gate.tangent.z);
     const gateX = new THREE.Vector3(1, 0, 0).applyQuaternion(gate.quaternion); const gateY = new THREE.Vector3(0, 1, 0).applyQuaternion(gate.quaternion); const gateZ = new THREE.Vector3(0, 0, 1).applyQuaternion(gate.quaternion);
@@ -83,21 +85,27 @@ describe("modular track rendering", () => {
     expect(gateY.dot(new THREE.Vector3(rendered.devices.start.gate.up.x, rendered.devices.start.gate.up.y, rendered.devices.start.gate.up.z))).toBeCloseTo(1, 5);
     expect(gateZ.dot(startTangent)).toBeCloseTo(-1, 5); expect(gateX.clone().cross(gateY).dot(gateZ)).toBeCloseTo(1, 5);
     expect((gate.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.gate.width); expect((gate.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.gate.height); expect((gate.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.gate.depth);
+    expect(pusher.position.toArray()).toEqual([rendered.devices.start.pusher.center.x, rendered.devices.start.pusher.center.y, rendered.devices.start.pusher.center.z]);
+    expect((pusher.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.pusher.width); expect((pusher.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.pusher.height); expect((pusher.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.pusher.depth);
     const pinwheelLayout = rendered.devices.pinwheels[0]!;
     const pinwheel = rendered.group.getObjectByName(`pinwheel-${pinwheelLayout.cellIndex}`)!;
-    setModularDevicePose(rendered, { elapsedSeconds: 0, gateOpen: false, agitatorAngle: 0, pinwheelAngles: [0] });
+    setModularDevicePose(rendered, { elapsedSeconds: 0, gateOpen: false, pusherCenter: rendered.devices.start.pusher.center, pinwheelAngles: [0] });
     expect(gate.visible).toBe(true);
+    expect(pusher.position.toArray()).toEqual([rendered.devices.start.pusher.center.x, rendered.devices.start.pusher.center.y, rendered.devices.start.pusher.center.z]);
     rendered.group.updateMatrixWorld(true);
     const pinwheelBeforePose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
-    setModularDevicePose(rendered, { elapsedSeconds: 1, gateOpen: true, agitatorAngle: 0.5, pinwheelAngles: [1] });
+    setModularDevicePose(rendered, { elapsedSeconds: 1, gateOpen: true, pusherCenter: rendered.devices.start.pusher.endCenter, pinwheelAngles: [1] });
     expect(gate.visible).toBe(false);
+    expect(pusher.position.toArray()).toEqual([rendered.devices.start.pusher.endCenter.x, rendered.devices.start.pusher.endCenter.y, rendered.devices.start.pusher.endCenter.z]);
     expect(rendered.group.userData.pinwheelAngles).toEqual([1]);
     rendered.group.updateMatrixWorld(true);
     const pinwheelAfterPose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
     expect(pinwheelAfterPose.equals(pinwheelBeforePose)).toBe(false);
     expect(Math.abs(pinwheelAfterPose.dot(pinwheelBeforePose.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1))))).toBeCloseTo(1, 8);
     expect(new THREE.Vector3(0, 1, 0).applyQuaternion(pinwheelAfterPose).dot(new THREE.Vector3(pinwheelLayout.axis.x, pinwheelLayout.axis.y, pinwheelLayout.axis.z))).toBeCloseTo(1, 5);
+    const pusherGeometryDispose = vi.spyOn(pusher.geometry, "dispose");
     disposeModularTrackRender(rendered);
+    expect(pusherGeometryDispose).toHaveBeenCalledOnce();
     expect(() => disposeModularTrackRender(rendered)).not.toThrow();
   });
 

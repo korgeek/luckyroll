@@ -13,7 +13,7 @@ import {
 import { projectToTrack } from "../track/trackSampler";
 import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
-import { resolveModuleDevices, type ModuleDevices } from "./moduleDevices";
+import { resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { profileAt } from "./moduleGeometry";
 
@@ -43,16 +43,10 @@ export type SeamProbeResult = Readonly<{
   escapes: number;
 }>;
 
-export type ModularDevicePose = Readonly<{
-  elapsedSeconds: number;
-  gateOpen: boolean;
-  agitatorAngle: number;
-  pinwheelAngles: readonly number[];
-}>;
-
 export type ModularPhysicsResources = Readonly<{
   trackCollider: RapierCollider;
   fixedColliders: readonly RapierCollider[];
+  pusherBody: RapierBody;
   pinwheelBodies: readonly RapierBody[];
   stepBeforeWorld: () => ModularDevicePose;
   stepAfterWorld: (bodies: readonly RapierBody[]) => readonly BoosterEvent[];
@@ -195,19 +189,19 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     fixedColliders.push(...colliders);
   };
   const gateRotation = rotationFromBasis(devices.start.gate.side, devices.start.gate.up, scale(devices.start.gate.tangent, -1));
-  const wallThickness = 0.5;
-  const startBody = world.createRigidBody(rapier.RigidBodyDesc.fixed()
-    .setTranslation(devices.start.frame.position.x, devices.start.frame.position.y, devices.start.frame.position.z)
-    .setRotation(gateRotation));
-  addFixedBody(startBody, [
-    world.createCollider(rapier.ColliderDesc.cuboid(devices.start.width / 2, devices.start.wallHeight / 2, wallThickness / 2).setTranslation(0, devices.start.wallHeight / 2, 0).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
-  ]);
   const gateBody = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased()
     .setTranslation(devices.start.gate.center.x, devices.start.gate.center.y, devices.start.gate.center.z)
     .setRotation(gateRotation));
   ownedBodies.push(gateBody);
   world.createCollider(rapier.ColliderDesc.cuboid(devices.start.gate.width / 2, devices.start.gate.height / 2, devices.start.gate.depth / 2)
     .setFriction(FRICTION).setRestitution(RESTITUTION), gateBody);
+  const pusherRotation = rotationFromBasis(devices.start.pusher.side, devices.start.pusher.up, scale(devices.start.pusher.tangent, -1));
+  const pusherBody = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased()
+    .setTranslation(devices.start.pusher.center.x, devices.start.pusher.center.y, devices.start.pusher.center.z)
+    .setRotation(pusherRotation));
+  ownedBodies.push(pusherBody);
+  world.createCollider(rapier.ColliderDesc.cuboid(devices.start.pusher.width / 2, devices.start.pusher.height / 2, devices.start.pusher.depth / 2)
+    .setFriction(FRICTION).setRestitution(RESTITUTION), pusherBody);
 
   for (const bumper of devices.bumpers) {
     const axis = normalize(bumper.axis);
@@ -252,16 +246,17 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   let disposed = false;
   let gateOpen = false;
   let forceGateOpen = false;
-  let launched = new WeakSet<RapierBody>();
+  let pusherCenter = devices.start.pusher.center;
   const cellCount = built.track.cells.length;
   let consumed = createBoosterState(100, cellCount);
   let previousPositions = new WeakMap<RapierBody, Vec3>();
   const ensureLive = (): void => { if (disposed) throw new Error("Modular physics resources have been disposed."); };
-  const pose = (): ModularDevicePose => freeze({ elapsedSeconds, gateOpen, agitatorAngle: Math.min(1, elapsedSeconds / 0.7) * Math.PI / 2, pinwheelAngles: Object.freeze([...angles]) });
+  const pose = (): ModularDevicePose => freeze({ elapsedSeconds, gateOpen, pusherCenter, pinwheelAngles: Object.freeze([...angles]) });
   const applyDevicePose = (next: boolean): void => {
     const closedGate = devices.start.gate.center;
     const openGate = add(closedGate, scale(devices.start.gate.up, devices.start.gate.height * 2));
     setPose(gateBody, gateOpen ? openGate : closedGate, gateRotation, next);
+    setPose(pusherBody, pusherCenter, pusherRotation, next);
     pinwheelBodies.forEach((body, index) => {
       const angle = angles[index] ?? 0;
       const base = rotationFromUp(devices.pinwheels[index]?.axis ?? { x: 0, y: 1, z: 0 });
@@ -282,19 +277,15 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     elapsedSeconds += TIMESTEP_SECONDS;
     angles = angles.map(() => elapsedSeconds * 2);
     gateOpen = forceGateOpen || elapsedSeconds * 1_000 >= devices.start.shuffleMs;
+    const elapsedMs = elapsedSeconds * 1_000;
+    const pusherElapsedMs = forceGateOpen ? elapsedMs : Math.max(0, elapsedMs - devices.start.shuffleMs);
+    const pusherProgress = Math.min(1, pusherElapsedMs / devices.start.pusher.durationMs);
+    pusherCenter = add(devices.start.pusher.center, scale(subtract(devices.start.pusher.endCenter, devices.start.pusher.center), pusherProgress));
     applyDevicePose(true);
     return pose();
   };
   const stepAfterWorld = (bodies: readonly RapierBody[]): readonly BoosterEvent[] => {
     ensureLive();
-    if (gateOpen) {
-      for (const body of bodies) if (!launched.has(body)) {
-        const velocity = toVec3(body.linvel());
-        const forward = devices.start.frame.tangent;
-        body.setLinvel(add(velocity, scale(forward, 8 - dot(velocity, forward))), true);
-        launched.add(body);
-      }
-    }
     const events: BoosterEvent[] = [];
     for (let marbleIndex = 0; marbleIndex < bodies.length; marbleIndex += 1) {
       const body = bodies[marbleIndex];
@@ -318,13 +309,14 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   };
   const reset = (remainingRestart = false): ModularDevicePose => {
     ensureLive();
-    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; launched = new WeakSet<RapierBody>(); consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>();
+    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; pusherCenter = devices.start.pusher.center; consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>();
     applyDevicePose(false);
     return pose();
   };
   return Object.freeze({
     trackCollider,
     fixedColliders: Object.freeze(fixedColliders),
+    pusherBody,
     pinwheelBodies: Object.freeze(pinwheelBodies),
     stepBeforeWorld,
     stepAfterWorld,
