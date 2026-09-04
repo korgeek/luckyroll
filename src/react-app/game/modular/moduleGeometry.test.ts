@@ -52,6 +52,13 @@ describe("welded modular channel geometry", () => {
     expect(validateModuleGeometry(geometry)).toEqual([]);
   });
 
+  it("winds the start channel quad upward", () => {
+    const track = createValidTrackDesign();
+    const geometry = buildModuleGeometry(sampleModulePath(track, assertValidTrackDesign(track)));
+    const rowSize = geometry.profileSegments + 1;
+    expect(Array.from(geometry.indices.slice(0, 6))).toEqual([0, 1, rowSize, 1, rowSize + 1, rowSize]);
+  });
+
   it("keeps profile rows canonical for funnel widths and longitudinal turns bounded", () => {
     const track = createWorstCaseTrackDesign();
     const samples = sampleModulePath(track, assertValidTrackDesign(track));

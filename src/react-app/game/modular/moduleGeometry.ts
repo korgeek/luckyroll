@@ -125,8 +125,8 @@ export const buildModuleGeometry = (samples: readonly ModulePathSample[]): Modul
       const b = a + 1;
       const c = a + rowSize;
       const d = c + 1;
-      indices[offset] = a; indices[offset + 1] = c; indices[offset + 2] = b;
-      indices[offset + 3] = b; indices[offset + 4] = c; indices[offset + 5] = d;
+      indices[offset] = a; indices[offset + 1] = b; indices[offset + 2] = c;
+      indices[offset + 3] = b; indices[offset + 4] = d; indices[offset + 5] = c;
       offset += 6;
     }
   }
