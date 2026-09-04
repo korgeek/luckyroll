@@ -98,6 +98,7 @@ const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMat
   const armGeometry = new THREE.CapsuleGeometry(0.5 * 0.68 / 2, 0.28 * 12 - 0.5 * 0.68, 4, 8);
   devices.pinwheels.forEach((layout) => {
     const rotor = new THREE.Group(); rotor.name = `pinwheel-${layout.cellIndex}`; rotor.position.copy(toVector(layout.center)); orient(rotor, layout.axis);
+    rotor.userData.baseQuaternion = rotor.quaternion.clone();
     const arms = new THREE.InstancedMesh(armGeometry, pinwheelMaterial, 3); arms.name = "pinwheel-arms";
     const transform = new THREE.Object3D();
     for (let arm = 0; arm < 3; arm += 1) {
@@ -165,7 +166,10 @@ export const setModularDevicePose = (resources: ModularRenderResources, pose: Mo
   if (resources.group.userData[REFS] === undefined) return;
   const refs = resources.group.userData[REFS] as ModularDeviceRefs;
   refs.gate.visible = !pose.gateOpen; refs.agitator.rotation.y = pose.agitatorAngle;
-  refs.pinwheels.forEach((pinwheel, index) => { pinwheel.rotation.y = pose.pinwheelAngles[index] ?? pose.elapsedSeconds * (resources.devices.pinwheels[index]?.angularSpeed ?? 2); });
+  refs.pinwheels.forEach((pinwheel, index) => {
+    const angle = pose.pinwheelAngles[index] ?? pose.elapsedSeconds * (resources.devices.pinwheels[index]?.angularSpeed ?? 2);
+    pinwheel.quaternion.copy(pinwheel.userData.baseQuaternion as THREE.Quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle));
+  });
   resources.group.userData.pinwheelAngles = [...pose.pinwheelAngles]; resources.group.userData.elapsedSeconds = pose.elapsedSeconds;
 };
 

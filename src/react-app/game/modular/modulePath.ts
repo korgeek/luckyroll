@@ -2,16 +2,17 @@ import type { TrackDesign, ModuleKind, Direction } from "../../designer/trackDes
 import type { ValidRoute } from "../../designer/trackValidation";
 import type { Vec3 } from "../track/trackTypes";
 import {
-  BOARD_TILT,
   CHANNEL_WIDTH,
   LANDING_LENGTH,
   MARBLE_DIAMETER,
+  MAX_CURVE_BANK,
   MODULE_SIZE,
   RAIL_HEIGHT,
+  ROUTE_GRADE,
   type ModulePathSample,
   type ModulePort,
 } from "./modularTypes";
-import { profileAt } from "./moduleGeometry";
+import { profileNormalsAt } from "./moduleGeometry";
 
 export * from "./modularTypes";
 
@@ -106,12 +107,6 @@ export const moduleWidthAt = (kind: ModuleKind, localU: number): number => {
   return MIN_FUNNEL_WIDTH;
 };
 
-export const boardToWorld = ({ x, y, z }: Vec3): Vec3 => ({
-  x,
-  y: y * Math.cos(BOARD_TILT) - z * Math.sin(BOARD_TILT),
-  z: y * Math.sin(BOARD_TILT) + z * Math.cos(BOARD_TILT),
-});
-
 type AnalyticPoint = Readonly<{ position: Vec3; derivative: Vec3; secondDerivative: Vec3 }>;
 type CellPath = Readonly<{ pointAt: (localU: number) => AnalyticPoint; sideAt: (localU: number) => Vec3; entry: Direction; exit: Direction }>;
 
@@ -136,6 +131,8 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
   const sideAngle = Math.atan2(entrySide.x * exitSide.z - entrySide.z * exitSide.x, entrySide.x * exitSide.x + entrySide.z * exitSide.z);
   const curveSideAt = (localU: number): Vec3 => {
     if (kind !== "curve") return side;
+    if (localU <= 0.1) return entrySide;
+    if (localU >= 0.9) return exitSide;
     const amount = clamp((localU - 0.1) / 0.8, 0, 1);
     const angle = sideAngle * amount;
     return { x: entrySide.x * Math.cos(angle) - entrySide.z * Math.sin(angle), y: 0, z: entrySide.x * Math.sin(angle) + entrySide.z * Math.cos(angle) };
@@ -188,18 +185,36 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
   };
 };
 
-const meshTurnExceeds = (path: CellPath, start: number, middle: number, end: number, widthAt: (localU: number) => number): boolean => {
+const gradeFrame = (planarTangent: Vec3, planarSide: Vec3, bankRadians: number) => {
+  const tangent = normalize({
+    x: planarTangent.x * Math.cos(ROUTE_GRADE),
+    y: -Math.sin(ROUTE_GRADE),
+    z: planarTangent.z * Math.cos(ROUTE_GRADE),
+  });
+  const flatSide = normalize({ x: planarSide.x, y: 0, z: planarSide.z });
+  const flatUp = normalize(cross(flatSide, tangent));
+  const side = normalize(add(scale(flatSide, Math.cos(bankRadians)), scale(flatUp, -Math.sin(bankRadians))));
+  return { tangent, side, up: normalize(cross(side, tangent)) };
+};
+
+const bankAt = (kind: ModuleKind | "start" | "finish", localU: number, signedCurvature: number): number => {
+  if (kind !== "curve" || localU <= 0.1 || localU >= 0.9) return 0;
+  const t = (localU - 0.1) / 0.8;
+  return Math.sign(signedCurvature) * MAX_CURVE_BANK * Math.sin(Math.PI * t) ** 2;
+};
+
+const surfaceTurnExceeds = (path: CellPath, kind: ModuleKind | "start" | "finish", start: number, middle: number, end: number, widthAt: (localU: number) => number): boolean => {
   const rows = [start, middle, end].map((localU) => {
     const point = path.pointAt(localU);
-    const sideAt = path.sideAt(localU);
-    const profile = profileAt(widthAt(localU));
-    return profile.map(({ lateral, height }) => boardToWorld(add(point.position, add(scale(sideAt, lateral), { x: 0, y: height, z: 0 }))));
+    const planarTangent = normalize({ x: point.derivative.x, y: 0, z: point.derivative.z });
+    const planarSide = path.sideAt(localU);
+    const frame = gradeFrame(planarTangent, planarSide, bankAt(kind, localU, dot(curvature(point), planarSide)));
+    return profileNormalsAt(frame, widthAt(localU));
   });
-  const normal = (a: Vec3, b: Vec3, c: Vec3): Vec3 => normalize(cross(subtract(b, a), subtract(c, a)));
-  for (let column = 0; column < rows[0].length - 1; column += 1) {
-    const previous = normal(rows[0][column + 1], rows[1][column], rows[1][column + 1]);
-    const next = normal(rows[1][column], rows[2][column], rows[1][column + 1]);
-    if (turnBetween(previous, next) > Math.PI / 180) return true;
+  for (let column = 0; column < rows[0].length; column += 1) {
+    if (turnBetween(rows[0][column], rows[1][column]) > MAX_TURN
+      || turnBetween(rows[1][column], rows[2][column]) > MAX_TURN
+      || turnBetween(rows[0][column], rows[2][column]) > MAX_TURN) return true;
   }
   return false;
 };
@@ -232,7 +247,7 @@ const adaptiveParameters = (
       || turnBetween(first.derivative, last.derivative) > MAX_TURN
       || turnBetween(first.derivative, middle.derivative) > MAX_TURN
       || turnBetween(middle.derivative, last.derivative) > MAX_TURN
-      || meshTurnExceeds(path, start, middleU, end, widthAt));
+      || surfaceTurnExceeds(path, kind, start, middleU, end, widthAt));
     if (needsSplit) {
       visit(start, middleU, depth + 1);
       visit(middleU, end, depth + 1);
@@ -247,22 +262,20 @@ const adaptiveParameters = (
   return [...output.entries()].sort(([left], [right]) => left - right).map(([localU, acceptedError]) => ({ localU, chordError: acceptedError }));
 };
 
-const createPort = (cellIndex: number, direction: Direction, clearWidth: number): ModulePort => freeze({
+const createPort = (cellIndex: number, direction: Direction, clearWidth: number, position: Vec3, outwardTangent: Vec3): ModulePort => freeze({
   cellIndex,
   direction,
-  position: freeze(cellPortPosition(cellIndex, direction)),
-  outwardTangent: freeze(directionVector[direction]),
+  position,
+  outwardTangent: freeze(outwardTangent),
   curvature: freeze({ x: 0, y: 0, z: 0 }),
-  floorHeight: 0,
+  floorHeight: position.y,
   clearWidth,
   railHeight: RAIL_HEIGHT,
 });
 
-const toWorldDirection = (vector: Vec3): Vec3 => normalize(boardToWorld(vector));
-
 export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonly ModulePathSample[] => {
   const result: ModulePathSample[] = [];
-  let distance = 0;
+  let planarDistance = 0;
   for (let routeIndex = 0; routeIndex < route.route.length; routeIndex += 1) {
     const step = route.route[routeIndex];
     const cell = track.cells[step.cellIndex];
@@ -275,16 +288,24 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
     for (const parameter of parameters) {
       const localU = parameter.localU;
       const analytic = path.pointAt(localU);
-      const tangent = toWorldDirection(analytic.derivative);
-      const side = toWorldDirection(path.sideAt(localU));
-      const up = toWorldDirection({ x: 0, y: 1, z: 0 });
-      const position = boardToWorld(analytic.position);
       const previous = result[result.length - 1];
-      if (previous !== undefined) distance += length(subtract(position, previous.position));
+      if (previous !== undefined) planarDistance += Math.hypot(analytic.position.x - previous.position.x, analytic.position.z - previous.position.z);
+      const planarTangent = normalize({ x: analytic.derivative.x, y: 0, z: analytic.derivative.z });
+      const planarSide = path.sideAt(localU);
+      const centerlineCurvature = curvature(analytic);
+      const bankRadians = bankAt(cell.kind, localU, dot(centerlineCurvature, planarSide));
+      const { tangent, side, up } = gradeFrame(planarTangent, planarSide, bankRadians);
+      const position = freeze({ x: analytic.position.x, y: -planarDistance * Math.tan(ROUTE_GRADE), z: analytic.position.z });
       const isPort = (localU === 0 && (step.entry !== undefined || routeIndex === 0))
         || (localU === 1 && (step.exit !== undefined || routeIndex === route.route.length - 1));
       const port = isPort
-        ? createPort(step.cellIndex, localU === 0 ? entry : exit, widthAt(localU))
+        ? createPort(
+          step.cellIndex,
+          localU === 0 ? entry : exit,
+          widthAt(localU),
+          routeIndex > 0 && localU === 0 && previous !== undefined ? previous.position : position,
+          localU === 0 ? scale(tangent, -1) : tangent,
+        )
         : undefined;
       if (routeIndex > 0 && localU === 0) {
         const previous = result[result.length - 1];
@@ -295,19 +316,19 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
       }
       result.push(freeze({
         index: result.length,
-        distance,
-        position: freeze(position),
+        distance: planarDistance / Math.cos(ROUTE_GRADE),
+        position,
         tangent: freeze(tangent),
         side: freeze(side),
         up: freeze(up),
         width: widthAt(localU),
         channelDepth: RAIL_HEIGHT,
-        bankRadians: 0,
+        bankRadians,
         zone: cell.kind === "start" ? "launch" : cell.kind === "finish" ? "finish" : "run",
         cellIndex: step.cellIndex,
         localU,
         chordError: parameter.chordError,
-        centerlineCurvature: freeze(boardToWorld(curvature(analytic))),
+        centerlineCurvature: freeze(scale(centerlineCurvature, Math.cos(ROUTE_GRADE) ** 2)),
         ...(port === undefined ? {} : { port, ports: freeze([port]) }),
       }));
     }

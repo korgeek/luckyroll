@@ -91,10 +91,10 @@ describe("modular track rendering", () => {
     setModularDevicePose(rendered, { elapsedSeconds: 1, gateOpen: true, agitatorAngle: 0.5, pinwheelAngles: [1] });
     expect(gate.visible).toBe(false);
     expect(rendered.group.userData.pinwheelAngles).toEqual([1]);
-    expect(pinwheel.rotation.y).toBeCloseTo(1, 8);
     rendered.group.updateMatrixWorld(true);
     const pinwheelAfterPose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
     expect(pinwheelAfterPose.equals(pinwheelBeforePose)).toBe(false);
+    expect(Math.abs(pinwheelAfterPose.dot(pinwheelBeforePose.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1))))).toBeCloseTo(1, 8);
     expect(new THREE.Vector3(0, 1, 0).applyQuaternion(pinwheelAfterPose).dot(new THREE.Vector3(pinwheelLayout.axis.x, pinwheelLayout.axis.y, pinwheelLayout.axis.z))).toBeCloseTo(1, 5);
     disposeModularTrackRender(rendered);
     expect(() => disposeModularTrackRender(rendered)).not.toThrow();

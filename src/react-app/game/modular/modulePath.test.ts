@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { assertValidTrackDesign } from "../../designer/trackValidation";
 import {
-  boardToWorld,
   moduleWidthAt,
   sampleModulePath,
 } from "./modulePath";
+import { buildModuleGeometry, validateModuleGeometry } from "./moduleGeometry";
 
 const distance = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -40,15 +40,15 @@ const analyticPoint = (cellIndex: number, kind: string, entry: keyof typeof dire
   if (kind === "curve" && localU > 0.1 && localU < 0.9) {
     const p0 = add(entryPort, scale(incoming, 2)); const p1 = add(exitPort, scale(outgoing, -2));
     const d0 = scale(incoming, 16); const d1 = scale(outgoing, 16); const t = (localU - 0.1) / 0.8;
-    return boardToWorld({
+    return {
       x: quintic(p0.x, p1.x, d0.x, d1.x, t), y: quintic(p0.y, p1.y, d0.y, d1.y, t), z: quintic(p0.z, p1.z, d0.z, d1.z, t),
-    });
+    };
   }
   if (kind === "wave" && localU > 0.1 && localU < 0.9) {
     const chord = normalize({ x: exitPort.x - entryPort.x, y: 0, z: exitPort.z - entryPort.z });
     const side = normalize({ x: -chord.z, y: 0, z: chord.x }); const u = (localU - 0.1) / 0.8;
     const offset = 0.15 * 12 * Math.sin(2 * Math.PI * u) * Math.sin(Math.PI * u) ** 2;
-    return boardToWorld(add(add(entryPort, scale(chord, 20 * localU)), scale(side, offset)));
+    return add(add(entryPort, scale(chord, 20 * localU)), scale(side, offset));
   }
   return undefined;
 };
@@ -100,7 +100,7 @@ describe("canonical modular module paths", () => {
     expect(waist.map((sample) => sample.localU)).toEqual(expect.arrayContaining([0.45, 0.5, 0.55]));
     expect(taper.length).toBeGreaterThan(2);
     expect(taper.some((sample) => sample.width > 9.6 && sample.width < 12)).toBe(true);
-    expect(waist[waist.length - 1].distance - waist[0].distance).toBeCloseTo(2, 6);
+    expect(waist[waist.length - 1].distance - waist[0].distance).toBeCloseTo(2 / Math.cos(7 * Math.PI / 180), 6);
     expect(moduleWidthAt("funnel", 0)).toBe(12);
     expect(moduleWidthAt("funnel", 1)).toBe(12);
   });
@@ -118,7 +118,8 @@ describe("canonical modular module paths", () => {
       const kind = track.cells[sample.cellIndex]?.kind;
       if (step === undefined || kind !== "curve" && kind !== "wave") return 0;
       const expected = analyticPoint(sample.cellIndex, kind, step.entry ?? "west", step.exit ?? "east", (previous.localU + sample.localU) / 2);
-      return expected === undefined ? 0 : distance(expected, midpoint(previous.position, sample.position));
+      const actual = midpoint(previous.position, sample.position);
+      return expected === undefined ? 0 : Math.hypot(expected.x - actual.x, expected.z - actual.z);
       });
     const maxChordError = Math.max(...chordErrors);
 
@@ -126,17 +127,24 @@ describe("canonical modular module paths", () => {
     expect(maxChordError).toBeLessThanOrEqual(0.02 * 0.68 + 1e-9);
   });
 
-  it("keeps the board tilt exact and samples every route cell in order", () => {
-    const transformed = boardToWorld({ x: 0, y: 0, z: 20 });
-    expect(transformed.x).toBe(0);
-    expect(transformed.y).toBeCloseTo(-20 * Math.sin(Math.PI / 9), 12);
-    expect(transformed.z).toBeCloseTo(20 * Math.cos(Math.PI / 9), 12);
-
-    const track = createValidTrackDesign();
+  it("grades every route direction downhill and banks only curve interiors", () => {
+    const track = createWorstCaseTrackDesign();
     const samples = sampleModulePath(track, assertValidTrackDesign(track));
     expect(samples[0].cellIndex).toBe(0);
     expect(samples[samples.length - 1]?.cellIndex).toBe(39);
     expect(new Set(samples.map((sample) => sample.cellIndex)).size).toBe(36);
-    expect(samples.some((sample, index) => index > 0 && sample.position.y > samples[index - 1].position.y)).toBe(false);
+    expect(samples.every((sample, index) => index === 0 || sample.position.y <= samples[index - 1].position.y + 1e-9)).toBe(true);
+    for (const sample of samples) expect(sample.position.y).toBeCloseTo(-sample.distance * Math.sin(7 * Math.PI / 180), 10);
+    for (const sample of samples.filter((item) => item.localU <= 0.1 || item.localU >= 0.9)) {
+      expect(sample.bankRadians).toBeCloseTo(0, 10);
+      expect(sample.up).toEqual(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number), z: expect.any(Number) }));
+    }
+    const banked = samples.filter((sample) => track.cells[sample.cellIndex]?.kind === "curve" && sample.localU > 0.1 && sample.localU < 0.9);
+    expect(Math.max(...banked.map((sample) => Math.abs(sample.bankRadians)))).toBeCloseTo(24 * Math.PI / 180, 2);
+    for (const sample of samples.filter((item) => track.cells[item.cellIndex]?.kind === "straight")) {
+      expect(sample.tangent.y).toBeLessThan(0);
+      expect(Math.abs(sample.side.y)).toBeLessThan(1e-9);
+    }
+    expect(validateModuleGeometry(buildModuleGeometry(samples))).toEqual([]);
   });
 });

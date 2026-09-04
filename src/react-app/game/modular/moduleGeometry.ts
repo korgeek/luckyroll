@@ -66,6 +66,21 @@ const normalize = (a: Vec3): Vec3 => {
   return length === 0 ? { x: 0, y: 0, z: 0 } : scale(a, 1 / length);
 };
 
+export const profileNormalsAt = (
+  frame: Pick<ModulePathSample, "tangent" | "side" | "up">,
+  width: number,
+): readonly Vec3[] => {
+  const profile = profileAt(width);
+  return profile.slice(1).map((right, column) => {
+    const left = profile[column];
+    const transverse = add(
+      scale(frame.side, right.lateral - left.lateral),
+      scale(frame.up, right.height - left.height),
+    );
+    return normalize(cross(transverse, frame.tangent));
+  });
+};
+
 const calculateNormals = (positions: Float32Array, indices: Uint32Array): Float32Array => {
   const normals = new Float32Array(positions.length);
   for (let offset = 0; offset < indices.length; offset += 3) {
@@ -154,10 +169,6 @@ export const buildModuleGeometry = (samples: readonly ModulePathSample[]): Modul
 const failure = (code: ModularGeometryFailure["code"], message: string, sampleIndex?: number): ModularGeometryFailure =>
   Object.freeze(sampleIndex === undefined ? { code, message } : { code, sampleIndex, message });
 
-const triangleNormal = (geometry: ModularTrackGeometry, triangle: number): Vec3 => {
-  return normalize(triangleCross(geometry, triangle));
-};
-
 const triangleCross = (geometry: ModularTrackGeometry, triangle: number): Vec3 => {
   const offset = triangle * 3;
   const a = geometry.indices[offset] * 3;
@@ -236,19 +247,33 @@ export const validateModuleGeometry = (geometry: ModularTrackGeometry): readonly
     if (rows[0] === rows[1] && rows[1] === rows[2] && geometry.seams.some((seam) => seam.upstreamRow === rows[0])) failures.push(failure("cap", "Connected modular seam contains an end cap triangle.", rows[0]));
   }
 
+  let previousProfileNormals: readonly Vec3[] | undefined;
   for (let row = 0; row < geometry.samples.length; row += 1) {
     const chordError = geometry.samples[row].chordError;
     if (chordError === undefined || !Number.isFinite(chordError) || chordError > 0.02 * MARBLE_DIAMETER) failures.push(failure("chord", "Modular longitudinal chord error exceeds 0.02D.", row));
-    if (row === 0 || row >= geometry.samples.length - 1) continue;
-    for (let column = 0; column < geometry.profileSegments; column += 1) {
-      // T1 of the preceding quad and T0 of the next quad share the row boundary edge.
-      const previousTriangle = ((row - 1) * geometry.profileSegments + column) * 2 + 1;
-      const nextTriangle = (row * geometry.profileSegments + column) * 2;
-      const previousNormal = triangleNormal(geometry, previousTriangle);
-      const nextNormal = triangleNormal(geometry, nextTriangle);
+    const nextProfileNormals = profileNormalsAt(geometry.samples[row], geometry.samples[row].width);
+    if (previousProfileNormals === undefined) { previousProfileNormals = nextProfileNormals; continue; }
+    for (let column = 0; column < nextProfileNormals.length; column += 1) {
+      const previousNormal = previousProfileNormals[column];
+      const nextNormal = nextProfileNormals[column];
       const surfaceTurn = Math.acos(Math.max(-1, Math.min(1, previousNormal.x * nextNormal.x + previousNormal.y * nextNormal.y + previousNormal.z * nextNormal.z)));
       if (surfaceTurn > 2 * Math.PI / 180 + 1e-6) {
         failures.push(failure("longitudinal-normal", "Adjacent modular surface triangles turn more than two degrees.", row));
+        break;
+      }
+    }
+    previousProfileNormals = nextProfileNormals;
+  }
+  for (let row = 0; row < geometry.samples.length - 1; row += 1) {
+    for (let column = 0; column < geometry.profileSegments; column += 1) {
+      const a = row * rowSize + column;
+      const b = a + 1;
+      const c = a + rowSize;
+      const d = c + 1;
+      const offset = (row * geometry.profileSegments + column) * 6;
+      if (geometry.indices[offset] !== a || geometry.indices[offset + 1] !== b || geometry.indices[offset + 2] !== c
+        || geometry.indices[offset + 3] !== b || geometry.indices[offset + 4] !== d || geometry.indices[offset + 5] !== c) {
+        failures.push(failure("longitudinal-normal", "Modular surface triangle winding disagrees with its analytic profile frame.", row));
         break;
       }
     }

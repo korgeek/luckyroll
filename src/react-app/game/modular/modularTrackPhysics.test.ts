@@ -23,7 +23,6 @@ const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vect
   y: 2 * (quaternion.x * quaternion.y + quaternion.z * quaternion.w) * vector.x + (1 - 2 * (quaternion.x ** 2 + quaternion.z ** 2)) * vector.y + 2 * (quaternion.y * quaternion.z - quaternion.x * quaternion.w) * vector.z,
   z: 2 * (quaternion.x * quaternion.z - quaternion.y * quaternion.w) * vector.x + 2 * (quaternion.y * quaternion.z + quaternion.x * quaternion.w) * vector.y + (1 - 2 * (quaternion.x ** 2 + quaternion.y ** 2)) * vector.z,
 });
-const inverseRotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => rotate({ x: -quaternion.x, y: -quaternion.y, z: -quaternion.z, w: quaternion.w }, vector);
 const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b: { x: number; y: number; z: number; w: number }) => ({
   x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
   y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
@@ -130,24 +129,27 @@ describe("modular track physics", () => {
     const pinwheel = devices.pinwheels[0]!;
     const body = resources.pinwheelBodies[0]!;
     const baseRotation = body.rotation();
+    const baseTranslation = body.translation();
+    body.setTranslation({ x: 0, y: 0, z: 0 }, false);
+    body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, false);
+    world.propagateModifiedBodyPositionsToColliders();
     expect(body.numColliders()).toBe(3);
     for (let arm = 0; arm < 3; arm += 1) {
       const radial = { x: Math.cos(arm * Math.PI * 2 / 3), y: 0, z: Math.sin(arm * Math.PI * 2 / 3) };
       const collider = body.collider(arm);
       expect(collider.shapeType()).toBe((getInitializedTrackPhysicsRapier()).ShapeType.Capsule);
-      const localTranslation = inverseRotate(baseRotation, {
-        x: collider.translation().x - body.translation().x,
-        y: collider.translation().y - body.translation().y,
-        z: collider.translation().z - body.translation().z,
-      });
+      const localTranslation = collider.translation();
       expect(localTranslation.x).toBeCloseTo(radial.x * pinwheel.radius / 2, 6);
       expect(localTranslation.y).toBeCloseTo(0, 6);
       expect(localTranslation.z).toBeCloseTo(radial.z * pinwheel.radius / 2, 6);
-      const localLongAxis = inverseRotate(baseRotation, rotate(collider.rotation(), { x: 0, y: 1, z: 0 }));
+      const localLongAxis = rotate(collider.rotation(), { x: 0, y: 1, z: 0 });
       expect(localLongAxis.x).toBeCloseTo(radial.x, 6);
       expect(localLongAxis.y).toBeCloseTo(0, 6);
       expect(localLongAxis.z).toBeCloseTo(radial.z, 6);
     }
+    body.setTranslation(baseTranslation, false);
+    body.setRotation(baseRotation, false);
+    world.propagateModifiedBodyPositionsToColliders();
     const first = resources.stepBeforeWorld();
     world.step();
     const expectedRotation = multiplyQuaternion(baseRotation, rotationAroundY(first.pinwheelAngles[0]!));

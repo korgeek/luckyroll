@@ -8,6 +8,22 @@ const vertex = (geometry: ReturnType<typeof buildModuleGeometry>, row: number, c
   const offset = (row * (geometry.profileSegments + 1) + column) * 3;
   return { x: geometry.positions[offset], y: geometry.positions[offset + 1], z: geometry.positions[offset + 2] };
 };
+const triangleNormal = (geometry: ReturnType<typeof buildModuleGeometry>, triangle: number) => {
+  const [a, b, c] = Array.from(geometry.indices.slice(triangle * 3, triangle * 3 + 3)).map((index) => vertex(
+    geometry,
+    Math.floor(index / (geometry.profileSegments + 1)),
+    index % (geometry.profileSegments + 1),
+  ));
+  const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+  const ac = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z };
+  const normal = {
+    x: ab.y * ac.z - ab.z * ac.y,
+    y: ab.z * ac.x - ab.x * ac.z,
+    z: ab.x * ac.y - ab.y * ac.x,
+  };
+  const length = Math.hypot(normal.x, normal.y, normal.z);
+  return { x: normal.x / length, y: normal.y / length, z: normal.z / length };
+};
 
 describe("welded modular channel geometry", () => {
   it("uses a symmetric profile with a 55 percent flat floor and inward 0.75D lips", () => {
@@ -70,6 +86,34 @@ describe("welded modular channel geometry", () => {
     }
     expect(validateModuleGeometry(geometry).filter((failure) => failure.code === "longitudinal-normal")).toEqual([]);
     expect(samples.every((sample) => sample.chordError !== undefined && sample.chordError <= 0.0136)).toBe(true);
+  });
+
+  it("keeps curve exits exactly flat across their canonical welded rows", () => {
+    const track = createWorstCaseTrackDesign();
+    const geometry = buildModuleGeometry(sampleModulePath(track, assertValidTrackDesign(track)));
+    const rowSize = geometry.profileSegments + 1;
+    const seams = geometry.seams.filter((seam) => track.cells[seam.upstreamCell]?.kind === "curve");
+
+    expect(seams.length).toBeGreaterThan(0);
+    for (const seam of seams) {
+      const row = seam.upstreamRow;
+      const shared = geometry.samples[row];
+      expect(shared.side).toEqual(geometry.samples[row - 1].side);
+      expect(shared.up).toEqual(geometry.samples[row - 1].up);
+      expect(shared.side).toEqual(geometry.samples[row + 1].side);
+      expect(shared.up).toEqual(geometry.samples[row + 1].up);
+      for (let column = 0; column < rowSize; column += 1) {
+        expect(vertex(geometry, seam.upstreamRow, column)).toEqual(vertex(geometry, seam.downstreamRow, column));
+      }
+      for (let column = 0; column < geometry.profileSegments; column += 1) {
+        const previous = ((row - 1) * geometry.profileSegments + column) * 2 + 1;
+        const next = (row * geometry.profileSegments + column) * 2;
+        const a = triangleNormal(geometry, previous); const b = triangleNormal(geometry, next);
+        expect(a.x).toBeCloseTo(b.x, 5);
+        expect(a.y).toBeCloseTo(b.y, 5);
+        expect(a.z).toBeCloseTo(b.z, 5);
+      }
+    }
   });
 
   it("rejects a longitudinal mesh-strip normal turn even when path tangents are unchanged", () => {
