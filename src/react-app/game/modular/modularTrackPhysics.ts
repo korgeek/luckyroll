@@ -429,9 +429,10 @@ export const runModularValidationRace = async (
     const stalls: ModularMarbleFailure[] = [];
     const nonFinite: ModularMarbleFailure[] = [];
     const boosterCapViolations: BoosterEvent[] = [];
-    const durationSteps = Math.floor(options.durationSeconds / TIMESTEP_SECONDS);
+    const targetRaceMs = options.durationSeconds * 1_000;
+    const maxSteps = Math.ceil(options.durationSeconds / TIMESTEP_SECONDS) + Math.ceil(1 / TIMESTEP_SECONDS);
     let raceElapsedMs = 0;
-    for (let step = 1; step <= durationSteps; step += 1) {
+    for (let step = 1; raceElapsedMs < targetRaceMs && step <= maxSteps; step += 1) {
       const pose = resources.stepBeforeWorld();
       world.step();
       const events = resources.stepAfterWorld(bodies);
