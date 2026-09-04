@@ -140,12 +140,12 @@ describe("race scene lifecycle boundary", () => {
     expect(camera.up.y).toBeCloseTo(0, 3);
     expect(camera.up.z).toBe(0);
     const birdPosition = camera.position.clone();
-    const birdUp = camera.up.clone();
 
     scene.setBirdView(false);
-    seams.frames.shift()?.(now + 160 * 17);
-    expect(camera.up.x).toBeGreaterThan(birdUp.x);
-    expect(camera.up.y).toBeGreaterThan(birdUp.y);
+    for (let frame = 160; frame < 320; frame += 1) seams.frames.shift()?.(now + frame * 17);
+    expect(camera.up.x).toBeCloseTo(0, 3);
+    expect(camera.up.y).toBeCloseTo(1, 3);
+    expect(camera.up.z).toBe(0);
     expect(camera.position.distanceTo(new THREE.Vector3(7.5, 3.8, 0))).toBeLessThan(birdPosition.distanceTo(new THREE.Vector3(7.5, 3.8, 0)));
     scene.dispose();
   });
