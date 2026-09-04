@@ -429,15 +429,16 @@ export const runModularValidationRace = async (
     const stalls: ModularMarbleFailure[] = [];
     const nonFinite: ModularMarbleFailure[] = [];
     const boosterCapViolations: BoosterEvent[] = [];
-    const targetRaceMs = options.durationSeconds * 1_000;
-    const maxSteps = Math.ceil(options.durationSeconds / TIMESTEP_SECONDS) + Math.ceil(1 / TIMESTEP_SECONDS);
-    let raceElapsedMs = 0;
-    for (let step = 1; raceElapsedMs < targetRaceMs && step <= maxSteps; step += 1) {
+    const targetRaceSteps = Math.floor(options.durationSeconds / TIMESTEP_SECONDS);
+    const maxSteps = targetRaceSteps + Math.ceil(1 / TIMESTEP_SECONDS);
+    let postGateSteps = 0;
+    for (let step = 1; postGateSteps < targetRaceSteps && step <= maxSteps; step += 1) {
       const pose = resources.stepBeforeWorld();
       world.step();
       const events = resources.stepAfterWorld(bodies);
       boosterCapViolations.push(...events.filter((event) => event.afterForwardSpeed > event.beforeForwardSpeed && event.afterForwardSpeed > MAX_BOOSTER_SPEED));
-      if (pose.gateOpen) raceElapsedMs += TIMESTEP_SECONDS * 1_000;
+      if (pose.gateOpen) postGateSteps += 1;
+      const raceElapsedMs = postGateSteps * TIMESTEP_SECONDS * 1_000;
 
       for (let index = 0; index < bodies.length; index += 1) {
         const marbleId = index + 1;
