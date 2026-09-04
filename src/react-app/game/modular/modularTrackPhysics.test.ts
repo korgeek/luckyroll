@@ -280,6 +280,7 @@ describe("modular track physics", () => {
     const start = resolveModuleDevices(built.track, built.route, built.samples).start;
     const bodies = createMarbleBodies(world, createModularLaunchPositions(100, built, 23));
     const crossingTimes = new Array<number | undefined>(bodies.length).fill(undefined);
+    const preOpenCrossings = new Set<number>();
     const escapes = new Set<number>();
     const nonFinite = new Set<number>();
     let postGateSteps = 0;
@@ -294,12 +295,14 @@ describe("modular track physics", () => {
         if (crossingTimes[index] !== undefined) return;
         const relative = subtract(position, start.gate.center);
         const along = dot(relative, start.frame.tangent);
+        if (!pose.gateOpen && along >= 0) preOpenCrossings.add(index + 1);
         if (pose.gateOpen && along >= 0) crossingTimes[index] = postGateSteps * 1_000 / 60;
         const lateral = dot(subtract(position, start.frame.position), start.frame.side);
         const height = dot(subtract(position, start.frame.position), start.frame.up);
         if (along < 0 && (Math.abs(lateral) > start.width / 2 + MARBLE_DIAMETER / 2 || height < -MARBLE_DIAMETER || height > start.wallHeight + MARBLE_DIAMETER)) escapes.add(index + 1);
       });
     }
+    expect(preOpenCrossings).toEqual(new Set());
     expect(nonFinite).toEqual(new Set());
     expect(escapes).toEqual(new Set());
     expect(crossingTimes.filter((time) => time === undefined)).toEqual([]);
