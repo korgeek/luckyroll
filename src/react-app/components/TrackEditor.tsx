@@ -73,6 +73,6 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 		</section>
 		<section className="cell-actions" role={menuCell === null ? undefined : "dialog"} aria-label="Cell actions"><span>{menuCell === null ? "Selected cell" : `Cell ${menuCell + 1}`}</span><button onClick={() => { dispatch({ type: "replace", cellIndex: menuCell ?? state.selectedCell }); setMenuCell(null); }}>Replace</button><button onClick={() => { dispatch({ type: "clear", cellIndex: menuCell ?? state.selectedCell }); setMenuCell(null); }}>Clear</button></section>
 		<div className="track-editor-footer"><button className="secondary-button" disabled={!state.validation.ok} onClick={onShare}>Share</button><button className="primary-button" disabled={!state.validation.ok} onClick={onPlay}>Test Play</button></div>
-		<div className="track-validation" role="status" aria-live="polite">{state.validation.ok ? "Route is valid." : state.validation.failures.map((failure) => failure.message).join(" ")}</div>
+		<div className="track-validation" role="status" aria-live="polite">{state.validation.ok ? "Route is valid." : [...new Set(state.validation.failures.map((failure) => failure.message))].join(" ")}</div>
 	</main>;
 }

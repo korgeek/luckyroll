@@ -33,6 +33,16 @@ describe("TrackEditor", () => {
 		expect(screen.getByRole("status")).toHaveTextContent(/empty/i);
 	});
 
+	it("deduplicates repeated route failures while keeping invalid actions disabled", () => {
+		const handlers = props(); const track = createEmptyTrackDesign("Course");
+		const cells = track.cells.map((cell, index) => index >= 2 && index <= 36 ? { kind: "straight" as const, rotation: 0 as const } : cell);
+		render(<TrackEditor state={createEditorState({ ...track, cells })} {...handlers} />);
+		const status = screen.getByRole("status");
+		expect(status).toHaveAttribute("aria-live", "polite");
+		expect(status.textContent?.match(/Occupied cell is not part of the start-to-finish route\./g)).toHaveLength(1);
+		for (const name of ["Save", "Share", "Test Play"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+	});
+
 	it("supports keyboard placement and movement", async () => {
 		const user = userEvent.setup(); const handlers = props();
 		render(<TrackEditor state={createEditorState(createEmptyTrackDesign("Course"))} {...handlers} />);
