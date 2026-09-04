@@ -21,7 +21,7 @@ const TIMESTEP_SECONDS = 1 / 60;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
 const BUMPER_RESTITUTION = 0.28;
-const MAX_BOOSTER_SPEED = 18;
+const MAX_BOOSTER_SPEED = 42;
 const DEFAULT_CELL_COUNT = 40;
 
 type RapierModule = typeof RAPIER_TYPE;
@@ -155,10 +155,11 @@ export const applyBoosterVelocity = (
   const direction = normalize(forward);
   const currentForward = dot(velocity, direction);
   if (!(currentForward > 0)) return velocity;
-  consumed[slot] = 1;
-  const after = Math.min(MAX_BOOSTER_SPEED, currentForward * 1.2);
+  const after = Math.min(MAX_BOOSTER_SPEED, Math.max(18, currentForward * 1.25));
   const delta = Math.max(0, after - currentForward);
-  return delta === 0 ? velocity : add(velocity, scale(direction, delta));
+  if (delta === 0) return velocity;
+  consumed[slot] = 1;
+  return add(velocity, scale(direction, delta));
 };
 
 const setPose = (body: RapierBody, position: Vec3, rotation: Quaternion, next: boolean): void => {

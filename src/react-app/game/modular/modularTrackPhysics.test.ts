@@ -87,13 +87,28 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
-  it("boosts only positive forward velocity once and never brakes", () => {
-    const state = createBoosterState(8, 40);
-    expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 6)).toEqual({ x: 12, y: 2, z: 3 });
-    expect(applyBoosterVelocity({ x: 20, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 7)).toEqual({ x: 20, y: 2, z: 3 });
-    expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 7)).toEqual({ x: 10, y: 2, z: 3 });
-    const compact = createBoosterState(2, 3);
-    expect(applyBoosterVelocity({ x: 10, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, compact, 2, 1, 3)).toEqual({ x: 12, y: 0, z: 0 });
+  it.each([
+    [0.5, 18],
+    [10, 18],
+    [20, 25],
+    [40, 42],
+    [50, 50],
+  ] as const)("boosts forward speed %s to %s", (incoming, expected) => {
+    const state = createBoosterState(1);
+    expect(applyBoosterVelocity({ x: incoming, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 1, 0).x).toBe(expected);
+  });
+
+  it("only consumes a booster when it adds forward speed", () => {
+    const state = createBoosterState(1);
+    const zero = { x: 0, y: 2, z: 3 };
+    const backward = { x: -10, y: 2, z: 3 };
+    const fast = { x: 50, y: 2, z: 3 };
+    expect(applyBoosterVelocity(zero, { x: 1, y: 0, z: 0 }, state, 1, 0)).toEqual(zero);
+    expect(applyBoosterVelocity(backward, { x: 1, y: 0, z: 0 }, state, 2, 0)).toEqual(backward);
+    expect(applyBoosterVelocity(fast, { x: 1, y: 0, z: 0 }, state, 3, 0)).toEqual(fast);
+    expect(state.slice(1, 4)).toEqual(new Uint8Array(3));
+    expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 4, 0)).toEqual({ x: 18, y: 2, z: 3 });
+    expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 4, 0)).toEqual({ x: 10, y: 2, z: 3 });
   });
 
   it("randomizes 100 non-overlapping launch slots across the first channel", () => {
