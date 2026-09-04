@@ -17,6 +17,12 @@ vi.mock("three", async () => {
   return { ...actual, WebGLRenderer: TestRenderer };
 });
 
+import * as THREE from "three";
+const cameraPoses: { position: THREE.Vector3; lookAt: THREE.Vector3 }[] = [];
+const cameraLookAt = vi.spyOn(THREE.PerspectiveCamera.prototype, "lookAt").mockImplementation(function (this: THREE.PerspectiveCamera, targetOrX: THREE.Vector3 | number) {
+  if (targetOrX instanceof THREE.Vector3) cameraPoses.push({ position: this.position.clone(), lookAt: targetOrX.clone() });
+});
+
 vi.mock("./raceCourse", async () => {
   const { Group } = await vi.importActual<typeof import("three")>("three");
   const sample = (index: number) => ({ index, distance: index, position: { x: index, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const });
@@ -90,7 +96,7 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
@@ -132,11 +138,18 @@ describe("race scene lifecycle boundary", () => {
     Object.defineProperty(canvas, "releasePointerCapture", { value: vi.fn() });
     const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign("Input") });
     await settle();
+    scene.start([marble(1)], 11);
+    await settle();
     seams.frames.shift()?.(performance.now());
+    const beforePanFrame = cameraPoses[cameraPoses.length - 1];
 
     canvas.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 10, clientY: 10, button: 2 }));
     canvas.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 30, clientY: 4, button: 2 }));
     expect(seams.cameraCalls.some(({ type }) => type === "pan")).toBe(true);
+    seams.frames.shift()?.(performance.now() + 17);
+    const afterPanFrame = cameraPoses[cameraPoses.length - 1];
+    expect(afterPanFrame.position.equals(beforePanFrame.position)).toBe(false);
+    expect(afterPanFrame.lookAt.equals(beforePanFrame.lookAt)).toBe(false);
 
     canvas.dispatchEvent(pointerEvent("pointerdown", { pointerId: 2, clientX: 100, clientY: 10 }));
     canvas.dispatchEvent(pointerEvent("pointermove", { pointerId: 2, clientX: 120, clientY: 10 }));
