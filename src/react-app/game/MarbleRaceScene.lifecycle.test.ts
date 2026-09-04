@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const seams = vi.hoisted(() => ({
   frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as string[], projectedSamples: [] as unknown[][],
   courseSamples: undefined as unknown[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
-  worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false,
+  worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 }));
 
 vi.mock("three", async () => {
@@ -60,12 +60,27 @@ vi.mock("./track/trackPhysics", () => ({
 
 vi.mock("./track/trackSampler", () => ({ projectToTrack: (_position: unknown, samples: readonly unknown[]) => { seams.projectedSamples.push(samples as unknown[]); return { sampleIndex: 0, progress: 0, distanceSquared: 0 }; } }));
 
+vi.mock("./cameraControls", async () => {
+  const actual = await vi.importActual<typeof import("./cameraControls")>("./cameraControls");
+  return {
+    ...actual,
+    applyPan: (...args: Parameters<typeof actual.applyPan>) => { seams.cameraCalls.push({ type: "pan", args }); return actual.applyPan(...args); },
+    applyZoom: (...args: Parameters<typeof actual.applyZoom>) => { seams.cameraCalls.push({ type: "zoom", args }); return actual.applyZoom(...args); },
+    relaxControls: (...args: Parameters<typeof actual.relaxControls>) => { seams.cameraCalls.push({ type: "relax", args }); return actual.relaxControls(...args); },
+  };
+});
+
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import type { Marble } from "../domain/types";
 import { createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const pointerEvent = (type: string, values: { pointerId: number; clientX: number; clientY: number; button?: number }): PointerEvent => {
+  const event = new Event(type, { bubbles: true, cancelable: true }) as PointerEvent;
+  Object.defineProperties(event, { pointerId: { value: values.pointerId }, clientX: { value: values.clientX }, clientY: { value: values.clientY }, button: { value: values.button ?? 0 } });
+  return event;
+};
 const addListener = vi.spyOn(EventTarget.prototype, "addEventListener");
 const removeListener = vi.spyOn(EventTarget.prototype, "removeEventListener");
 const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { kind: "custom", track: createValidTrackDesign("Scene") }) => {
@@ -75,7 +90,7 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
   });
 
@@ -108,6 +123,31 @@ describe("race scene lifecycle boundary", () => {
     expect(addListener.mock.calls.some(([type]) => type === "contextmenu")).toBe(true);
     scene.dispose();
     expect(removeListener.mock.calls.some(([type]) => type === "contextmenu")).toBe(true);
+  });
+
+  it("routes right-drag, pinch distance, and idle recovery through camera controls", async () => {
+    const canvas = document.createElement("canvas");
+    Object.defineProperty(canvas, "setPointerCapture", { value: vi.fn() });
+    Object.defineProperty(canvas, "hasPointerCapture", { value: () => false });
+    Object.defineProperty(canvas, "releasePointerCapture", { value: vi.fn() });
+    const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign("Input") });
+    await settle();
+    seams.frames.shift()?.(performance.now());
+
+    canvas.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 10, clientY: 10, button: 2 }));
+    canvas.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 30, clientY: 4, button: 2 }));
+    expect(seams.cameraCalls.some(({ type }) => type === "pan")).toBe(true);
+
+    canvas.dispatchEvent(pointerEvent("pointerdown", { pointerId: 2, clientX: 100, clientY: 10 }));
+    canvas.dispatchEvent(pointerEvent("pointermove", { pointerId: 2, clientX: 120, clientY: 10 }));
+    expect(seams.cameraCalls.find(({ type }) => type === "zoom")?.args[1]).toBeCloseTo(-20, 0);
+
+    const beforeRecovery = seams.cameraCalls.length;
+    seams.frames.shift()?.(performance.now() + 10_000);
+    const recovery = seams.cameraCalls.slice(beforeRecovery).find(({ type }) => type === "relax");
+    expect(recovery?.args[1]).toBeGreaterThan(0);
+    expect(recovery?.args[1]).toBeLessThan(1);
+    scene.dispose();
   });
 
   it("emits one DNF and cleans up before a begin or initialization error", async () => {
