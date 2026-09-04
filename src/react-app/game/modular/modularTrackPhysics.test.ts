@@ -289,12 +289,12 @@ describe("modular track physics", () => {
       resources.stepAfterWorld(bodies);
       if (pose.gateOpen) postGateSteps += 1;
       bodies.forEach((body, index) => {
-        if (crossingTimes[index] !== undefined) return;
         const position = body.translation(); const velocity = body.linvel();
         if (![position.x, position.y, position.z, velocity.x, velocity.y, velocity.z].every(Number.isFinite)) nonFinite.add(index + 1);
+        if (crossingTimes[index] !== undefined) return;
         const relative = subtract(position, start.gate.center);
         const along = dot(relative, start.frame.tangent);
-        if (along >= 0) crossingTimes[index] = postGateSteps * 1_000 / 60;
+        if (pose.gateOpen && along >= 0) crossingTimes[index] = postGateSteps * 1_000 / 60;
         const lateral = dot(subtract(position, start.frame.position), start.frame.side);
         const height = dot(subtract(position, start.frame.position), start.frame.up);
         if (along < 0 && (Math.abs(lateral) > start.width / 2 + MARBLE_DIAMETER / 2 || height < -MARBLE_DIAMETER || height > start.wallHeight + MARBLE_DIAMETER)) escapes.add(index + 1);
