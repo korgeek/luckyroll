@@ -29,7 +29,8 @@ describe.sequential("modular track physics qualification", () => {
     const rows = ledgerRows();
     const recorded = rows.filter((row) => row.state === "recorded").map((row) => row.seed);
     const pending = rows.filter((row) => row.state === "pending").map((row) => row.seed);
-    expect(validateQualificationSeeds(pending, recorded)).toEqual(FIXED_VALIDATION_SEEDS.slice(recorded.length));
+    if (pending.length === 0) expect(() => validateQualificationSeeds(pending, recorded)).toThrow("already records every seed");
+    else expect(validateQualificationSeeds(pending, recorded)).toEqual(FIXED_VALIDATION_SEEDS.slice(recorded.length));
   });
 
   it.runIf(runQualification)("runs each pending 100-marble seed exactly once", async () => {
