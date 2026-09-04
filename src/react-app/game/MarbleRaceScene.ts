@@ -379,7 +379,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         const sample = course.samples[target.sampleIndex] ?? course.samples[0];
         localUp = sample.up;
         activeShot = target === rankedCameraBalls[0] ? "leader" : target === rankedCameraBalls[rankedCameraBalls.length - 1] ? "trailer" : "profile";
-        writeTrackFollowShot(cameraShot, target.position, sample, bounds);
+        writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds);
       } else {
         activeShot = "overview";
         writeCameraShot(cameraShot, activeShot, bounds);
@@ -392,8 +392,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     cameraFocus.set(controlledCameraShot.lookAt.x, controlledCameraShot.lookAt.y, controlledCameraShot.lookAt.z);
     cameraTarget.set(controlledCameraShot.position.x, controlledCameraShot.position.y, controlledCameraShot.position.z);
     cameraUpTarget.set(localUp.x, localUp.y, localUp.z);
+    if (birdView || (cameraUpTarget.x === 0 && cameraUpTarget.y === 1 && cameraUpTarget.z === 0)) camera.up.lerp(cameraUpTarget, 0.05); else camera.up.lerp(cameraUpTarget, 0.05).normalize();
     camera.position.lerp(cameraTarget, 0.042); cameraLook.lerp(cameraFocus, 0.05); camera.lookAt(cameraLook);
-    camera.up.lerp(cameraUpTarget, 0.05);
   };
 
   const loop = (now: number) => {

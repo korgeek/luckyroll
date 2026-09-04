@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
+import { buildModularTrack } from "./modular/modularTrackBuild";
 import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
@@ -16,6 +18,8 @@ import {
 
 const canonicalTrackBounds = getTrackBounds(buildValidatedTrack().samples);
 const isFiniteVec3 = (value: Vec3) => Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z);
+const subtract = (left: Vec3, right: Vec3): Vec3 => ({ x: left.x - right.x, y: left.y - right.y, z: left.z - right.z });
+const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * right.y + left.z * right.z;
 const target = (id: RaceFocusTarget["id"], progress: number): RaceFocusTarget => ({ id, progress });
 const field = (count: number, offset = 0): RaceFocusTarget[] => Array.from({ length: count }, (_, index) => target(`marble-${offset + index}`, 1 - index / count));
 const mutableShot = (): CameraShot => ({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 });
@@ -136,30 +140,42 @@ describe("track-bound race camera plan", () => {
     expect(director.select(lateField, 0.4, 1)?.id).toBe("leader");
   });
 
-  it("writes the exact directed local-frame pose and finite clipping plane values", () => {
+  it("anchors a follow shot on the sampled route behind a banked curve marble", () => {
+    const samples = buildModularTrack(createValidTrackDesign()).samples;
+    const sampleIndex = samples.findIndex((sample) => Math.abs(sample.bankRadians) > 0.1);
     const shot = mutableShot();
-    const sample = { tangent: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } };
 
-    writeTrackFollowShot(shot, { x: 4, y: 2, z: -3 }, sample, { center: { x: 0, y: 0, z: 0 }, radius: 20 });
+    writeTrackFollowShot(shot, samples[sampleIndex]!.position, samples, sampleIndex, getTrackBounds(samples));
 
-    expect(shot.position).toEqual({ x: 11.5, y: 4.8, z: -3 });
-    expect(shot.lookAt).toEqual({ x: 4, y: 2.45, z: -3 });
-    expect(shot.near).toBeLessThan(shot.far);
     expect(isFiniteVec3(shot.position)).toBe(true);
     expect(isFiniteVec3(shot.lookAt)).toBe(true);
+    expect(dot(subtract(shot.position, shot.lookAt), samples[sampleIndex]!.up)).toBeGreaterThanOrEqual(5);
   });
 
   it("applies pointer, touch, and zoom offsets after the directed pose without changing its target", () => {
     const directed = mutableShot();
     const controlled = mutableShot();
     const sample = { tangent: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } };
-    writeTrackFollowShot(directed, { x: 0, y: 0, z: 0 }, sample, canonicalTrackBounds);
+    const samples = [{ ...sample, index: 0, position: { x: 0, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, distance: 0, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const }];
+    writeTrackFollowShot(directed, { x: 0, y: 0, z: 0 }, samples, 0, canonicalTrackBounds);
 
     writeControlledTrackFollowShot(controlled, directed, sample.up, { yaw: Math.PI / 2, pitch: 0.2, zoom: 1.2 });
 
     expect(controlled.lookAt).toEqual(directed.lookAt);
     expect(controlled.position).not.toEqual(directed.position);
     expect(isFiniteVec3(controlled.position)).toBe(true);
+  });
+
+  it("keeps extreme controls above the local rail", () => {
+    const directed = mutableShot();
+    const controlled = mutableShot();
+    const bankedUp = { x: 0, y: Math.cos(Math.PI / 4), z: Math.sin(Math.PI / 4) };
+    directed.position = { x: 7.5, y: 5, z: 0 };
+    directed.lookAt = { x: 0, y: 0, z: 0 };
+
+    writeControlledTrackFollowShot(controlled, directed, bankedUp, { yaw: 0, pitch: -0.55, zoom: 0.55, panY: -24 });
+
+    expect(dot(subtract(controlled.position, directed.lookAt), bankedUp)).toBeGreaterThanOrEqual(5);
   });
 
   it("only flags a projection update when camera clipping actually changes", () => {

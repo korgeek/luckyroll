@@ -5,7 +5,6 @@ export type TrackBounds = Readonly<{ center: Vec3; radius: number }>;
 export type CameraShot = { position: { x: number; y: number; z: number }; lookAt: { x: number; y: number; z: number }; near: number; far: number };
 export type RaceFocusTarget = Readonly<{ id: string | number; progress: number }>;
 export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number) => Target | undefined; reset: () => void }>;
-export type TrackFollowFrame = Readonly<{ tangent: Vec3; up: Vec3 }>;
 export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number; panX?: number; panY?: number }>;
 
 const fallbackBounds: TrackBounds = Object.freeze({ center: Object.freeze({ x: 0, y: 0, z: 0 }), radius: 1 });
@@ -133,19 +132,42 @@ export const createRaceFocusDirector = (): RaceFocusDirector => {
   });
 };
 
-export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, frame: TrackFollowFrame, bounds: TrackBounds): CameraShot => {
+const cameraAnchor = (samples: readonly TrackSample[], sampleIndex: number, behind = 6): TrackSample | undefined => {
+  const focusIndex = Math.max(0, Math.min(samples.length - 1, sampleIndex));
+  const focus = samples[focusIndex] ?? samples[0];
+  if (!focus) return undefined;
+  const targetDistance = focus.distance - behind;
+  let index = focusIndex;
+  while (index > 0 && samples[index]!.distance > targetDistance) index -= 1;
+  return samples[index] ?? focus;
+};
+
+export const enforceCameraClearance = (target: CameraShot, up: Vec3, minimum = 5, reference: Vec3 = target.lookAt): CameraShot => {
+  const surface = finiteVector(reference) ? reference : target.lookAt;
+  const height = (target.position.x - surface.x) * up.x + (target.position.y - surface.y) * up.y + (target.position.z - surface.z) * up.z;
+  if (height < minimum) {
+    const correction = minimum - height + 1e-9;
+    target.position.x += up.x * correction; target.position.y += up.y * correction; target.position.z += up.z * correction;
+  }
+  return target;
+};
+
+export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, samples: readonly TrackSample[], sampleIndex: number, bounds: TrackBounds): CameraShot => {
   const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
   const focus = finiteVector(marblePosition) ? marblePosition : safeBounds.center;
-  const tangent = finiteVector(frame.tangent) ? frame.tangent : { x: 0, y: 0, z: 1 };
-  const up = finiteVector(frame.up) ? frame.up : { x: 0, y: 1, z: 0 };
-  target.position.x = focus.x + tangent.x * 7.5 + up.x * 2.8;
-  target.position.y = focus.y + tangent.y * 7.5 + up.y * 2.8;
-  target.position.z = focus.z + tangent.z * 7.5 + up.z * 2.8;
+  const frame = samples[Math.max(0, Math.min(samples.length - 1, sampleIndex))] ?? samples[0];
+  const up = finiteVector(frame?.up) ? frame.up : { x: 0, y: 1, z: 0 };
+  const anchor = cameraAnchor(samples, sampleIndex);
+  const anchorPosition = finiteVector(anchor?.position) ? anchor.position : focus;
+  const anchorUp = finiteVector(anchor?.up) ? anchor.up : up;
+  target.position.x = anchorPosition.x + anchorUp.x * 5;
+  target.position.y = anchorPosition.y + anchorUp.y * 5;
+  target.position.z = anchorPosition.z + anchorUp.z * 5;
   target.lookAt.x = focus.x + up.x * 0.45;
   target.lookAt.y = focus.y + up.y * 0.45;
   target.lookAt.z = focus.z + up.z * 0.45;
   writeClip(target, safeBounds);
-  return target;
+  return enforceCameraClearance(target, up);
 };
 
 export const writeControlledTrackFollowShot = (target: CameraShot, directed: CameraShot, localUp: Vec3, controls: CameraControlOffsets): CameraShot => {
@@ -176,7 +198,7 @@ export const writeControlledTrackFollowShot = (target: CameraShot, directed: Cam
   target.position.z = target.lookAt.z + (offsetZ * cosine + crossZ * sine + up.z * projection * (1 - cosine)) * zoom + up.z * pitch * 25;
   target.near = directed.near;
   target.far = directed.far;
-  return target;
+  return enforceCameraClearance(target, up, 5, directed.lookAt);
 };
 
 export const hasCameraClipChanged = (previous: Pick<CameraShot, "near" | "far">, next: Pick<CameraShot, "near" | "far">): boolean =>

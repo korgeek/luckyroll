@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const seams = vi.hoisted(() => ({
   frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as string[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as unknown[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
-  worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, cameraCalls: [] as { type: string; args: unknown[] }[],
+  worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 }));
 
 vi.mock("three", async () => {
@@ -21,14 +21,14 @@ vi.mock("three", async () => {
 });
 
 import * as THREE from "three";
-const cameraPoses: { camera: THREE.PerspectiveCamera; position: THREE.Vector3; lookAt: THREE.Vector3 }[] = [];
+const cameraPoses: { camera: THREE.PerspectiveCamera; position: THREE.Vector3; lookAt: THREE.Vector3; up: THREE.Vector3 }[] = [];
 const cameraLookAt = vi.spyOn(THREE.PerspectiveCamera.prototype, "lookAt").mockImplementation(function (this: THREE.PerspectiveCamera, targetOrX: THREE.Vector3 | number) {
-  if (targetOrX instanceof THREE.Vector3) cameraPoses.push({ camera: this, position: this.position.clone(), lookAt: targetOrX.clone() });
+  if (targetOrX instanceof THREE.Vector3) cameraPoses.push({ camera: this, position: this.position.clone(), lookAt: targetOrX.clone(), up: this.up.clone() });
 });
 
 vi.mock("./raceCourse", async () => {
   const { Group } = await vi.importActual<typeof import("three")>("three");
-  const sample = (index: number) => ({ index, distance: index, position: { x: index, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const });
+  const sample = (index: number) => ({ index, distance: index, position: { x: index, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: seams.bankedCameraSample && index === 0 ? { x: 0, y: 0.8, z: 0.6 } : { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: seams.bankedCameraSample && index === 0 ? Math.atan2(0.6, 0.8) : 0, zone: "run" as const });
   return {
     createBuiltInTrackResources: () => { throw new Error("unused test seam"); },
     createRaceCourse: (selection: { kind: string; track?: { cells: readonly unknown[] } }, options?: unknown) => {
@@ -111,7 +111,7 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.bankedCameraSample = false; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
@@ -255,7 +255,18 @@ describe("race scene lifecycle boundary", () => {
     scene.dispose();
   });
 
-  it("makes right-drag change the controlled pose versus an identical no-drag scene", async () => {
+  it("sets the banked follow-camera up vector before looking at its target", async () => {
+    seams.bankedCameraSample = true;
+    const scene = await startScene();
+    const camera = cameraPoses[0].camera;
+
+    seams.frames.shift()?.(performance.now());
+
+    expect(latestPose(camera).up.z).toBeGreaterThan(0);
+    scene.dispose();
+  });
+
+  it("keeps right-drag aimed differently when clearance clamps its position", async () => {
     const noDragCanvas = prepareCanvas();
     const dragCanvas = prepareCanvas();
     const noDrag = createRaceScene(noDragCanvas, () => undefined, { kind: "custom", track: createValidTrackDesign("NoDrag") });
@@ -272,7 +283,6 @@ describe("race scene lifecycle boundary", () => {
 
     const noDragPose = latestPose(noDragCamera);
     const dragPose = latestPose(dragCamera);
-    expect(dragPose.position.distanceTo(noDragPose.position)).toBeGreaterThan(0);
     expect(dragPose.lookAt.distanceTo(noDragPose.lookAt)).toBeGreaterThan(0);
     noDrag.dispose(); dragged.dispose();
   });
