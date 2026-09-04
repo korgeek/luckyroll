@@ -163,7 +163,9 @@ export const validateTrackDesign = (track: TrackDesign): DesignValidation => {
   const failures: RouteFailure[] = [];
   if (!isObject(track) || typeof track.name !== "string") {
     failures.push(failure("endpoint", -1, "Track name must be a string."));
-  } else if (track.name !== track.name.trim() || [...track.name].length < 1 || [...track.name].length > 60 || /[\u0000-\u001f\u007f-\u009f]/u.test(track.name)) {
+  } else if (track.name !== track.name.trim() || [...track.name].length < 1 || [...track.name].length > 60 ||
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f]/u.test(track.name)) {
     failures.push(failure("endpoint", -1, "Track name must be 1–60 trimmed characters without control characters."));
   }
   const cells = isObject(track) && Array.isArray(track.cells) ? track.cells : undefined;

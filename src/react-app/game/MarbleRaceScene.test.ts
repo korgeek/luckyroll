@@ -4,6 +4,7 @@ import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverl
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
+import type { RapierWorld } from "./raceCourse";
 
 const deferred = <Value,>() => {
   let resolve!: (value: Value | PromiseLike<Value>) => void;
@@ -61,7 +62,7 @@ describe("continuous-track scene seams", () => {
     const collider = { kind: "shared-trimesh" };
     let received: typeof resources.built.geometry | undefined;
 
-    const result = attachSceneTrackCollider({}, resources, (_world, geometry) => {
+    const result = attachSceneTrackCollider({} as RapierWorld, resources, (_world, geometry) => {
       received = geometry;
       return collider;
     });

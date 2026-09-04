@@ -13,7 +13,7 @@ import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, dista
 import { disposeTrackRenderGroup } from "./track/trackRender";
 import { projectToTrack } from "./track/trackSampler";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
-import { createBuiltInTrackResources, createRaceCourse, type RaceCourse, type RaceCourseRun } from "./raceCourse";
+import { createBuiltInTrackResources, createRaceCourse, type RaceCourse, type RaceCourseRun, type RapierBody, type RapierWorld } from "./raceCourse";
 
 export type SceneEvent =
   | { type: "tick"; elapsedMs: number; finishedCount: number; remaining: Marble[]; leader?: Marble; trailer?: Marble }
@@ -22,7 +22,7 @@ export type SceneEvent =
   | { type: "error"; message: string }
   | { type: "timeout"; remaining: Marble[] };
 export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; setPaused: (paused: boolean) => void; reset: () => void; dispose: () => void };
-type Ball = { id: number; marble: Marble; body: any; done: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
+type Ball = { id: number; marble: Marble; body: RapierBody; done: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
 type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 export type CameraRankItem = Readonly<{ done: boolean; progress: number }>;
 
@@ -38,7 +38,7 @@ export type SceneObstacleResources = Readonly<{
   dispose: () => void;
 }>;
 export type SceneRaceClock = Readonly<{ consumeAfterWorldStep: (pose: Pick<DevicePose, "raceClockStarted">, now: number) => void; elapsedMs: (now: number, pausedDuration?: number, pauseStarted?: number, paused?: boolean) => number; reset: () => void }>;
-type SceneTrackColliderCreator = (world: any, geometry: BuiltTrack["geometry"]) => unknown;
+type SceneTrackColliderCreator = (world: RapierWorld, geometry: BuiltTrack["geometry"]) => unknown;
 type SceneStartLifecycleOptions<Request> = Readonly<{
   initialize: () => Promise<void>;
   onReady: () => void;
@@ -108,14 +108,14 @@ export const createSceneTrackResources = (debug = false): SceneTrackResources =>
 };
 
 export const attachSceneTrackCollider = (
-  world: any,
+  world: RapierWorld,
   resources: SceneTrackResources,
   createCollider: SceneTrackColliderCreator = createTrackCollider,
 ): unknown => createCollider(world, resources.built.geometry);
 
 export const initializeScenePhysics = (): Promise<void> => initializeTrackPhysics().then(() => undefined);
 
-export const createSceneObstacleResources = (world: any, track: SceneTrackResources): SceneObstacleResources => {
+export const createSceneObstacleResources = (world: RapierWorld, track: SceneTrackResources): SceneObstacleResources => {
   const geometry = buildObstacleGeometry(track.built.geometry, track.built.obstacleLayout);
   const physics = createObstaclePhysics(world, geometry);
   const renderGroup = createObstacleRenderGroup(geometry, physics.controller.initialPose());
@@ -251,7 +251,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const track = course.renderGroup;
   const marbleGroup = new THREE.Group();
   scene.add(track, marbleGroup);
-  let world: any; let raceRun: RaceCourseRun | undefined; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
+  let world: RapierWorld | undefined; let raceRun: RaceCourseRun | undefined; let balls: Ball[] = []; let renderMeshes: THREE.InstancedMesh[] = [];
   const liveBalls: Ball[] = [];
   const rankedCameraBalls: Ball[] = [];
   let running = false; let timedOut = false; let last = performance.now(); let fixedAccumulator = 0; let disposed = false;
@@ -274,7 +274,6 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const clearMarbles = () => disposeTrackRenderGroup(marbleGroup);
 
   type SceneStartRequest = { marbles: Marble[]; seed: number; remainingRestart?: boolean };
-  let starts: ReturnType<typeof createSceneStartLifecycle<SceneStartRequest>> | undefined;
   const stopRace = () => {
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
@@ -401,7 +400,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     }, now);
   };
 
-  starts = createSceneStartLifecycle<SceneStartRequest>({
+  const starts = createSceneStartLifecycle<SceneStartRequest>({
     initialize: initializeScenePhysics,
     onReady: () => { world = createTrackPhysicsWorld(); },
     onStart: ({ marbles, seed, remainingRestart = false }) => {

@@ -150,6 +150,7 @@ const disposeGroup = (group: THREE.Group): void => {
 };
 
 export const createModularTrackRender = (built: BuiltModularTrack, _options: ModularRenderOptions = {}): ModularRenderResources => {
+  void _options;
   const group = new THREE.Group(); group.name = "modular-track";
   const dark = material("#090b12"); const channel = material("#171b25"); const rim = material("#19d7e7", "#064b57"); const device = material("#e73da7", "#5f0a40");
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#171b25"; group.add(surface);

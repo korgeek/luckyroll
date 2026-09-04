@@ -126,7 +126,7 @@ describe("neon obstacle layout", () => {
     const empty = resolveObstacleLayout([], NEON_OBSTACLE_LAYOUT);
     const malformed = resolveObstacleLayout([{ ...samples[0], tangent: { x: Number.NaN, y: 0, z: 0 } }], NEON_OBSTACLE_LAYOUT);
     const nullEntry = resolveObstacleLayout([null] as unknown as readonly TrackSample[], NEON_OBSTACLE_LAYOUT);
-    const { channelDepth: _channelDepth, bankRadians: _bankRadians, zone: _zone, ...incomplete } = samples[0];
+    const incomplete = Object.fromEntries(Object.entries(samples[0]).filter(([key]) => !["channelDepth", "bankRadians", "zone"].includes(key)));
     const incompleteEntry = resolveObstacleLayout([incomplete] as unknown as readonly TrackSample[], NEON_OBSTACLE_LAYOUT);
     expect(empty.ok).toBe(false);
     expect(malformed.ok).toBe(false);
