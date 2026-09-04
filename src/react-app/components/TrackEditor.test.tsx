@@ -61,8 +61,18 @@ describe("TrackEditor", () => {
 		const cell = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); cell.focus(); await user.keyboard("{ArrowRight}");
 		expect(document.activeElement).toHaveAttribute("aria-label", expect.stringMatching(/row 1 column 3/i));
 		const occupied = screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }); await user.click(occupied);
-		expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i })).toHaveTextContent(/STR/);
-		expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i })).toHaveTextContent(/90°/);
+		expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 90/i })).not.toHaveTextContent(/STR|90°/);
+	});
+
+	it("draws connected ports for a curve and updates them on rotation", async () => {
+		const user = userEvent.setup(); render(<ControlledEditor track={createDefaultTrackDesign("Course")} />);
+		const curve = screen.getByRole("gridcell", { name: /row 3 column 1, curve module, rotation 0/i });
+		expect(curve.querySelector('[data-port="north"]')).toBeTruthy();
+		expect(curve.querySelector('[data-port="east"]')).toBeTruthy();
+		await user.click(curve);
+		const rotated = screen.getByRole("gridcell", { name: /row 3 column 1, curve module, rotation 90/i });
+		expect(rotated.querySelector('[data-port="east"]')).toBeTruthy();
+		expect(rotated.querySelector('[data-port="south"]')).toBeTruthy();
 	});
 
 	it("opens long-press actions and cancels pending presses on movement, up, and cancel", () => {
@@ -76,7 +86,7 @@ describe("TrackEditor", () => {
 			fireEvent.pointerDown(cell); fireEvent.pointerCancel(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 			fireEvent.pointerDown(cell); act(() => vi.advanceTimersByTime(500)); expect(screen.getByRole("dialog")).toBeInTheDocument();
 			fireEvent.click(screen.getByRole("button", { name: "Replace" }));
-			expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i })).toHaveTextContent(/STR/);
+			expect(screen.getByRole("gridcell", { name: /row 1 column 2, straight module, rotation 0/i }).querySelector("svg")).toBeTruthy();
 			fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 			expect(screen.getByRole("gridcell", { name: /row 1 column 2, empty/i })).toHaveTextContent("+");
 		} finally { vi.useRealTimers(); }
