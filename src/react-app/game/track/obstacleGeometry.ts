@@ -118,8 +118,8 @@ export const buildStartThroat = (frame: ResolvedFrame): IndexedGeometry => chann
 export const buildStartRampBridge = (frame: ResolvedFrame): IndexedGeometry => {
   const rows = [4.3, 6.5, 8.7];
   const positions: number[] = [];
-  for (const along of rows) {
-    const height = -0.72 + 0.72 * Math.max(0, Math.min(1, (along - 4.3) / 4.2));
+  for (const [row, along] of rows.entries()) {
+    const height = -0.72 + 0.72 * Math.max(0, Math.min(1, (along - 4.3) / 4.2)) - (row === rows.length - 1 ? 0.03 : 0);
     for (const [side, up] of [[-3, height], [3, height], [3, height + 1.7], [-3, height + 1.7]] as const) write(positions, inFrame(frame, along, side, up));
   }
   const indices: number[] = [];
