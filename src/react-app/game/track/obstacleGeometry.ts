@@ -68,15 +68,15 @@ const join = (parts: readonly IndexedGeometry[]): IndexedGeometry => {
 };
 
 export const buildTrackShell = (track: TrackGeometry): IndexedGeometry & Readonly<{ thickness: number }> => {
-  const positions: number[] = []; const indices: number[] = []; const row = track.profileSegments + 1;
+  const thickness = 1.2; const positions: number[] = []; const indices: number[] = []; const row = track.profileSegments + 1;
   for (let sample = 0; sample < track.samples.length; sample += 1) for (const column of [0, track.profileSegments]) {
-    const at = (sample * row + column) * 3; const edge = { x: track.positions[at], y: track.positions[at + 1], z: track.positions[at + 2] }; write(positions, edge); write(positions, add(edge, scale(track.samples[sample].up, -0.7)));
+    const at = (sample * row + column) * 3; const edge = { x: track.positions[at], y: track.positions[at + 1], z: track.positions[at + 2] }; write(positions, edge); write(positions, add(edge, scale(track.samples[sample].up, -thickness)));
   }
   for (let sample = 0; sample < track.samples.length - 1; sample += 1) {
     for (const side of [0, 1]) { const a = sample * 4 + side * 2; const b = a + 4; indices.push(a, b, a + 1, a + 1, b, b + 1); }
     const a = sample * 4; const b = a + 4; indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
   }
-  return Object.freeze({ ...indexed(positions, indices), thickness: 0.7 });
+  return Object.freeze({ ...indexed(positions, indices), thickness });
 };
 
 const wideHall = (frame: ResolvedFrame, width: number, length: number): IndexedGeometry => {

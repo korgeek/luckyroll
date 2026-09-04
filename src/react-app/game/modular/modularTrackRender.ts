@@ -51,7 +51,7 @@ const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THRE
   const geometry = new THREE.BoxGeometry(0.22, 0.18, 1);
   const rim = new THREE.InstancedMesh(geometry, rimMaterial, Math.max(0, (built.samples.length - 1) * 2));
   rim.name = "modular-neon-rims";
-  const transform = new THREE.Object3D();
+  const transform = new THREE.Object3D(); const colors = [new THREE.Color("#ffd21f"), new THREE.Color("#111319")];
   let instance = 0;
   const row = built.geometry.profileSegments + 1;
   for (let index = 1; index < built.samples.length; index += 1) {
@@ -66,10 +66,11 @@ const createRims = (built: BuiltModularTrack, rimMaterial: THREE.Material): THRE
       transform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
       transform.scale.set(1, 1, length);
       transform.updateMatrix();
+      rim.setColorAt(instance, colors[instance % 2]);
       rim.setMatrixAt(instance++, transform.matrix);
     }
   }
-  rim.instanceMatrix.needsUpdate = true;
+  rim.instanceMatrix.needsUpdate = true; if (rim.instanceColor !== null) rim.instanceColor.needsUpdate = true;
   return rim;
 };
 
@@ -152,9 +153,9 @@ const disposeGroup = (group: THREE.Group): void => {
 export const createModularTrackRender = (built: BuiltModularTrack, _options: ModularRenderOptions = {}): ModularRenderResources => {
   void _options;
   const group = new THREE.Group(); group.name = "modular-track";
-  const dark = material("#090b12"); const channel = material("#171b25"); const rim = material("#19d7e7", "#064b57"); const device = material("#e73da7", "#5f0a40");
+  const dark = material("#090b12"); const channel = new THREE.MeshStandardMaterial({ color: "#171b25", roughness: 0.32, metalness: 0.68 }); const shellMaterial = new THREE.MeshStandardMaterial({ color: "#090b12", roughness: 0.82, metalness: 0.08 }); const rim = material("#19d7e7", "#064b57"); const device = material("#e73da7", "#5f0a40");
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#171b25"; group.add(surface);
-  const shell = new THREE.Mesh(toGeometry(buildTrackShell(built.geometry)), dark); shell.name = "modular-channel-shell"; group.add(shell);
+  const shell = new THREE.Mesh(toGeometry(buildTrackShell(built.geometry)), shellMaterial); shell.name = "modular-channel-shell"; group.add(shell);
   group.add(createRims(built, rim));
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), agitator: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);

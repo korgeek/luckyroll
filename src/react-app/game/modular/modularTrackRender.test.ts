@@ -11,6 +11,13 @@ describe("modular track rendering", () => {
     const rendered = createModularTrackRender(built);
     const surface = rendered.group.getObjectByName("modular-channel") as THREE.Mesh;
     expect(surface.geometry.getAttribute("position").array).toBe(built.geometry.positions);
+    expect(surface.material).toBeInstanceOf(THREE.MeshStandardMaterial);
+    const channelMaterial = surface.material as THREE.MeshStandardMaterial;
+    expect(channelMaterial.roughness).toBeLessThan(0.5); expect(channelMaterial.metalness).toBeGreaterThan(0.5);
+    const shell = rendered.group.getObjectByName("modular-channel-shell") as THREE.Mesh;
+    expect(shell.material).toBeInstanceOf(THREE.MeshStandardMaterial);
+    const shellMaterial = shell.material as THREE.MeshStandardMaterial;
+    expect(shellMaterial.roughness).toBeGreaterThan(0.7); expect(shellMaterial.metalness).toBeLessThan(0.2);
     const ramp = rendered.group.getObjectByName("modular-start-ramp-bridge") as THREE.Mesh;
     expect(ramp).toBeInstanceOf(THREE.Mesh);
     expect(ramp.geometry.getAttribute("position").array).toEqual(buildStartRampBridge(rendered.devices.start.frame).positions);
@@ -45,10 +52,12 @@ describe("modular track rendering", () => {
       }
     });
     const rim = rendered.group.getObjectByName("modular-neon-rims") as THREE.InstancedMesh;
-    const rimScale = new THREE.Vector3(); const rimMatrix = new THREE.Matrix4(); let rimIndex = 0; const row = built.geometry.profileSegments + 1;
+    expect(rim.instanceColor).not.toBeNull();
+    const rimColor = new THREE.Color(); const rimScale = new THREE.Vector3(); const rimMatrix = new THREE.Matrix4(); let rimIndex = 0; const row = built.geometry.profileSegments + 1;
     for (let index = 1; index < built.samples.length; index += 1) for (const column of [0, built.geometry.profileSegments]) {
       const previousOffset = ((index - 1) * row + column) * 3; const currentOffset = (index * row + column) * 3;
       const edgeLength = Math.hypot(built.geometry.positions[currentOffset] - built.geometry.positions[previousOffset], built.geometry.positions[currentOffset + 1] - built.geometry.positions[previousOffset + 1], built.geometry.positions[currentOffset + 2] - built.geometry.positions[previousOffset + 2]);
+      rim.getColorAt(rimIndex, rimColor); expect(rimColor.getHexString()).toBe(rimIndex % 2 === 0 ? "ffd21f" : "111319");
       rim.getMatrixAt(rimIndex++, rimMatrix); rimMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), rimScale); expect(rimScale.z).toBeCloseTo(edgeLength, 5);
     }
     disposeModularTrackRender(rendered);

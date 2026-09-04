@@ -31,9 +31,9 @@ const twiceArea = (g: Geometry, i: number): number => {
 
 describe("neon obstacle geometry", () => {
   const track = buildValidatedTrack({ features: true }); const resolved = track.obstacleLayout;
-  it("keeps canonical U-channel buffers untouched while adding a 0.7-unit shell", () => {
+  it("keeps canonical U-channel buffers untouched while adding a 1.2-unit shell", () => {
     const positions = track.geometry.positions; const indices = track.geometry.indices; const r = buildObstacleGeometry(track.geometry, resolved);
-    expect(track.geometry.positions).toBe(positions); expect(track.geometry.indices).toBe(indices); expect(r.shell.positions).not.toBe(positions); expect(r.shell.thickness).toBe(0.7);
+    expect(track.geometry.positions).toBe(positions); expect(track.geometry.indices).toBe(indices); expect(r.shell.positions).not.toBe(positions); expect(r.shell.thickness).toBeGreaterThanOrEqual(1.2);
   });
   it("builds actual contained 18-unit peg and pusher halls from resolved frames", () => {
     const r = buildObstacleGeometry(track.geometry, resolved);
