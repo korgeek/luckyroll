@@ -13,11 +13,11 @@ describe("modular track rendering", () => {
     expect(surface.geometry.getAttribute("position").array).toBe(built.geometry.positions);
     expect(surface.material).toBeInstanceOf(THREE.MeshStandardMaterial);
     const channelMaterial = surface.material as THREE.MeshStandardMaterial;
-    expect(channelMaterial.roughness).toBeLessThan(0.5); expect(channelMaterial.metalness).toBeGreaterThan(0.5);
+    expect(channelMaterial.color.getHexString()).toBe("3f4650"); expect(channelMaterial.roughness).toBe(0.34); expect(channelMaterial.metalness).toBe(0.62);
     const shell = rendered.group.getObjectByName("modular-channel-shell") as THREE.Mesh;
     expect(shell.material).toBeInstanceOf(THREE.MeshStandardMaterial);
     const shellMaterial = shell.material as THREE.MeshStandardMaterial;
-    expect(shellMaterial.roughness).toBeGreaterThan(0.7); expect(shellMaterial.metalness).toBeLessThan(0.2);
+    expect(shellMaterial.color.getHexString()).toBe("626a73"); expect(shellMaterial.roughness).toBe(0.88); expect(shellMaterial.metalness).toBe(0.04);
     const ramp = rendered.group.getObjectByName("modular-start-ramp-bridge") as THREE.Mesh;
     expect(ramp).toBeInstanceOf(THREE.Mesh);
     expect(ramp.geometry.getAttribute("position").array).toEqual(buildStartRampBridge(rendered.devices.start.frame).positions);
@@ -52,6 +52,9 @@ describe("modular track rendering", () => {
       }
     });
     const rim = rendered.group.getObjectByName("modular-neon-rims") as THREE.InstancedMesh;
+    expect(rim.material).toBeInstanceOf(THREE.MeshBasicMaterial);
+    const rimMaterial = rim.material as THREE.MeshBasicMaterial;
+    expect(rimMaterial.color.getHexString()).toBe("ffffff"); expect(rimMaterial.vertexColors).toBe(true); expect(rimMaterial.toneMapped).toBe(false);
     expect(rim.instanceColor).not.toBeNull();
     const rimColor = new THREE.Color(); const rimScale = new THREE.Vector3(); const rimMatrix = new THREE.Matrix4(); let rimIndex = 0; const row = built.geometry.profileSegments + 1;
     for (let index = 1; index < built.samples.length; index += 1) for (const column of [0, built.geometry.profileSegments]) {
