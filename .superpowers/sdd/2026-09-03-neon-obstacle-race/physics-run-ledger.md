@@ -2,10 +2,10 @@
 
 Prepared before any 100-marble obstacle physics world steps.
 
-- Resume source commit: `23d6548b31fb471d182e5674b62ffcbcca593cb1`
-- Budget: `10/10` consumed. The resumed command printed eight completed rows; seed 101 produced no row before the process exited and is conservatively treated as consumed.
-- Command: `RUN_OBSTACLE_QUALIFICATION=1 npm test -- --run src/react-app/game/track/obstaclePhysics.validation.test.ts`
-- Rule: the resume command may run exactly once. It refuses seed 11, duplicates, unknown seeds, gaps, and an all-recorded ledger; assertions run only after all nine pending seeds report a row.
+- Resume source commit: `da5f4c1e96c14b718716077bd6ee86a77a2dde94`.
+- Budget: `12/15` consumed. On 2026-09-03 the user explicitly authorized five additional 100-marble attempts after reviewing the failed first ten.
+- Next command: none. Seeds 127, 131, and 149 remain held pending explicit direction after seed 109 failed.
+- Rule: a numeric command may step only the ledger's next pending seed once. The guard rejects recorded, duplicate, unknown, out-of-order, or all-recorded seeds; do not start a sixth additional attempt.
 
 | Seed | State | Result |
 | ---: | --- | --- |
@@ -19,3 +19,8 @@ Prepared before any 100-marble obstacle physics world steps.
 | 83 | recorded | FAIL — 1 finisher; 31 escapes; 65 stalls; last elapsed `52933.33333333136`; unique finisher IDs true |
 | 97 | recorded | FAIL — 0 finishers; 24 escapes; 73 stalls; elapsed `—`; unique finisher IDs true |
 | 101 | recorded | NO ROW — process exited after seed 97; treated as consumed to prevent an unauthorized 11th attempt. |
+| 107 | extra-recorded | FAIL — 0 finishers; 0 escapes; 78 end-of-observation stalls; elapsed `—`; unique finisher IDs true. |
+| 109 | extra-recorded | FAIL — 1 finisher; 0 escapes; 80 end-of-observation stalls; last elapsed `54216.6666666645`; unique finisher IDs true. |
+| 127 | held | Additional attempt authorized by the user; not stepped. |
+| 131 | held | Additional attempt authorized by the user; not stepped. |
+| 149 | held | Additional attempt authorized by the user; not stepped. |

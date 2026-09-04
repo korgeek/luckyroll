@@ -7,15 +7,15 @@ An instant, offline-friendly neon pinball marble party game. The last marble to 
 - **Race** — 100 marbles are split as evenly as possible across 2–10 players. The final Top 10 is ranked in reverse finish order, so last wins.
 - **Team Split** — one marble per player rolls through the track before a balanced, random 2- or 3-team draw is revealed.
 
-Race sessions use a continuous three-level downhill track with a shuffled neon start bowl, staggered pegs, alternating pushers, a two-path merge, and a vortex catch channel. The directed camera follows the early leader, then moves toward the trailing marble. Drag or touch-drag to orbit and use the wheel to zoom.
+Race sessions use the editor-built Default Track. Its high-walled rectangular start pen randomizes 100 marbles, opens a physical gate, and guides every row into the first module. The directed camera follows the race automatically, while Bird View shows the whole course from above.
 
 ## Track Designer
 
-The 5×8 modular editor starts with a valid 36-block course. Tap a block to rotate it or hold it to replace or clear it. Valid tracks can be saved in this browser, selected, deleted, tested with the existing 100-marble race, or shared as a Base64URL token or link. Opening a shared link loads an unsaved playable preview; saving creates a local browser entry.
+The 5×8 modular editor starts from the valid Default Track. Select a different module and tap an occupied cell to replace it; tap without a new selection to rotate, or hold for replace/clear actions. Valid tracks can be saved in this browser, selected for the next visit, deleted, tested with the same 100-marble race, or shared as a Base64URL token or link. If a selected saved track disappears, the game falls back to Default Track.
 
 The race engine and physics are loaded before the setup screen is ready. After that Ready point, editing, saving, raw-token importing, and racing use no application API or database. A cold offline reload is not supported; installable PWA caching can be added if that becomes necessary.
 
-The 60-second dialog remains a player-facing control for rerunning only the remaining marbles, restarting, or showing results. Physics safety qualification uses zero escapes, zero genuine stalls, and unique finisher identities; marbles still moving after 60 seconds are observed rather than rejected. The tracked ten-seed budget is documented in `.superpowers/sdd/2026-09-03-neon-obstacle-race/physics-run-ledger.md`.
+The 60-second dialog remains a player-facing control for rerunning only the remaining marbles, restarting, or showing results. The legacy built-in obstacle course's 15-attempt physics qualification budget (12 consumed; three held pending direction) is documented in `.superpowers/sdd/2026-09-03-neon-obstacle-race/physics-run-ledger.md`.
 
 ## Run locally
 

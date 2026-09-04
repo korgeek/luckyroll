@@ -71,6 +71,19 @@ The command exited after seed 97 without printing a seed-101 row. Because that s
 
 Focused/static tests and the build may still pass, but they do not qualify the obstacle course. Any later dynamic retest requires explicit user authorization for an eleventh attempt after a broader obstacle/route safety redesign.
 
+## Additional authorized attempts and current blocker
+
+The user authorized five extra 100-marble attempts (ceiling 15). A reduced 10-marble probe showed that the previous runner incorrectly removed a marble after a transient three-second low-speed interval even when it later resumed. It also captured a real post-gate escape from sample 11 after a final `base-track` contact. The production/validation fix now keeps transiently slow marbles racing, classifies a genuine stall only at the end of the observation window, and respawns bodies that leave the channel (including below-surface bodies) to an earlier canonical sample with zero velocity. No track geometry, layout, or render asset was changed.
+
+| Seed | Finishers | Last elapsed | Escapes | Stalls | Unique IDs |
+| ---: | ---: | --- | ---: | ---: | --- |
+| 107 | 0 | — | 0 | 78 | true |
+| 109 | 1 | 54216.6666666645 | 0 | 80 | true |
+
+Both rows failed the critical movement criterion. The latter depth-aware recovery was the one focused post-failure fix; seeds 127, 131, and 149 remain unstepped (budget **12/15**) pending explicit direction. No further 100-marble run was started.
+
+Latest verification: focused physics/scene/guard suites passed **57 tests** with **1 skipped** qualification test, `npm run build` passed, and `git diff --check` passed. Vite still emits its existing chunk-size advisory.
+
 ## Manual/mobile checks not performed
 
 No browser acceptance or push was performed, as required. Before release, manually verify at 360 × 800: legible English HUD, touch drag, wheel/trackpad zoom, race/team result behavior, 60-second dialog/restart-remaining, and replay resource cleanup. Also visually confirm the start bowl does not launch marbles during its shuffle before authorizing another qualification attempt.

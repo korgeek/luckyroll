@@ -18,9 +18,9 @@ export function TrackLibraryPanel({ tracks, selectedTrackId, onNew, onEdit, onSe
 	const sortedTracks = [...tracks].sort((a, b) => b.updatedAt - a.updatedAt);
 	return <section className="track-library" aria-label="Track Designer">
 		<div className="section-title"><span>TRACK DESIGNER</span><button className="text-button" onClick={onNew}>New Track</button></div>
-		<section className="builtin-track" aria-label="Built-in tracks">
-			<h2>Built-in track</h2>
-			<button className={!selectedTrackId ? "selected" : ""} aria-pressed={!selectedTrackId} onClick={() => onSelect(undefined)}>Built-in track</button>
+		<section className="builtin-track" aria-label="Default track">
+			<h2>Default track</h2>
+			<button className={!selectedTrackId ? "selected" : ""} aria-pressed={!selectedTrackId} onClick={() => onSelect(undefined)}>Default Track</button>
 		</section>
 		{sortedTracks.length > 0 && <ul className="track-list" aria-label="Saved tracks">{sortedTracks.map((track) => <li key={track.id} className={track.id === selectedTrackId ? "selected-track" : ""}>
 			<strong>{track.name || "Unnamed track"}</strong><small>Track ID: {track.id}</small>

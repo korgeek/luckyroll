@@ -1,7 +1,6 @@
 import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
+import { createRandom } from "../../domain/seed";
 import type { TrackDesign } from "../../designer/trackDesign";
-import { buildStartRampBridge, buildWalledBowl } from "../track/obstacleGeometry";
-import { createBowlLaunchPositions } from "../track/obstaclePhysics";
 import {
   createMarbleBodies,
   createTrackPhysicsWorld,
@@ -195,19 +194,23 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     ownedBodies.push(body);
     fixedColliders.push(...colliders);
   };
-  const startBowl = buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight, 0, 32);
-  const bowlBody = world.createRigidBody(rapier.RigidBodyDesc.fixed());
-  const startRamp = buildStartRampBridge(devices.start.frame);
-  addFixedBody(bowlBody, [
-    world.createCollider(rapier.ColliderDesc.trimesh(startBowl.positions, startBowl.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody),
-    world.createCollider(rapier.ColliderDesc.trimesh(startRamp.positions, startRamp.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody),
-  ]);
-
   const gateRotation = rotationFromBasis(devices.start.gate.side, devices.start.gate.up, scale(devices.start.gate.tangent, -1));
+  const wallThickness = 0.5;
+  const startBody = world.createRigidBody(rapier.RigidBodyDesc.fixed()
+    .setTranslation(devices.start.frame.position.x, devices.start.frame.position.y, devices.start.frame.position.z)
+    .setRotation(gateRotation));
+  addFixedBody(startBody, [
+    world.createCollider(rapier.ColliderDesc.cuboid(devices.start.width / 2, wallThickness / 2, devices.start.runoutLength / 2).setTranslation(0, -wallThickness / 2, -devices.start.runoutLength / 2).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
+    world.createCollider(rapier.ColliderDesc.cuboid(wallThickness / 2, devices.start.wallHeight / 2, devices.start.runoutLength / 2).setTranslation(-devices.start.width / 2, devices.start.wallHeight / 2, -devices.start.runoutLength / 2).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
+    world.createCollider(rapier.ColliderDesc.cuboid(wallThickness / 2, devices.start.wallHeight / 2, devices.start.runoutLength / 2).setTranslation(devices.start.width / 2, devices.start.wallHeight / 2, -devices.start.runoutLength / 2).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
+    world.createCollider(rapier.ColliderDesc.cuboid(devices.start.width / 2, devices.start.wallHeight / 2, wallThickness / 2).setTranslation(0, devices.start.wallHeight / 2, 0).setFriction(FRICTION).setRestitution(RESTITUTION), startBody),
+  ]);
   const gateBody = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased()
     .setTranslation(devices.start.gate.center.x, devices.start.gate.center.y, devices.start.gate.center.z)
     .setRotation(gateRotation));
   ownedBodies.push(gateBody);
+  world.createCollider(rapier.ColliderDesc.cuboid(devices.start.gate.width / 2, devices.start.gate.height / 2, devices.start.gate.depth / 2)
+    .setFriction(FRICTION).setRestitution(RESTITUTION), gateBody);
 
   for (const bumper of devices.bumpers) {
     const axis = normalize(bumper.axis);
@@ -340,8 +343,23 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
 export { createModularPhysics };
 
 export const createModularLaunchPositions = (count: number, built: BuiltModularTrack, seed: number): readonly PhysicalLaunchPosition[] => {
+  if (!Number.isInteger(count) || count < 0 || count > 100 || !Number.isFinite(seed)) throw new Error("Modular launch positions require 0 through 100 marbles and a finite seed.");
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
-  return createBowlLaunchPositions(count, devices.start, seed);
+  const columns = Math.min(10, count);
+  const spacing = MARBLE_DIAMETER + 0.04;
+  const slots = Array.from({ length: count }, (_, index) => ({ row: Math.floor(index / columns), column: index % columns }));
+  const random = createRandom(seed);
+  for (let index = slots.length - 1; index > 0; index -= 1) {
+    const other = Math.floor(random.next() * (index + 1));
+    [slots[index], slots[other]] = [slots[other], slots[index]];
+  }
+  return Object.freeze(slots.map(({ row, column }) => {
+    const rowColumns = Math.min(columns, count - row * columns);
+    const along = 0.62 + row * spacing;
+    const crossOffset = (column - (rowColumns - 1) / 2) * spacing;
+    const position = add(devices.start.frame.position, add(scale(devices.start.frame.tangent, along), add(scale(devices.start.frame.side, crossOffset), scale(devices.start.frame.up, MARBLE_DIAMETER / 2 + 0.02))));
+    return Object.freeze({ ...position, crossOffset, row, column, physicalLaunchPosition: true as const });
+  }));
 };
 
 export const applyBoosterCrossings = (resources: ModularPhysicsResources, bodies: readonly RapierBody[]): readonly BoosterEvent[] => resources.stepAfterWorld(bodies);

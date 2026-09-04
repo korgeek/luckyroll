@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildStartRampBridge, buildTrackShell, buildWalledBowl, type IndexedGeometry } from "../track/obstacleGeometry";
+import { buildStartEnclosure, buildTrackShell, type IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
 import {
@@ -127,16 +127,10 @@ const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMater
   group.add(chevrons);
 };
 
-const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, accent: THREE.Material, refs: ModularDeviceRefs): void => {
-  const bowl = new THREE.Mesh(toGeometry(buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight)), dark); bowl.name = "modular-start-bowl";
-  const ramp = new THREE.Mesh(toGeometry(buildStartRampBridge(devices.start.frame)), dark); ramp.name = "modular-start-ramp-bridge"; group.add(bowl, ramp);
-  const agitatorBase = new THREE.Group(); agitatorBase.name = "modular-start-agitator"; agitatorBase.position.copy(toVector(devices.start.agitator.center)); agitatorBase.quaternion.copy(frameQuaternion(devices.start.agitator));
-  const agitator = new THREE.Group(); agitator.name = "modular-start-agitator-spin";
-  const armGeometry = new THREE.BoxGeometry(devices.start.agitator.width, devices.start.agitator.height, devices.start.agitator.depth);
-  for (let index = 0; index < 3; index += 1) { const arm = new THREE.Mesh(armGeometry, accent); arm.position.x = devices.start.agitator.width / 2; arm.rotation.y = index * Math.PI * 2 / 3; agitator.add(arm); }
-  agitatorBase.add(agitator); group.add(agitatorBase);
+const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, refs: ModularDeviceRefs): void => {
+  const enclosure = new THREE.Mesh(toGeometry(buildStartEnclosure(devices.start.frame, devices.start.runoutLength, devices.start.width, devices.start.wallHeight)), dark); enclosure.name = "modular-start-enclosure"; group.add(enclosure);
   const gate = new THREE.Mesh(new THREE.BoxGeometry(devices.start.gate.width, devices.start.gate.height, devices.start.gate.depth), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.center)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
-  refs.agitator = agitator; refs.gate = gate;
+  refs.gate = gate;
 };
 
 const disposeGroup = (group: THREE.Group): void => {
@@ -159,7 +153,7 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   group.add(createRims(built, rim));
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), agitator: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
-  createStart(devices, group, dark, device, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
+  createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
   group.userData[REFS] = refs;
   let disposed = false;

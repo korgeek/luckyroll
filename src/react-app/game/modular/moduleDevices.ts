@@ -15,7 +15,8 @@ const BUMPER_HEIGHT = 1.4 * MARBLE_DIAMETER;
 const BUMPER_TIP_ANGLE = Math.PI / 6;
 const PINWHEEL_RADIUS = 0.28 * CHANNEL_WIDTH;
 const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
-const START_RADIUS = 8.5;
+const START_LENGTH = 10.2;
+const START_WIDTH = 10.4;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
 const subtract = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
@@ -74,6 +75,9 @@ export type ModuleDevices = Readonly<{
   start: ResolvedStart & Readonly<{
     gate: StartDeviceDescriptor;
     agitator: StartDeviceDescriptor;
+    length: number;
+    runoutLength: number;
+    width: number;
   }>;
   boosters: readonly BoosterTrigger[];
   bumpers: readonly BumperBar[];
@@ -158,17 +162,17 @@ const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[])
 export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samples: readonly ModulePathSample[]): ModuleDevices => {
   const first = samples[0];
   if (first === undefined) throw new Error("A modular device layout requires a sampled route.");
-  const startFrame = Object.freeze({ ...frameFromSample(first), position: add(first.position, scale(first.tangent, -START_RADIUS)) });
+  const startFrame = Object.freeze({ ...frameFromSample(first), position: add(first.position, scale(first.tangent, -START_LENGTH)) });
   const gateFrame = Object.freeze({
-    center: add(add(startFrame.position, scale(startFrame.tangent, 6.05)), scale(startFrame.up, 1.24 / 2)),
+    center: add(add(startFrame.position, scale(startFrame.tangent, 9.4)), scale(startFrame.up, 1.24 / 2)),
     tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
-    width: 8.2, height: 1.24, depth: 0.36,
+    width: START_WIDTH, height: 1.24, depth: 0.36,
   });
   const agitatorFrame = Object.freeze({
     center: startFrame.position, tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
     width: 4.7, height: 0.24, depth: 0.32,
   });
-  const start = Object.freeze({ frame: startFrame, gate: gateFrame, agitator: agitatorFrame, radius: START_RADIUS, shuffleMs: 700, wallHeight: 4 });
+  const start = Object.freeze({ frame: startFrame, gate: gateFrame, agitator: agitatorFrame, length: START_LENGTH, runoutLength: START_LENGTH + 20, width: START_WIDTH, radius: START_WIDTH / 2, shuffleMs: 700, wallHeight: 4 });
   const boosters: BoosterTrigger[] = [];
   const bumpers: BumperBar[] = [];
   const pinwheels: PinwheelLayout[] = [];

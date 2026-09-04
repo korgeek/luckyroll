@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
 import { createModularTrackRender, disposeModularTrackRender, setModularDevicePose } from "./modularTrackRender";
-import { buildStartRampBridge } from "../track/obstacleGeometry";
 
 describe("modular track rendering", () => {
   it("renders exact board buffers and collider-free booster chevrons", () => {
@@ -18,9 +17,11 @@ describe("modular track rendering", () => {
     expect(shell.material).toBeInstanceOf(THREE.MeshStandardMaterial);
     const shellMaterial = shell.material as THREE.MeshStandardMaterial;
     expect(shellMaterial.color.getHexString()).toBe("626a73"); expect(shellMaterial.roughness).toBe(0.88); expect(shellMaterial.metalness).toBe(0.04);
-    const ramp = rendered.group.getObjectByName("modular-start-ramp-bridge") as THREE.Mesh;
-    expect(ramp).toBeInstanceOf(THREE.Mesh);
-    expect(ramp.geometry.getAttribute("position").array).toEqual(buildStartRampBridge(rendered.devices.start.frame).positions);
+    expect(rendered.group.getObjectByName("modular-start-bowl")).toBeUndefined();
+    expect(rendered.group.getObjectByName("modular-start-ramp-bridge")).toBeUndefined();
+    expect(rendered.group.getObjectByName("modular-start-agitator")).toBeUndefined();
+    expect(rendered.group.getObjectByName("modular-start-enclosure")).toBeInstanceOf(THREE.Mesh);
+    expect(rendered.group.getObjectByName("modular-release-gate")).toBeInstanceOf(THREE.Mesh);
     expect(rendered.group.getObjectByName("booster-chevrons")?.userData.collider).toBe(false);
     const chevrons = rendered.group.getObjectByName("booster-chevrons");
     expect(chevrons?.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
@@ -81,30 +82,19 @@ describe("modular track rendering", () => {
     expect(gateY.dot(new THREE.Vector3(rendered.devices.start.gate.up.x, rendered.devices.start.gate.up.y, rendered.devices.start.gate.up.z))).toBeCloseTo(1, 5);
     expect(gateZ.dot(startTangent)).toBeCloseTo(-1, 5); expect(gateX.clone().cross(gateY).dot(gateZ)).toBeCloseTo(1, 5);
     expect((gate.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.gate.width); expect((gate.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.gate.height); expect((gate.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.gate.depth);
-    const agitatorBase = rendered.group.getObjectByName("modular-start-agitator")!;
-    const agitatorSpin = rendered.group.getObjectByName("modular-start-agitator-spin")!;
     const pinwheelLayout = rendered.devices.pinwheels[0]!;
     const pinwheel = rendered.group.getObjectByName(`pinwheel-${pinwheelLayout.cellIndex}`)!;
-    const baseQuaternion = agitatorBase.quaternion.clone();
-    const agitatorX = new THREE.Vector3(1, 0, 0).applyQuaternion(agitatorBase.quaternion); const agitatorY = new THREE.Vector3(0, 1, 0).applyQuaternion(agitatorBase.quaternion); const agitatorZ = new THREE.Vector3(0, 0, 1).applyQuaternion(agitatorBase.quaternion);
-    expect(agitatorBase.position.toArray()).toEqual([rendered.devices.start.agitator.center.x, rendered.devices.start.agitator.center.y, rendered.devices.start.agitator.center.z]);
-    expect(agitatorX.dot(new THREE.Vector3(rendered.devices.start.agitator.side.x, rendered.devices.start.agitator.side.y, rendered.devices.start.agitator.side.z))).toBeCloseTo(1, 5); expect(agitatorY.dot(new THREE.Vector3(rendered.devices.start.agitator.up.x, rendered.devices.start.agitator.up.y, rendered.devices.start.agitator.up.z))).toBeCloseTo(1, 5); expect(agitatorX.clone().cross(agitatorY).dot(agitatorZ)).toBeCloseTo(1, 5);
-    const armParameters = (agitatorSpin.children[0] as THREE.Mesh).geometry as THREE.BoxGeometry;
-    expect(armParameters.parameters.width).toBe(rendered.devices.start.agitator.width); expect(armParameters.parameters.height).toBe(rendered.devices.start.agitator.height); expect(armParameters.parameters.depth).toBe(rendered.devices.start.agitator.depth);
     setModularDevicePose(rendered, { elapsedSeconds: 0, gateOpen: false, agitatorAngle: 0, pinwheelAngles: [0] });
     expect(gate.visible).toBe(true);
     rendered.group.updateMatrixWorld(true);
-    const agitatorBeforePose = agitatorSpin.getWorldQuaternion(new THREE.Quaternion()); const pinwheelBeforePose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
+    const pinwheelBeforePose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
     setModularDevicePose(rendered, { elapsedSeconds: 1, gateOpen: true, agitatorAngle: 0.5, pinwheelAngles: [1] });
     expect(gate.visible).toBe(false);
     expect(rendered.group.userData.pinwheelAngles).toEqual([1]);
     expect(pinwheel.rotation.y).toBeCloseTo(1, 8);
-    expect(agitatorBase.quaternion.equals(baseQuaternion)).toBe(true);
-    expect(agitatorSpin.rotation.y).toBeCloseTo(0.5, 8);
     rendered.group.updateMatrixWorld(true);
-    const agitatorAfterPose = agitatorSpin.getWorldQuaternion(new THREE.Quaternion()); const pinwheelAfterPose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
-    expect(agitatorAfterPose.equals(agitatorBeforePose)).toBe(false); expect(pinwheelAfterPose.equals(pinwheelBeforePose)).toBe(false);
-    expect(new THREE.Vector3(0, 1, 0).applyQuaternion(agitatorAfterPose).dot(new THREE.Vector3(rendered.devices.start.agitator.up.x, rendered.devices.start.agitator.up.y, rendered.devices.start.agitator.up.z))).toBeCloseTo(1, 5);
+    const pinwheelAfterPose = pinwheel.getWorldQuaternion(new THREE.Quaternion());
+    expect(pinwheelAfterPose.equals(pinwheelBeforePose)).toBe(false);
     expect(new THREE.Vector3(0, 1, 0).applyQuaternion(pinwheelAfterPose).dot(new THREE.Vector3(pinwheelLayout.axis.x, pinwheelLayout.axis.y, pinwheelLayout.axis.z))).toBeCloseTo(1, 5);
     disposeModularTrackRender(rendered);
     expect(() => disposeModularTrackRender(rendered)).not.toThrow();

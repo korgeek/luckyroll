@@ -122,11 +122,11 @@ describe("race scene lifecycle boundary", () => {
     expect(seams.emitted).toEqual(["error"]); scene.dispose(); expect(seams.frames).toHaveLength(0); expect(seams.rendererDisposals).toBe(0);
   });
 
-  it("uses custom samples, orders fixed work, pauses it, and runs past custom timeout", async () => {
+  it("uses custom samples, orders fixed work, pauses it, and times out custom races", async () => {
     const scene = await startScene(); const now = performance.now(); scene.setPaused(true); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
     expect(seams.order.filter((entry) => /^(before|world:|after)/.test(entry))).toEqual([]); expect(seams.worldSteps).toBe(0);
     scene.setPaused(false); seams.frames.shift()?.(now + 34); expect(seams.order.slice(-4, -1)).toEqual(["before:1", "world:2", "after:1"]); expect(seams.projectedSamples).toContain(seams.courseSamples);
-    seams.frames.shift()?.(now + 60_100); expect(seams.emitted).not.toContain("timeout"); scene.dispose();
+    seams.frames.shift()?.(now + 60_100); expect(seams.emitted).toContain("timeout"); scene.dispose();
   });
 
   it("restarts and tears down every instance exactly once", async () => {

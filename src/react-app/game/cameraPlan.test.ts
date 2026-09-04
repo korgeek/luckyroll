@@ -20,13 +20,20 @@ const field = (count: number, offset = 0): RaceFocusTarget[] => Array.from({ len
 const mutableShot = (): CameraShot => ({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 });
 
 describe("track-bound race camera plan", () => {
-  it.each(["overview", "side", "profile", "leader", "trailer", "finish"] as const)("frames the %s debug shot inside the track bounds", (name) => {
+  it.each(["overview", "bird", "side", "profile", "leader", "trailer", "finish"] as const)("frames the %s debug shot inside the track bounds", (name) => {
     const shot = getCameraShot(name, canonicalTrackBounds);
 
     expect(isFiniteVec3(shot.position)).toBe(true);
     expect(isFiniteVec3(shot.lookAt)).toBe(true);
     expect(shot.near).toBeLessThan(shot.far);
     expect(shot.far).toBeGreaterThan(canonicalTrackBounds.radius * 2);
+  });
+
+  it("centers the bird view directly above the whole track", () => {
+    const shot = getCameraShot("bird", canonicalTrackBounds);
+    expect(shot.position.x).toBeCloseTo(canonicalTrackBounds.center.x, 8);
+    expect(Math.abs(shot.position.z - canonicalTrackBounds.center.z)).toBeLessThan(canonicalTrackBounds.radius * 0.01);
+    expect(shot.position.y).toBeGreaterThan(canonicalTrackBounds.center.y + canonicalTrackBounds.radius * 2);
   });
 
   it("falls back to a finite usable bounds when samples are empty or malformed", () => {

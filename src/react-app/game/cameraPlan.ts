@@ -1,6 +1,6 @@
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 
-export type CameraShotName = "overview" | "side" | "profile" | "leader" | "trailer" | "finish";
+export type CameraShotName = "overview" | "bird" | "side" | "profile" | "leader" | "trailer" | "finish";
 export type TrackBounds = Readonly<{ center: Vec3; radius: number }>;
 export type CameraShot = { position: { x: number; y: number; z: number }; lookAt: { x: number; y: number; z: number }; near: number; far: number };
 export type RaceFocusTarget = Readonly<{ id: string | number; progress: number }>;
@@ -40,7 +40,7 @@ const writeClip = (target: CameraShot, bounds: TrackBounds): void => {
 };
 
 const offsets: Readonly<Record<CameraShotName, Readonly<Vec3>>> = Object.freeze({
-  overview: { x: 0.88, y: 1.42, z: 1.16 }, side: { x: 1.72, y: 0.56, z: 0.16 }, profile: { x: 0.22, y: 0.44, z: 1.8 },
+  overview: { x: 0.88, y: 1.42, z: 1.16 }, bird: { x: 0, y: 2.2, z: 0.001 }, side: { x: 1.72, y: 0.56, z: 0.16 }, profile: { x: 0.22, y: 0.44, z: 1.8 },
   leader: { x: 0.76, y: 0.56, z: 0.92 }, trailer: { x: -0.76, y: 0.5, z: 0.92 }, finish: { x: -0.68, y: 0.7, z: 1.08 },
 });
 

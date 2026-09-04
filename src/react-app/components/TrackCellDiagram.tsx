@@ -17,6 +17,6 @@ export function TrackCellDiagram({ cell }: { cell: Exclude<TrackCell, null> }): 
 		{ports.map((port) => <circle key={port} cx={POINTS[port][0]} cy={POINTS[port][1]} r="4" data-port={port} />)}
 		{cell.kind === "start" && <text x="50" y="56">START</text>}
 		{cell.kind === "finish" && <text x="50" y="56">FINISH</text>}
-		{cell.kind !== "start" && cell.kind !== "finish" && GLYPHS[cell.kind] && <text x="50" y="56">{GLYPHS[cell.kind]}</text>}
+		{cell.kind !== "start" && cell.kind !== "finish" && GLYPHS[cell.kind] && <text className="track-feature-glyph" x="50" y="61">{GLYPHS[cell.kind]}</text>}
 	</svg>;
 }

@@ -17,11 +17,11 @@ describe("TrackLibraryPanel", () => {
 		expect(onEdit).toHaveBeenCalledWith("b");
 	});
 
-	it("sorts custom tracks newest first and keeps built-in selection separate", async () => {
+	it("sorts custom tracks newest first and keeps Default Track selection separate", async () => {
 		const h = handlers();
 		render(<TrackLibraryPanel tracks={[local("old", "Old", 1), local("new", "New", 2)]} {...h} />);
 		expect(screen.getAllByRole("listitem").map((item) => item.textContent?.startsWith("New"))).toEqual([true, false]);
-		await userEvent.click(screen.getByRole("button", { name: "Built-in track" }));
+		await userEvent.click(screen.getByRole("button", { name: "Default Track" }));
 		expect(h.onSelect).toHaveBeenCalledWith(undefined);
 	});
 

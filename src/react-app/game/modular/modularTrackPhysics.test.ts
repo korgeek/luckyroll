@@ -16,7 +16,7 @@ import {
   initializeTrackPhysics,
 } from "../track/trackPhysics";
 import { resolveModuleDevices } from "./moduleDevices";
-import { buildStartRampBridge } from "../track/obstacleGeometry";
+import { MARBLE_DIAMETER } from "./modularTypes";
 
 const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => ({
   x: (1 - 2 * (quaternion.y ** 2 + quaternion.z ** 2)) * vector.x + 2 * (quaternion.x * quaternion.y - quaternion.z * quaternion.w) * vector.y + 2 * (quaternion.x * quaternion.z + quaternion.y * quaternion.w) * vector.z,
@@ -33,7 +33,7 @@ const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b
 const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), z: 0, w: Math.cos(radians / 2) });
 
 describe("modular track physics", () => {
-  it("creates one fixed welded trimesh with internal-edge fixing", async () => {
+  it("creates one welded track mesh and four solid start enclosure colliders", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
@@ -41,10 +41,9 @@ describe("modular track physics", () => {
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
-    const expectedRamp = buildStartRampBridge(resolveModuleDevices(built.track, built.route, built.samples).start.frame);
-    const ramp = resources.fixedColliders.find((collider) => collider.shapeType() === rapier.ShapeType.TriMesh && (collider.shape as InstanceType<typeof rapier.TriMesh>).vertices.length === expectedRamp.positions.length);
-    expect(ramp).toBeDefined();
-    if (ramp) expect((ramp.shape as InstanceType<typeof rapier.TriMesh>).vertices).toEqual(expectedRamp.positions);
+    const enclosure = resources.fixedColliders.slice(0, 4);
+    expect(enclosure.every((collider) => collider.shapeType() === rapier.ShapeType.Cuboid)).toBe(true);
+    expect(enclosure.every((collider) => collider.parent()?.numColliders() === 4)).toBe(true);
     resources.dispose();
     world.free();
   });
@@ -56,7 +55,7 @@ describe("modular track physics", () => {
     const resources = createModularPhysics(world, built);
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
     const rapier = getInitializedTrackPhysicsRapier();
-    const bumpers = resources.fixedColliders.filter((collider) => collider.shapeType() === rapier.ShapeType.Cuboid || collider.shapeType() === rapier.ShapeType.Cylinder);
+    const bumpers = resources.fixedColliders.filter((collider) => collider.parent()?.numColliders() === 3);
     expect(bumpers).toHaveLength(devices.bumpers.length * 3);
     for (let index = 0; index < devices.bumpers.length; index += 1) {
       const bumper = devices.bumpers[index]!;
@@ -97,11 +96,25 @@ describe("modular track physics", () => {
     expect(applyBoosterVelocity({ x: 10, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, compact, 2, 1, 3)).toEqual({ x: 12, y: 0, z: 0 });
   });
 
-  it("creates deterministic non-overlapping bowl launch positions without stepping", () => {
+  it("randomizes 100 non-overlapping launch slots across the first channel", () => {
     const built = buildModularTrack(createValidTrackDesign());
     const first = createModularLaunchPositions(100, built, 23);
     const second = createModularLaunchPositions(100, built, 23);
+    const otherSeed = createModularLaunchPositions(100, built, 37);
     expect(second).toEqual(first);
+    expect(otherSeed.map(({ row, column }) => [row, column])).not.toEqual(first.map(({ row, column }) => [row, column]));
+    expect(new Set(first.map(({ row, column }) => `${row}:${column}`)).size).toBe(100);
+    expect(first.every(({ row, column }) => row >= 0 && row < 10 && column >= 0 && column < 10)).toBe(true);
+    const start = resolveModuleDevices(built.track, built.route, built.samples).start;
+    const gateOffset = { x: start.gate.center.x - start.frame.position.x, y: start.gate.center.y - start.frame.position.y, z: start.gate.center.z - start.frame.position.z };
+    const gateNearFace = gateOffset.x * start.frame.tangent.x + gateOffset.y * start.frame.tangent.y + gateOffset.z * start.frame.tangent.z - start.gate.depth / 2;
+    for (const position of first) {
+      const offset = { x: position.x - start.frame.position.x, y: position.y - start.frame.position.y, z: position.z - start.frame.position.z };
+      const along = offset.x * start.frame.tangent.x + offset.y * start.frame.tangent.y + offset.z * start.frame.tangent.z;
+      expect(along).toBeGreaterThan(0);
+      expect(along - MARBLE_DIAMETER / 2).toBeGreaterThanOrEqual(0.25);
+      expect(along + MARBLE_DIAMETER / 2).toBeLessThanOrEqual(gateNearFace);
+    }
     for (let left = 0; left < first.length; left += 1) for (let right = left + 1; right < first.length; right += 1) {
       const a = first[left]; const b = first[right];
       expect(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)).toBeGreaterThanOrEqual(0.68);
@@ -154,13 +167,14 @@ describe("modular track physics", () => {
     }
   });
 
-  it("keeps the start gate visual-only and delays launch until the countdown opens", async () => {
+  it("keeps the physical start gate closed until the countdown opens", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
-    expect(world.colliders.len()).toBe(3 + devices.bumpers.length * 3 + devices.pinwheels.length * 3);
+    expect(world.colliders.len()).toBe(6 + devices.bumpers.length * 3 + devices.pinwheels.length * 3);
+    expect(resources.fixedColliders).toHaveLength(4 + devices.bumpers.length * 3);
     const [body] = createMarbleBodies(world, createModularLaunchPositions(1, built, 11));
     let firstOpenStep;
     let launchedVelocity;
@@ -215,5 +229,12 @@ describe("modular track physics", () => {
     expect(first.seed).toBe(23);
     expect(first.finishOrder).toEqual([]);
     expect(first.boosterCapViolations).toEqual([]);
+  });
+
+  it("releases all 100 marbles without a start escape or stall", async () => {
+    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 5 });
+    expect(result.escapes).toEqual([]);
+    expect(result.stalls).toEqual([]);
+    expect(result.nonFinite).toEqual([]);
   });
 });

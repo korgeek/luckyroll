@@ -21,7 +21,7 @@ export type SceneEvent =
   | { type: "dnf"; marble: Marble; reason: "escape" | "non-finite" }
   | { type: "error"; message: string }
   | { type: "timeout"; remaining: Marble[] };
-export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; setPaused: (paused: boolean) => void; reset: () => void; dispose: () => void };
+export type RaceScene = { start: (marbles: Marble[], seed: number) => void; restartRemaining: (marbles: Marble[]) => void; setPaused: (paused: boolean) => void; setBirdView: (enabled: boolean) => void; reset: () => void; dispose: () => void };
 type Ball = { id: number; marble: Marble; body: RapierBody; done: boolean; progress: number; sampleIndex: number; position: Vec3; mesh: THREE.InstancedMesh; renderIndex: number };
 type TranslatingBody = Readonly<{ translation: () => Vec3 }>;
 export type CameraRankItem = Readonly<{ done: boolean; progress: number }>;
@@ -227,7 +227,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     course = createRaceCourse(selection, { debug: debugEnabled });
   } catch (error) {
     emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
-    return { start: () => undefined, restartRemaining: () => undefined, setPaused: () => undefined, reset: () => undefined, dispose: () => undefined };
+    return { start: () => undefined, restartRemaining: () => undefined, setPaused: () => undefined, setBirdView: () => undefined, reset: () => undefined, dispose: () => undefined };
   }
   const profile = selectQualityProfile({ width: window.innerWidth, devicePixelRatio: window.devicePixelRatio });
   const debug = createDebugCameraState(debugEnabled);
@@ -255,7 +255,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const liveBalls: Ball[] = [];
   const rankedCameraBalls: Ball[] = [];
   let running = false; let timedOut = false; let last = performance.now(); let fixedAccumulator = 0; let disposed = false;
-  let manualPaused = false; let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
+  let manualPaused = false; let birdView = false; let pauseStarted = 0; let pausedDuration = 0; let debugWasPaused = false; let activeShot: CameraShotName = "overview";
   let frameId: number | undefined;
   let controls = initialCameraControls; const pointers = new Map<number, { x: number; y: number }>(); const panPointers = new Set<number>(); let pinchDistance: number | undefined; let lastCameraInputAt = last;
   const dummy = new THREE.Object3D();
@@ -341,7 +341,10 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   const updateCamera = (elapsedMs: number, leaderProgress: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
-    if (reducedMotion) {
+    if (birdView) {
+      activeShot = "bird"; controls = initialCameraControls;
+      writeCameraShot(cameraShot, activeShot, bounds);
+    } else if (reducedMotion) {
       activeShot = "overview";
       writeCameraShot(cameraShot, activeShot, bounds);
     } else if (debug.isPaused()) {
@@ -413,7 +416,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       refreshCameraRankView(liveBalls, rankedCameraBalls);
       const leader = rankedCameraBalls[0]; const trailer = rankedCameraBalls[rankedCameraBalls.length - 1];
       updateCamera(elapsedMs, leader?.progress ?? 0); emit({ type: "tick", elapsedMs, finishedCount: balls.length - liveBalls.length, remaining: liveBalls.map((ball) => ball.marble), leader: leader?.marble, trailer: trailer?.marble });
-      if (course.kind === "builtin" && elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
+      if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
     if (paused) updateCamera(raceClock.elapsedMs(now, pausedDuration, pauseStarted, true), rankedCameraBalls[0]?.progress ?? 0);
@@ -442,6 +445,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     start: (marbles, seed) => starts?.requestStart({ marbles, seed }),
     restartRemaining: (marbles) => starts?.requestStart({ marbles, seed: Date.now(), remainingRestart: true }),
     setPaused: (paused) => { manualPaused = paused; },
+    setBirdView: (enabled) => { birdView = enabled; if (enabled) controls = initialCameraControls; },
     reset: () => { starts?.reset(); raceFocus.reset(); raceClock.reset(); stopRace(); },
     dispose: teardown,
   };

@@ -31,6 +31,7 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 	const timer = useRef<number | undefined>(undefined);
 	const longPress = useRef(false);
 	const [menuCell, setMenuCell] = useState<number | null>(null);
+	const [paletteArmed, setPaletteArmed] = useState(false);
 	const dispatch = (action: EditorAction) => onChange(editorReducer(state, action));
 	const clearTimer = () => { if (timer.current !== undefined) window.clearTimeout(timer.current); timer.current = undefined; };
 	const startLongPress = (cellIndex: number) => {
@@ -48,27 +49,27 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 		if (event.key === "ArrowRight") next = column < COLUMNS - 1 ? index + 1 : index;
 		if (next !== index && (state.draft.cells[next]?.kind === "start" || state.draft.cells[next]?.kind === "finish")) next = index;
 		if (next !== index) { event.preventDefault(); dispatch({ type: "focus", cellIndex: next }); document.querySelector<HTMLButtonElement>(`[data-cell-index="${next}"]`)?.focus(); return; }
-		if (event.key === "Enter" || event.key === " ") { event.preventDefault(); dispatch({ type: state.draft.cells[index] === null ? "place" : "rotate", cellIndex: index }); }
+		if (event.key === "Enter" || event.key === " ") { event.preventDefault(); dispatch({ type: state.draft.cells[index] === null ? "place" : paletteArmed ? "replace" : "rotate", cellIndex: index }); setPaletteArmed(false); }
 		if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); dispatch({ type: "clear", cellIndex: index }); }
 	};
 	const handleCellClick = (index: number) => {
 		clearTimer();
 		if (longPress.current) { longPress.current = false; return; }
-		dispatch({ type: state.draft.cells[index] === null ? "place" : "rotate", cellIndex: index });
+		dispatch({ type: state.draft.cells[index] === null ? "place" : paletteArmed ? "replace" : "rotate", cellIndex: index }); setPaletteArmed(false);
 	};
 
 	return <main className="track-editor" aria-label="Track editor">
 		<header className="track-editor-header"><button className="secondary-button" onClick={() => (!state.dirty || window.confirm("Discard unsaved changes?")) && onBack()}>Back</button><div><p className="eyebrow">MODULAR TRACK DESIGNER</p><h1>Build your route</h1></div><button className="primary-button" disabled={!state.validation.ok} onClick={onSave}>Save</button></header>
 		<label className="track-name">Track name<input value={state.draft.name} maxLength={60} onChange={(event) => dispatch({ type: "name", name: event.target.value })} /></label>
 		<section className="track-editor-board" aria-label="Board editor">
-			<div className="palette" aria-label="Module palette">{PALETTE.map(([kind, label]) => <button key={kind} className={state.selectedKind === kind ? "selected" : ""} aria-pressed={state.selectedKind === kind} onClick={() => dispatch({ type: "palette", kind })}>{label}</button>)}</div>
+			<div className="palette" aria-label="Module palette">{PALETTE.map(([kind, label]) => <button key={kind} className={state.selectedKind === kind ? "selected" : ""} aria-pressed={state.selectedKind === kind} onClick={() => { dispatch({ type: "palette", kind }); setPaletteArmed(true); }}>{label}</button>)}</div>
 			<div className="track-board" role="grid" aria-label="5 column by 8 row track board">
 				{Array.from({ length: ROWS }, (_, row) => <div role="row" key={row}>{Array.from({ length: COLUMNS }, (_, column) => {
 					const index = row * COLUMNS + column; const cell = state.draft.cells[index]; const fixed = cell?.kind === "start" || cell?.kind === "finish";
 					return <button role="gridcell" className={`track-cell ${cell === null ? "empty" : "occupied"} ${fixed ? "fixed" : ""}`} data-cell-index={index} key={index} disabled={fixed} tabIndex={state.selectedCell === index ? 0 : -1} aria-label={cellLabel(cell, index)} onFocus={() => dispatch({ type: "focus", cellIndex: index })} onClick={() => handleCellClick(index)} onKeyDown={(event) => onCellKeyDown(event, index)} onPointerDown={() => startLongPress(index)} onPointerMove={clearTimer} onPointerUp={clearTimer} onPointerCancel={() => { clearTimer(); longPress.current = false; }}><span className="track-cell-kind" aria-hidden="true">{cell === null ? "+" : <TrackCellDiagram cell={cell} />}</span></button>;
 				})}</div>)}
 			</div>
-			<p className="track-editor-help">Tap empty cells to place. Tap modules to rotate. Use Enter, Space, or Delete.</p>
+			<p className="track-editor-help">Choose a module, then tap a cell to place or replace it. Hold a cell for more actions.</p>
 		</section>
 		<section className="cell-actions" role={menuCell === null ? undefined : "dialog"} aria-label="Cell actions"><span>{menuCell === null ? "Selected cell" : `Cell ${menuCell + 1}`}</span><button onClick={() => { dispatch({ type: "replace", cellIndex: menuCell ?? state.selectedCell }); setMenuCell(null); }}>Replace</button><button onClick={() => { dispatch({ type: "clear", cellIndex: menuCell ?? state.selectedCell }); setMenuCell(null); }}>Clear</button></section>
 		<div className="track-editor-footer"><button className="secondary-button" disabled={!state.validation.ok} onClick={onShare}>Share</button><button className="primary-button" disabled={!state.validation.ok} onClick={onPlay}>Test Play</button></div>

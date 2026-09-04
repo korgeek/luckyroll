@@ -32,7 +32,6 @@ export function SetupScreen({ onStart, tracks = [], selectedTrackId, onNewTrack 
 
 	return <section className="setup-card" aria-label="Game setup">
 		<p className="eyebrow">INSTANT PARTY GAME</p><h1>LUCKY ROLL</h1><p className="tagline">Who&apos;s last?</p>
-		<TrackLibraryPanel tracks={tracks} selectedTrackId={selectedTrackId} onNew={onNewTrack} onEdit={onEditTrack} onSelect={onSelectTrack} onPlay={onPlayTrack} onShare={onShareTrack} onDelete={onDeleteTrack} onImport={onImportTrack} />
 		<div className="mode-switch"><button className={mode === "race" ? "selected" : ""} onClick={() => setMode("race")}>Race</button><button className={mode === "teams" ? "selected" : ""} onClick={() => setMode("teams")}>Team Split</button></div>
 		<div className="section-title"><span>PLAYERS</span><button className="text-button" onClick={() => setNames((current) => [...current].sort(() => Math.random() - 0.5))}>Shuffle</button></div>
 		<div className="name-list">{names.map((name, index) => <label className="name-row" key={index}><span className="player-dot" style={{ background: COLORS[index] }}>{SYMBOLS[index]}</span><span className="sr-only">Player {index + 1}</span><input aria-label={`Player ${index + 1}`} value={name} maxLength={16} onChange={(event) => update(index, event.target.value)} />{names.length > 2 && <button className="remove-button" aria-label={`Remove player ${index + 1}`} onClick={() => setNames((current) => current.filter((_, removeIndex) => removeIndex !== index))}>×</button>}</label>)}</div>
@@ -40,5 +39,6 @@ export function SetupScreen({ onStart, tracks = [], selectedTrackId, onNewTrack 
 		{mode === "race" ? <label className="field-label">Prize Pool <span>optional</span><input aria-label="Prize Pool" inputMode="numeric" placeholder="0" value={prizePool} onChange={(event) => setPrizePool(event.target.value.replace(/[^0-9]/g, ""))} /></label> : <div className="team-choice"><span>Teams</span><button className={teamCount === 2 ? "selected" : ""} onClick={() => setTeamCount(2)}>2 Teams</button><button className={teamCount === 3 ? "selected" : ""} disabled={names.length < 3} onClick={() => setTeamCount(3)}>3 Teams</button></div>}
 		<p className="allocation-note">{mode === "race" ? "100 marbles split as evenly as possible." : "Everyone gets one marble. Teams stay balanced."}</p>
 		<button className="primary-button" onClick={submit}>{mode === "race" ? "START RACE" : "MIX TEAMS"}</button>
+		<TrackLibraryPanel tracks={tracks} selectedTrackId={selectedTrackId} onNew={onNewTrack} onEdit={onEditTrack} onSelect={onSelectTrack} onPlay={onPlayTrack} onShare={onShareTrack} onDelete={onDeleteTrack} onImport={onImportTrack} />
 	</section>;
 }

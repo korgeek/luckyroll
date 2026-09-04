@@ -132,6 +132,20 @@ export const buildStartRampBridge = (frame: ResolvedFrame): IndexedGeometry => {
   return indexed(positions, indices);
 };
 
+/** Open-front holding pen for the modular start. The gate closes the remaining side. */
+export const buildStartEnclosure = (frame: ResolvedFrame, length: number, width: number, wallHeight: number): IndexedGeometry => {
+  const positions: number[] = []; const indices: number[] = []; const halfWidth = width / 2;
+  const quad = (a: Vec3, b: Vec3, c: Vec3, d: Vec3): void => {
+    const offset = positions.length / 3; [a, b, c, d].forEach((point) => write(positions, point));
+    indices.push(offset, offset + 1, offset + 2, offset + 1, offset + 3, offset + 2);
+  };
+  quad(inFrame(frame, 0, -halfWidth), inFrame(frame, 0, halfWidth), inFrame(frame, length, -halfWidth), inFrame(frame, length, halfWidth));
+  quad(inFrame(frame, 0, -halfWidth), inFrame(frame, length, -halfWidth), inFrame(frame, 0, -halfWidth, wallHeight), inFrame(frame, length, -halfWidth, wallHeight));
+  quad(inFrame(frame, length, halfWidth), inFrame(frame, 0, halfWidth), inFrame(frame, length, halfWidth, wallHeight), inFrame(frame, 0, halfWidth, wallHeight));
+  quad(inFrame(frame, 0, halfWidth), inFrame(frame, 0, -halfWidth), inFrame(frame, 0, halfWidth, wallHeight), inFrame(frame, 0, -halfWidth, wallHeight));
+  return indexed(positions, indices);
+};
+
 const sampleBranchPath = (samples: readonly TrackGeometry["samples"][number][], kind: "left" | "middle" | "right"): Float32Array => {
   const values: number[] = []; const count = 17;
   for (let i = 0; i < count; i += 1) {

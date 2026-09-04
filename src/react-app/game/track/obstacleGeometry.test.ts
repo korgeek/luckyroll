@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildObstacleGeometry, buildStartRampBridge } from "./obstacleGeometry";
+import { buildObstacleGeometry, buildStartEnclosure, buildStartRampBridge } from "./obstacleGeometry";
 import { MIN_DEVICE_CLEARANCE } from "./obstacleLayout";
 import { buildValidatedTrack } from "./trackBuild";
 import { projectToTrack } from "./trackSampler";
@@ -34,6 +34,19 @@ describe("neon obstacle geometry", () => {
   it("keeps canonical U-channel buffers untouched while adding a 1.2-unit shell", () => {
     const positions = track.geometry.positions; const indices = track.geometry.indices; const r = buildObstacleGeometry(track.geometry, resolved);
     expect(track.geometry.positions).toBe(positions); expect(track.geometry.indices).toBe(indices); expect(r.shell.positions).not.toBe(positions); expect(r.shell.thickness).toBeGreaterThanOrEqual(1.2);
+  });
+  it("builds a rectangular start floor with four-unit back and side walls", () => {
+    const frame = resolved.start.frame;
+    const enclosure = buildStartEnclosure(frame, 10.2, 10.4, 4);
+    const relative = Array.from({ length: enclosure.positions.length / 3 }, (_, index) => {
+      const p = point(enclosure, index);
+      const offset = [p[0] - frame.position.x, p[1] - frame.position.y, p[2] - frame.position.z] as const;
+      return { along: dot(offset, frame.tangent), lateral: dot(offset, frame.side), height: dot(offset, frame.up) };
+    });
+    expect(Math.min(...relative.map(({ along }) => along))).toBeCloseTo(0, 5);
+    expect(Math.max(...relative.map(({ along }) => along))).toBeCloseTo(10.2, 5);
+    expect(Math.max(...relative.map(({ lateral }) => Math.abs(lateral)))).toBeCloseTo(5.2, 5);
+    expect(Math.max(...relative.map(({ height }) => height))).toBeCloseTo(4, 5);
   });
   it("builds actual contained 18-unit peg and pusher halls from resolved frames", () => {
     const r = buildObstacleGeometry(track.geometry, resolved);
