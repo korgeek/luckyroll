@@ -112,7 +112,7 @@ const channelThroat = (frame: ResolvedFrame, centerAlong: number, width: number,
   return indexed(positions, indices);
 };
 
-export const buildStartThroat = (frame: ResolvedFrame): IndexedGeometry => channelThroat(frame, 7.5, 3.4, 4.2, 0.72);
+export const buildStartThroat = (frame: ResolvedFrame, length = 4.2): IndexedGeometry => channelThroat(frame, 7.5, 3.4, length, 0.72);
 
 const sampleBranchPath = (samples: readonly TrackGeometry["samples"][number][], kind: "left" | "middle" | "right"): Float32Array => {
   const values: number[] = []; const count = 17;

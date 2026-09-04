@@ -197,7 +197,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   };
   const startBowl = buildWalledBowl(devices.start.frame, devices.start.radius, 1.55, 0.72, 6.05, devices.start.wallHeight, 0, 32);
   const bowlBody = world.createRigidBody(rapier.RigidBodyDesc.fixed());
-  const startThroat = buildStartThroat(devices.start.frame);
+  const startThroat = buildStartThroat(devices.start.frame, 6);
   addFixedBody(bowlBody, [
     world.createCollider(rapier.ColliderDesc.trimesh(startBowl.positions, startBowl.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody),
     world.createCollider(rapier.ColliderDesc.trimesh(startThroat.positions, startThroat.indices).setFriction(FRICTION).setRestitution(RESTITUTION), bowlBody),

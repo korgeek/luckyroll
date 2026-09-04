@@ -13,7 +13,7 @@ describe("modular track rendering", () => {
     expect(surface.geometry.getAttribute("position").array).toBe(built.geometry.positions);
     const throat = rendered.group.getObjectByName("modular-start-throat") as THREE.Mesh;
     expect(throat).toBeInstanceOf(THREE.Mesh);
-    expect(throat.geometry.getAttribute("position").array).toEqual(buildStartThroat(rendered.devices.start.frame).positions);
+    expect(throat.geometry.getAttribute("position").array).toEqual(buildStartThroat(rendered.devices.start.frame, 6).positions);
     expect(rendered.group.getObjectByName("booster-chevrons")?.userData.collider).toBe(false);
     const chevrons = rendered.group.getObjectByName("booster-chevrons");
     expect(chevrons?.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
