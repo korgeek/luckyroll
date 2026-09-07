@@ -46,6 +46,10 @@ const planeQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.
   return new THREE.Quaternion().setFromRotationMatrix(basis);
 };
 const material = (color: string, emissive?: string): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, ...(emissive === undefined ? {} : { emissive }), roughness: 0.48, metalness: 0.3 });
+const chevronGeometry = (): THREE.ShapeGeometry => {
+  const shape = new THREE.Shape(); shape.moveTo(-0.7, -0.45); shape.lineTo(0.7, 0); shape.lineTo(-0.7, 0.45); shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+};
 
 const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMaterial: THREE.Material): void => {
   if (devices.bumpers.length === 0) return;
@@ -86,8 +90,7 @@ const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMat
 const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMaterial: THREE.Material): void => {
   if (devices.boosters.length === 0) return;
   const chevrons = new THREE.Group(); chevrons.name = "booster-chevrons"; chevrons.userData.collider = false;
-  const shape = new THREE.Shape(); shape.moveTo(-0.7, -0.45); shape.lineTo(0.7, 0); shape.lineTo(-0.7, 0.45); shape.closePath();
-  const geometry = new THREE.ShapeGeometry(shape);
+  const geometry = chevronGeometry();
   devices.boosters.forEach((booster) => {
     const midpointDistance = (booster.startDistance + booster.endDistance) / 2;
     for (const [index, offset] of [-2, 0, 2].entries()) {
@@ -96,6 +99,27 @@ const createBoosters = (devices: ModuleDevices, group: THREE.Group, boosterMater
       mesh.position.copy(toVector(booster.center)).addScaledVector(toVector(booster.forward), distance - midpointDistance).addScaledVector(toVector(booster.up), 0.03).addScaledVector(toVector(booster.side), offset);
       mesh.quaternion.copy(planeQuaternion({ tangent: booster.forward, side: booster.side, up: booster.up }));
       chevrons.add(mesh);
+    }
+  });
+  group.add(chevrons);
+};
+
+const createCurveSafetyChevrons = (built: BuiltModularTrack, group: THREE.Group): void => {
+  const samples = new Map<number, (typeof built.samples)[number]>();
+  for (const sample of built.samples) {
+    if (built.track.cells[sample.cellIndex]?.kind !== "curve" || sample.localU <= 0.4 || sample.localU >= 0.6) continue;
+    const previous = samples.get(sample.cellIndex);
+    if (previous === undefined || Math.abs(sample.localU - 0.5) < Math.abs(previous.localU - 0.5)) samples.set(sample.cellIndex, sample);
+  }
+  if (samples.size === 0) return;
+  const chevrons = new THREE.Group(); chevrons.name = "curve-safety-chevrons"; chevrons.userData.collider = false;
+  const geometry = chevronGeometry(); const marker = material("#ff9d28", "#6f2a00");
+  samples.forEach((sample) => {
+    const innerSide = Math.sign(sample.centerlineCurvature.x * sample.side.x + sample.centerlineCurvature.y * sample.side.y + sample.centerlineCurvature.z * sample.side.z);
+    for (const offset of [-1.2, 0, 1.2]) {
+      const mesh = new THREE.Mesh(geometry, marker);
+      mesh.position.copy(toVector(sample.position)).addScaledVector(toVector(sample.side), innerSide * 1.2).addScaledVector(toVector(sample.tangent), offset).addScaledVector(toVector(sample.up), 0.035);
+      mesh.quaternion.copy(planeQuaternion(sample)); chevrons.add(mesh);
     }
   });
   group.add(chevrons);
@@ -127,6 +151,7 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
+  createCurveSafetyChevrons(built, group);
   group.userData[REFS] = refs;
   let disposed = false;
   const resources: ModularRenderResources = { group, devices, dispose: () => { if (disposed) return; disposed = true; disposeGroup(group); delete group.userData[REFS]; } };

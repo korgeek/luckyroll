@@ -13,7 +13,8 @@ export const FLOOR_SPAN = 0.55;
 const WALL_SEGMENTS = 62;
 const FLOOR_SEGMENTS = PROFILE_SEGMENTS - WALL_SEGMENTS * 2;
 const WALL_RISE_HEIGHT = RAIL_HEIGHT * 0.7875;
-const CURVE_INNER_RAIL_HEIGHT = 5;
+const CURVE_INNER_RAIL_HEIGHT = 3;
+export const CURVE_INNER_INSET = 2.8;
 
 export type ChannelProfilePoint = Readonly<{ lateral: number; height: number }>;
 
@@ -34,15 +35,19 @@ const bezier = (
 };
 
 /** The one cross-section used by every modular render and collider row. */
-export const profileAt = (width: number, leftHeight = RAIL_HEIGHT, rightHeight = RAIL_HEIGHT): readonly ChannelProfilePoint[] => {
-  const half = width / 2;
-  const floorHalf = width * FLOOR_SPAN / 2;
-  const floor = { lateral: floorHalf, height: 0 };
+export const profileAt = (
+  width: number,
+  leftHeight = RAIL_HEIGHT,
+  rightHeight = RAIL_HEIGHT,
+  leftHalfWidth = width / 2,
+  rightHalfWidth = width / 2,
+): readonly ChannelProfilePoint[] => {
   const points: ChannelProfilePoint[] = [];
 
-  const wallSpan = half - floorHalf;
-  const wall = (height: number): readonly ChannelProfilePoint[] => {
-    const tip = { lateral: half, height };
+  const wall = (halfWidth: number, height: number): readonly ChannelProfilePoint[] => {
+    const floor = { lateral: halfWidth * FLOOR_SPAN, height: 0 };
+    const tip = { lateral: halfWidth, height };
+    const wallSpan = halfWidth - floor.lateral;
     const result: ChannelProfilePoint[] = [];
     for (let index = 0; index <= WALL_SEGMENTS; index += 1) result.push(freeze(bezier(
       floor,
@@ -53,9 +58,9 @@ export const profileAt = (width: number, leftHeight = RAIL_HEIGHT, rightHeight =
     )));
     return result;
   };
-  const rightHalf = wall(rightHeight);
-  const floorPoints = Array.from({ length: FLOOR_SEGMENTS + 1 }, (_, index) => freeze({ lateral: lerp(-floorHalf, floorHalf, index / FLOOR_SEGMENTS), height: 0 }));
-  const leftHalf = wall(leftHeight).map((point) => freeze({ lateral: -point.lateral, height: point.height })).reverse();
+  const rightHalf = wall(rightHalfWidth, rightHeight);
+  const leftHalf = wall(leftHalfWidth, leftHeight).map((point) => freeze({ lateral: -point.lateral, height: point.height })).reverse();
+  const floorPoints = Array.from({ length: FLOOR_SEGMENTS + 1 }, (_, index) => freeze({ lateral: lerp(-leftHalfWidth * FLOOR_SPAN, rightHalfWidth * FLOOR_SPAN, index / FLOOR_SEGMENTS), height: 0 }));
   points.push(...leftHalf, ...floorPoints.slice(1), ...rightHalf.slice(1));
   return Object.freeze(points);
 };
@@ -75,7 +80,14 @@ const profileForFrame = (frame: Pick<ModulePathSample, "side" | "width"> & Reado
   const signedCurvature = frame.centerlineCurvature.x * frame.side.x + frame.centerlineCurvature.y * frame.side.y + frame.centerlineCurvature.z * frame.side.z;
   const bankBlend = Math.min(1, Math.abs(frame.side.y) / (Math.sin(MAX_CURVE_BANK) * Math.cos(ROUTE_GRADE)));
   const innerHeight = lerp(RAIL_HEIGHT, CURVE_INNER_RAIL_HEIGHT, bankBlend);
-  return profileAt(frame.width, signedCurvature < 0 ? innerHeight : RAIL_HEIGHT, signedCurvature > 0 ? innerHeight : RAIL_HEIGHT);
+  const innerHalfWidth = frame.width / 2 - CURVE_INNER_INSET * bankBlend;
+  return profileAt(
+    frame.width,
+    signedCurvature < 0 ? innerHeight : RAIL_HEIGHT,
+    signedCurvature > 0 ? innerHeight : RAIL_HEIGHT,
+    signedCurvature < 0 ? innerHalfWidth : frame.width / 2,
+    signedCurvature > 0 ? innerHalfWidth : frame.width / 2,
+  );
 };
 
 export const profileNormalsAt = (

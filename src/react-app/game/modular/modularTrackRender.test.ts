@@ -54,6 +54,18 @@ describe("modular track rendering", () => {
     disposeModularTrackRender(rendered);
   });
 
+  it("marks every curve's central safety zone with collider-free forward chevrons", () => {
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const rendered = createModularTrackRender(built);
+    const curveCells = new Set(built.samples.filter((sample) => built.track.cells[sample.cellIndex]?.kind === "curve").map((sample) => sample.cellIndex));
+    const chevrons = rendered.group.getObjectByName("curve-safety-chevrons")!;
+    expect(curveCells.size).toBeGreaterThan(0);
+    expect(chevrons.userData.collider).toBe(false);
+    expect(chevrons.children).toHaveLength(curveCells.size * 3);
+    expect(chevrons.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
+    disposeModularTrackRender(rendered);
+  });
+
   it("updates the canonical pinwheel pose and disposes idempotently", () => {
     const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign()));
     const arms = rendered.group.getObjectByName("pinwheel-arms") as THREE.InstancedMesh;

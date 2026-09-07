@@ -153,6 +153,9 @@ describe("welded modular channel geometry", () => {
       const inwardRail = Math.max(...[vertex(geometry, row, 0), vertex(geometry, row, PROFILE_SEGMENTS)].map((point) =>
         (point.x - sample.position.x) * inward.x + (point.z - sample.position.z) * inward.z));
       expect(inwardRail).toBeLessThan(radius - MARBLE_DIAMETER / 2);
+      if (sample.localU > 0.4 && sample.localU < 0.6) {
+        expect(radius - inwardRail).toBeGreaterThanOrEqual(3.4);
+      }
 
       const previous = samples[row - 1]; const next = samples[row + 1];
       if (previous?.cellIndex !== sample.cellIndex || next?.cellIndex !== sample.cellIndex) continue;

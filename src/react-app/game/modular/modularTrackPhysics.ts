@@ -15,7 +15,7 @@ import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
-import { profileAt } from "./moduleGeometry";
+import { CURVE_INNER_INSET, profileAt } from "./moduleGeometry";
 
 const TIMESTEP_SECONDS = 1 / 60;
 const TRACK_FRICTION = 0.05;
@@ -23,6 +23,9 @@ const FRICTION = 0.24;
 const RESTITUTION = 0.08;
 const BUMPER_RESTITUTION = 0.65;
 const MAX_BOOSTER_SPEED = 42;
+const CURVE_GUARD_MIN_SPEED = 12;
+const STALL_RECOVERY_SPEED = 8;
+const STALL_RECOVERY_STEPS = 3 / TIMESTEP_SECONDS;
 const DEFAULT_CELL_COUNT = 40;
 
 type RapierModule = typeof RAPIER_TYPE;
@@ -255,6 +258,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   const cellCount = built.track.cells.length;
   let consumed = createBoosterState(100, cellCount);
   let previousPositions = new WeakMap<RapierBody, Vec3>();
+  let recoveryStates = new WeakMap<RapierBody, { anchorDistance: number; stalledSteps: number }>();
   const ensureLive = (): void => { if (disposed) throw new Error("Modular physics resources have been disposed."); };
   const pose = (): ModularDevicePose => freeze({ elapsedSeconds, gateOpen, pusherCenter, pinwheelAngles: Object.freeze([...angles]) });
   const applyDevicePose = (next: boolean): void => {
@@ -297,24 +301,48 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
       const current = toVec3(body.translation());
       const previous = previousPositions.get(body);
       previousPositions.set(body, current);
-      if (previous === undefined) continue;
-      for (const booster of devices.boosters) {
-        if (!crossing(previous, current, booster)) continue;
-        const before = toVec3(body.linvel());
-        const beforeForwardSpeed = dot(before, booster.forward);
-        const wasConsumed = consumed[marbleIndex * cellCount + booster.cellIndex] !== 0;
-        const after = applyBoosterVelocity(before, booster.forward, consumed, booster.cellIndex, marbleIndex, cellCount);
-        if (after !== before) body.setLinvel(after, true);
-        if (!wasConsumed && beforeForwardSpeed > 0 && consumed[marbleIndex * cellCount + booster.cellIndex] !== 0) {
-          events.push(Object.freeze({ marbleId: marbleIndex + 1, cellIndex: booster.cellIndex, beforeForwardSpeed, afterForwardSpeed: dot(after, booster.forward) }));
+      if (![current.x, current.y, current.z].every(Number.isFinite)) continue;
+      let velocity = toVec3(body.linvel());
+      if (![velocity.x, velocity.y, velocity.z].every(Number.isFinite)) continue;
+      if (previous !== undefined) {
+        for (const booster of devices.boosters) {
+          if (!crossing(previous, current, booster)) continue;
+          const beforeForwardSpeed = dot(velocity, booster.forward);
+          const wasConsumed = consumed[marbleIndex * cellCount + booster.cellIndex] !== 0;
+          const after = applyBoosterVelocity(velocity, booster.forward, consumed, booster.cellIndex, marbleIndex, cellCount);
+          if (after !== velocity) { velocity = after; body.setLinvel(after, true); }
+          if (!wasConsumed && beforeForwardSpeed > 0 && consumed[marbleIndex * cellCount + booster.cellIndex] !== 0) {
+            events.push(Object.freeze({ marbleId: marbleIndex + 1, cellIndex: booster.cellIndex, beforeForwardSpeed, afterForwardSpeed: dot(after, booster.forward) }));
+          }
         }
       }
+
+      const sample = built.samples[projectToTrack(current, built.samples).sampleIndex];
+      const slot = marbleIndex * cellCount + sample.cellIndex;
+      const forwardSpeed = dot(velocity, sample.tangent);
+      const innerContact = Math.sign(dot(sample.centerlineCurvature, sample.side)) * dot(subtract(current, sample.position), sample.side)
+        >= CHANNEL_WIDTH / 2 - CURVE_INNER_INSET - MARBLE_DIAMETER;
+      if (built.track.cells[sample.cellIndex]?.kind === "curve" && sample.localU > 0.4 && sample.localU < 0.6 && innerContact && consumed[slot] === 0 && forwardSpeed < CURVE_GUARD_MIN_SPEED) {
+        const after = add(velocity, scale(sample.tangent, CURVE_GUARD_MIN_SPEED - forwardSpeed));
+        consumed[slot] = 1; velocity = after; body.setLinvel(after, true);
+        events.push(Object.freeze({ marbleId: marbleIndex + 1, cellIndex: sample.cellIndex, beforeForwardSpeed: forwardSpeed, afterForwardSpeed: CURVE_GUARD_MIN_SPEED }));
+      }
+
+      const state = recoveryStates.get(body) ?? { anchorDistance: sample.distance, stalledSteps: 0 };
+      if (sample.distance >= state.anchorDistance + MARBLE_DIAMETER / 2 || dot(velocity, sample.tangent) >= 1 || sample.zone !== "run") {
+        state.anchorDistance = sample.distance; state.stalledSteps = 0;
+      } else if (++state.stalledSteps >= STALL_RECOVERY_STEPS) {
+        const currentForward = dot(velocity, sample.tangent);
+        body.setLinvel(add(add(velocity, scale(sample.tangent, STALL_RECOVERY_SPEED - currentForward)), scale(sample.up, 1.5)), true);
+        state.anchorDistance = sample.distance; state.stalledSteps = 0;
+      }
+      recoveryStates.set(body, state);
     }
     return Object.freeze(events);
   };
   const reset = (remainingRestart = false): ModularDevicePose => {
     ensureLive();
-    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; pusherCenter = devices.start.pusher.center; consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>();
+    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; pusherCenter = devices.start.pusher.center; consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>(); recoveryStates = new WeakMap<RapierBody, { anchorDistance: number; stalledSteps: number }>();
     applyDevicePose(false);
     return pose();
   };

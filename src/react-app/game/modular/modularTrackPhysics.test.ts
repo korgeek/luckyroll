@@ -145,6 +145,57 @@ describe("modular track physics", () => {
     expect(applyBoosterVelocity({ x: 10, y: 2, z: 3 }, { x: 1, y: 0, z: 0 }, state, 4, 0)).toEqual({ x: 10, y: 2, z: 3 });
   });
 
+  it("pushes slow marbles forward only near the tight inner curve centre", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const curve = built.samples.find((sample) => built.track.cells[sample.cellIndex]?.kind === "curve" && sample.localU > 0.4 && sample.localU < 0.6)!;
+    const innerSide = Math.sign(dot(curve.centerlineCurvature, curve.side));
+    const [inner, outer] = createMarbleBodies(world, [innerSide * 3.5, -innerSide * 2].map((lateral, column) => ({
+      x: curve.position.x + curve.side.x * lateral + curve.up.x * MARBLE_DIAMETER,
+      y: curve.position.y + curve.side.y * lateral + curve.up.y * MARBLE_DIAMETER,
+      z: curve.position.z + curve.side.z * lateral + curve.up.z * MARBLE_DIAMETER,
+      crossOffset: 0, row: 0, column, physicalLaunchPosition: true as const,
+      forwardSpeed: 4,
+    })));
+    inner.setLinvel({ x: curve.tangent.x * 4, y: curve.tangent.y * 4, z: curve.tangent.z * 4 }, true);
+    outer.setLinvel({ x: curve.tangent.x * 4, y: curve.tangent.y * 4, z: curve.tangent.z * 4 }, true);
+
+    resources.stepAfterWorld([inner, outer]);
+
+    expect(dot(inner.linvel(), curve.tangent)).toBeCloseTo(12, 5);
+    expect(dot(outer.linvel(), curve.tangent)).toBeCloseTo(4, 5);
+    resources.dispose(); world.free();
+  });
+
+  it("nudges a marble forward and up after three seconds without route progress", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const sample = built.samples.find((candidate) => built.track.cells[candidate.cellIndex]?.kind === "straight" && candidate.localU > 0.4)!;
+    const [body] = createMarbleBodies(world, [{
+      x: sample.position.x + sample.up.x * MARBLE_DIAMETER,
+      y: sample.position.y + sample.up.y * MARBLE_DIAMETER,
+      z: sample.position.z + sample.up.z * MARBLE_DIAMETER,
+      crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true,
+    }]);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+
+    for (let step = 0; step < 179; step += 1) {
+      resources.stepBeforeWorld();
+      resources.stepAfterWorld([body]);
+    }
+    expect(dot(body.linvel(), sample.tangent)).toBeCloseTo(0, 5);
+    resources.stepBeforeWorld();
+    resources.stepAfterWorld([body]);
+
+    expect(dot(body.linvel(), sample.tangent)).toBeCloseTo(8, 5);
+    expect(dot(body.linvel(), sample.up)).toBeCloseTo(1.5, 5);
+    resources.dispose(); world.free();
+  });
+
   it("randomizes 100 non-overlapping launch slots across the first channel", () => {
     const built = buildModularTrack(createValidTrackDesign());
     const first = createModularLaunchPositions(100, built, 23);
