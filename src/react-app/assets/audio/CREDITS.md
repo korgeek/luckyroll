@@ -29,7 +29,6 @@ The generator checks finite samples, non-silence and quiet endpoints.
 | countdown / race-countdown.wav | 180 ms, 660 Hz beep on each of 3, 2, 1 |
 | win / race-fanfare.wav | 3-second original C-major brass-style fanfare |
 | boost / race-boost.wav | 550 ms filtered-noise passing gust |
-| pinwheel / race-pinwheel.wav | 160 ms soft, narrow-band air flap on blade contact; gain 0.22 |
 
 NOX vehicle recordings and the continuous RUSH engine loop were removed at user
 request. RUSH now uses music rather than engine ambience; unmuting does not replay its voice cue.
@@ -48,6 +47,7 @@ Kenney (Kenney Vleugels) assets, downloaded 2026-09-08, released under
 | dnf | Interface / drop_002.ogg |
 | timeout | Interface / error_003.ogg |
 | bumper (kenney-bumper.ogg) | Impact / impactMining_003.ogg (user-provided, copied unchanged) |
+| pinwheel (kenney-pinwheel.ogg) | Impact / impactSoft_heavy_002.ogg (user-provided, copied unchanged) |
 
 Other Kenney effects were converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
 `loudnorm=I=-18:TP=-3:LRA=7`. All assets ship locally, without a runtime CDN or audio library.

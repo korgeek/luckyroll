@@ -11,7 +11,7 @@ import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.ogg?url";
-import pinwheelUrl from "../assets/audio/race-pinwheel.wav?url";
+import pinwheelUrl from "../assets/audio/kenney-pinwheel.ogg?url";
 
 export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
