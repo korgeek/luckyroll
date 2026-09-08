@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { alongRouteDistance, attachSceneTrackCollider, createDebugCameraState, createFrameRateCounter, createLiveStandings, createRaceBoost, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, shouldEmitSceneTick, stepSceneObstacleResources } from "./MarbleRaceScene";
+import { alongRouteDistance, applyRushGrowth, attachSceneTrackCollider, createDebugCameraState, createFrameRateCounter, createLiveStandings, createRaceBoost, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, shouldEmitSceneTick, shouldStartRaceRush, stepSceneObstacleResources } from "./MarbleRaceScene";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -57,6 +57,20 @@ describe("continuous-track scene seams", () => {
 		expect(boost.remainingMs()).toBe(0);
 		boost.reset();
 		expect(boost.remainingMs()).toBe(5_000);
+	});
+
+	it("keeps BOOST's five-second charge wall time during RUSH double steps", () => {
+		const boost = createRaceBoost();
+		for (let step = 0; step < 599; step += 1) boost.step(activeBoostState, 0.5);
+		expect(boost.remainingMs()).toBeGreaterThan(0);
+		boost.step(activeBoostState, 0.5);
+		expect(boost.remainingMs()).toBe(0);
+	});
+
+	it("starts RUSH only for one through ten live marbles", () => {
+		expect(shouldStartRaceRush(11)).toBe(false);
+		expect(shouldStartRaceRush(10)).toBe(true);
+		expect(shouldStartRaceRush(0)).toBe(false);
 	});
 
 	it("boosts forward speed by half up to 42 without changing lateral or local-normal velocity", () => {
@@ -226,7 +240,7 @@ describe("continuous-track scene seams", () => {
     }
   });
 
-  it("initializes the shared physics module before the scene creates its collider and marbles", async () => {
+	it("initializes the shared physics module before the scene creates its collider and marbles", async () => {
     await initializeScenePhysics();
     const resources = createSceneTrackResources();
     const world = createTrackPhysicsWorld();
@@ -240,7 +254,19 @@ describe("continuous-track scene seams", () => {
     } finally {
       world.free();
     }
-  });
+	});
+
+	it("grows a live Rapier marble to RUSH size and lifts it above its old floor", async () => {
+		await initializeScenePhysics();
+		const resources = createSceneTrackResources(); const world = createTrackPhysicsWorld();
+		const [body] = createMarbleBodies(world, launchPositionsFor(createLaunchSlots(1), resources.built.geometry, 11));
+		const before = body.translation();
+		try {
+			applyRushGrowth(body, { x: 0, y: 1, z: 0 });
+			expect(body.collider(0)?.radius()).toBeCloseTo(0.51);
+			expect(body.translation().y).toBeCloseTo(before.y + 0.17);
+		} finally { world.free(); }
+	});
 
   it("drops a queued start when reset occurs before physics initialization", async () => {
     const initialization = deferred<void>();

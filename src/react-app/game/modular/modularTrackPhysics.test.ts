@@ -65,6 +65,15 @@ describe("modular track physics", () => {
     expect(result.boosterCapViolations).toEqual([]);
   }, 300_000);
 
+  it.runIf(process.env.RUN_MODULAR_300_VALIDATION === "1")("finishes a 300-marble mixed-device race without losses by 120 seconds", async () => {
+    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 300, durationSeconds: 120 });
+    expect(result.finishOrder).toHaveLength(300);
+    expect(result.nonFinite).toEqual([]);
+    expect(result.escapes).toEqual([]);
+    expect(result.stalls).toEqual([]);
+    expect(result.boosterCapViolations).toEqual([]);
+  }, 900_000);
+
   it("creates one welded track mesh without a legacy rear collider", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
@@ -179,7 +188,70 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
-  it.each([8, 18, 42] as const)("carries center and both mogul-line probes through the funnel at speed %i", async (speed) => {
+  it("skips disabled bodies without changing live marble indexes", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const curve = built.samples.find((sample) => built.track.cells[sample.cellIndex]?.kind === "curve" && sample.localU > 0.4 && sample.localU < 0.6)!;
+    const lateral = Math.sign(dot(curve.centerlineCurvature, curve.side)) * 3.5;
+    const bodies = createMarbleBodies(world, [0, 1].map((column) => ({
+      x: curve.position.x + curve.side.x * lateral + curve.up.x * MARBLE_DIAMETER,
+      y: curve.position.y + curve.side.y * lateral + curve.up.y * MARBLE_DIAMETER,
+      z: curve.position.z + curve.side.z * lateral + curve.up.z * MARBLE_DIAMETER,
+      crossOffset: lateral, row: 0, column, physicalLaunchPosition: true as const,
+    })));
+    bodies.forEach((body) => body.setLinvel({ x: curve.tangent.x * 4, y: curve.tangent.y * 4, z: curve.tangent.z * 4 }, true));
+    bodies[0]!.setEnabled(false);
+
+    const events = resources.stepAfterWorld(bodies);
+
+    expect(dot(bodies[0]!.linvel(), curve.tangent)).toBeCloseTo(4, 5);
+    expect(dot(bodies[1]!.linvel(), curve.tangent)).toBeCloseTo(12, 5);
+    expect(events).toContainEqual(expect.objectContaining({ marbleId: 2 }));
+    resources.dispose(); world.free();
+  });
+
+  it("carries a ten-marble 1.5x RUSH packet through the pinball posts without jams", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const bumperCell = resolveModuleDevices(built.track, built.route, built.samples).bumpers[0]!.cellIndex;
+    const rows = built.samples.filter((sample) => sample.cellIndex === bumperCell);
+    const entry = rows[0]!; const exit = rows[rows.length - 1]!;
+    const rushRadius = 1.5 * MARBLE_DIAMETER / 2;
+    const spacing = 2 * rushRadius + 0.06;
+    const bodies = createMarbleBodies(world, [0, 1].flatMap((row) => Array.from({ length: 5 }, (_, column) => {
+      const lateral = (column - 2 + row / 2) * spacing; const along = -row * spacing;
+      return {
+        x: entry.position.x + entry.tangent.x * along + entry.side.x * lateral + entry.up.x * (rushRadius + 0.02),
+        y: entry.position.y + entry.tangent.y * along + entry.side.y * lateral + entry.up.y * (rushRadius + 0.02),
+        z: entry.position.z + entry.tangent.z * along + entry.side.z * lateral + entry.up.z * (rushRadius + 0.02),
+        crossOffset: lateral, row, column, physicalLaunchPosition: true as const,
+      };
+    })));
+    bodies.forEach((body) => {
+      body.collider(0).setRadius(rushRadius);
+      body.recomputeMassPropertiesFromColliders();
+      body.setLinvel({ x: entry.tangent.x * 18, y: entry.tangent.y * 18, z: entry.tangent.z * 18 }, true);
+    });
+    const exited = new Set<number>();
+    for (let step = 0; step < 1_200 && exited.size < bodies.length; step += 1) {
+      resources.stepBeforeWorld(); world.step(); resources.stepAfterWorld(bodies);
+      bodies.forEach((body, index) => {
+        if (exited.has(index)) return;
+        const position = body.translation(); const projection = projectToTrack(position, built.samples);
+        expect([position.x, position.y, position.z].every(Number.isFinite)).toBe(true);
+        expect(projection.distanceSquared).toBeLessThan(15 ** 2);
+        if (built.samples[projection.sampleIndex]!.distance >= exit.distance) { exited.add(index); body.setEnabled(false); }
+      });
+    }
+    expect(exited).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    resources.dispose(); world.free();
+  }, 20_000);
+
+  it.each([[8, 1], [18, 1], [42, 1], [42, 1.5]] as const)("carries center and both mogul-line probes through the funnel at speed %i with %sx radius", async (speed, radiusScale) => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
@@ -188,14 +260,15 @@ describe("modular track physics", () => {
     const funnelSamples = built.samples.filter((sample) => sample.cellIndex === entry.cellIndex);
     const exit = funnelSamples[funnelSamples.length - 1]!;
     const rapier = getInitializedTrackPhysicsRapier();
+    const radius = MARBLE_DIAMETER / 2 * radiusScale;
     const bodies = [-0.6, 0, 0.6].map((lateral) => {
       const center = {
-        x: entry.position.x + entry.side.x * lateral + entry.up.x * (MARBLE_DIAMETER / 2 + 0.05),
-        y: entry.position.y + entry.side.y * lateral + entry.up.y * (MARBLE_DIAMETER / 2 + 0.05),
-        z: entry.position.z + entry.side.z * lateral + entry.up.z * (MARBLE_DIAMETER / 2 + 0.05),
+        x: entry.position.x + entry.side.x * lateral + entry.up.x * (radius + 0.05),
+        y: entry.position.y + entry.side.y * lateral + entry.up.y * (radius + 0.05),
+        z: entry.position.z + entry.side.z * lateral + entry.up.z * (radius + 0.05),
       };
       const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(center.x, center.y, center.z).setCcdEnabled(true));
-      world.createCollider(rapier.ColliderDesc.ball(MARBLE_DIAMETER / 2).setFriction(0.05), body);
+      world.createCollider(rapier.ColliderDesc.ball(radius).setFriction(0.05), body);
       body.setLinvel({ x: entry.tangent.x * speed, y: entry.tangent.y * speed, z: entry.tangent.z * speed }, true);
       return body;
     });
@@ -246,29 +319,43 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
-  it("randomizes 100 non-overlapping launch slots across the first channel", () => {
+  it.each([100, 200, 300])("randomizes %i non-overlapping launch slots in at most three 100-marble layers", (count) => {
     const built = buildModularTrack(createValidTrackDesign());
-    const first = createModularLaunchPositions(100, built, 23);
-    const second = createModularLaunchPositions(100, built, 23);
-    const otherSeed = createModularLaunchPositions(100, built, 37);
+    const first = createModularLaunchPositions(count, built, 23);
+    const second = createModularLaunchPositions(count, built, 23);
+    const otherSeed = createModularLaunchPositions(count, built, 37);
     expect(second).toEqual(first);
-    expect(otherSeed.map(({ row, column }) => [row, column])).not.toEqual(first.map(({ row, column }) => [row, column]));
-    expect(new Set(first.map(({ row, column }) => `${row}:${column}`)).size).toBe(100);
+    expect(otherSeed.slice(0, 100).map(({ row, column }) => [row, column])).not.toEqual(first.slice(0, 100).map(({ row, column }) => [row, column]));
+    expect(new Set(first.map(({ x, y, z }) => `${x}:${y}:${z}`)).size).toBe(count);
     expect(first.every(({ row, column }) => row >= 0 && row < 10 && column >= 0 && column < 10)).toBe(true);
     const start = resolveModuleDevices(built.track, built.route, built.samples).start;
     const gateOffset = { x: start.gate.center.x - start.frame.position.x, y: start.gate.center.y - start.frame.position.y, z: start.gate.center.z - start.frame.position.z };
     const gateNearFace = gateOffset.x * start.frame.tangent.x + gateOffset.y * start.frame.tangent.y + gateOffset.z * start.frame.tangent.z - start.gate.depth / 2;
+    const heights: number[] = [];
     for (const position of first) {
       const offset = { x: position.x - start.frame.position.x, y: position.y - start.frame.position.y, z: position.z - start.frame.position.z };
       const along = offset.x * start.frame.tangent.x + offset.y * start.frame.tangent.y + offset.z * start.frame.tangent.z;
+      const height = dot(offset, start.frame.up);
+      heights.push(height);
       expect(along).toBeGreaterThan(0);
       expect(along - MARBLE_DIAMETER / 2).toBeGreaterThanOrEqual(0.25);
       expect(along + MARBLE_DIAMETER / 2).toBeLessThanOrEqual(gateNearFace);
+      expect(height + MARBLE_DIAMETER / 2).toBeLessThanOrEqual(start.gate.height);
     }
+    const layerFor = (height: number) => Math.round((height - MARBLE_DIAMETER / 2 - 0.02) / (MARBLE_DIAMETER + 0.04)) || 0;
+    expect(heights.map(layerFor).sort((a, b) => a - b)).toEqual(Array.from({ length: count }, (_, index) => Math.floor(index / 100)));
+    if (count === 100) expect(first.slice(0, 10).map(({ row, column }) => [row, column])).toEqual([[9, 9], [8, 4], [2, 5], [5, 4], [7, 7], [5, 9], [5, 5], [9, 3], [7, 3], [2, 7]]);
+    else for (let ownerStart = 0; ownerStart < count; ownerStart += 100) expect(new Set(heights.slice(ownerStart, ownerStart + 100).map(layerFor)).size).toBeGreaterThan(1);
     for (let left = 0; left < first.length; left += 1) for (let right = left + 1; right < first.length; right += 1) {
       const a = first[left]; const b = first[right];
-      expect(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)).toBeGreaterThanOrEqual(0.68);
+      expect(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)).toBeGreaterThanOrEqual(MARBLE_DIAMETER + 0.04 - 1e-8);
     }
+  });
+
+  it("rejects a fourth launch layer", async () => {
+    const built = buildModularTrack(createValidTrackDesign());
+    expect(() => createModularLaunchPositions(301, built, 23)).toThrow(/0 through 300/);
+    await expect(runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 301, durationSeconds: 0 })).rejects.toThrow(/0 through 300/);
   });
 
   it("keeps pinwheel capsule frames radial and advances the body by local-Y spin", async () => {
@@ -382,6 +469,39 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
+  it("releases ten overlapping 1.5x RUSH marbles safely on a remaining restart", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const start = resolveModuleDevices(built.track, built.route, built.samples).start;
+    const bodies = createMarbleBodies(world, createModularLaunchPositions(10, built, 23));
+    const rushRadius = 1.5 * MARBLE_DIAMETER / 2;
+    bodies.forEach((body) => {
+      body.collider(0).setRadius(rushRadius);
+      body.recomputeMassPropertiesFromColliders();
+      const position = body.translation();
+      body.setTranslation({ x: position.x + start.frame.up.x * 0.17, y: position.y + start.frame.up.y * 0.17, z: position.z + start.frame.up.z * 0.17 }, false);
+    });
+    resources.reset(true);
+    const exited = new Set<number>(); const escapes = new Set<number>(); const nonFinite = new Set<number>();
+    for (let step = 0; step < 150 && exited.size < bodies.length; step += 1) {
+      resources.stepBeforeWorld(); world.step(); resources.stepAfterWorld(bodies);
+      bodies.forEach((body, index) => {
+        const position = body.translation(); const velocity = body.linvel();
+        if (![position.x, position.y, position.z, velocity.x, velocity.y, velocity.z].every(Number.isFinite)) nonFinite.add(index + 1);
+        const offset = subtract(position, start.frame.position); const along = dot(subtract(position, start.gate.center), start.frame.tangent);
+        if (along >= 0) exited.add(index + 1);
+        const lateral = dot(offset, start.frame.side); const height = dot(offset, start.frame.up);
+        if (along < 0 && (Math.abs(lateral) > start.width / 2 + rushRadius || height < -2 * rushRadius || height > start.wallHeight + rushRadius)) escapes.add(index + 1);
+      });
+    }
+    expect(nonFinite).toEqual(new Set());
+    expect(escapes).toEqual(new Set());
+    expect(exited).toEqual(new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    resources.dispose(); world.free();
+  }, 20_000);
+
   it("does not inject launch velocity after the gate opens", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
@@ -420,6 +540,28 @@ describe("modular track physics", () => {
     resources.reset(); body.setTranslation(at(-outside), true); resources.stepAfterWorld([body]);
     body.setTranslation(at(outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
     expect(resources.stepAfterWorld([body])).toHaveLength(1);
+    resources.dispose(); world.free();
+  });
+
+  it("retains booster state while growing it for 300 marbles", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters.find((candidate) => !candidate.returnAssist)!;
+    const positions = createModularLaunchPositions(300, built, 23);
+    const bodies = createMarbleBodies(world, positions);
+    const halfLength = (booster.endDistance - booster.startDistance) / 2;
+    const at = (along: number) => ({ x: booster.center.x + booster.forward.x * along, y: booster.center.y + booster.forward.y * along, z: booster.center.z + booster.forward.z * along });
+    const cross = (index: number, activeBodies = bodies) => {
+      bodies[index]!.setTranslation(at(-halfLength - 1), true); bodies[index]!.setLinvel({ x: 0, y: 0, z: 0 }, true); resources.stepAfterWorld(activeBodies);
+      bodies[index]!.setTranslation(at(0), true); bodies[index]!.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
+      return resources.stepAfterWorld(activeBodies).filter((event) => event.marbleId === index + 1);
+    };
+
+    expect(cross(0, bodies.slice(0, 100))).toHaveLength(1);
+    expect(cross(299)).toHaveLength(1);
+    expect(cross(0)).toHaveLength(0);
     resources.dispose(); world.free();
   });
 
@@ -469,6 +611,28 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
+  it("tracks and resets return-assist cooldown for marble 300", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters.find((candidate) => candidate.returnAssist)!;
+    const bodies = createMarbleBodies(world, createModularLaunchPositions(300, built, 23));
+    const body = bodies[299]!; const halfLength = (booster.endDistance - booster.startDistance) / 2;
+    const at = (along: number) => ({ x: booster.center.x + booster.forward.x * along, y: booster.center.y + booster.forward.y * along, z: booster.center.z + booster.forward.z * along });
+    const reverseEntry = () => {
+      body.setTranslation(at(halfLength + 1), true); body.setLinvel({ x: 0, y: 0, z: 0 }, true); resources.stepAfterWorld(bodies);
+      body.setTranslation(at(0), true); body.setLinvel({ x: booster.forward.x * -10, y: booster.forward.y * -10, z: booster.forward.z * -10 }, true);
+      return resources.stepAfterWorld(bodies).filter((event) => event.marbleId === 300);
+    };
+
+    expect(reverseEntry()).toHaveLength(1);
+    expect(reverseEntry()).toHaveLength(0);
+    resources.reset();
+    expect(reverseEntry()).toHaveLength(1);
+    resources.dispose(); world.free();
+  });
+
   it("does not return-assist a backward crossing outside the booster width", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
@@ -498,13 +662,13 @@ describe("modular track physics", () => {
     expect(first.boosterCapViolations).toEqual([]);
   });
 
-  it("physically pushes all 100 marbles past the gate within 2.5 seconds", async () => {
+  it.each([100, 200, 300])("physically pushes all %i marbles past the gate without loss", async (count) => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
     const start = resolveModuleDevices(built.track, built.route, built.samples).start;
-    const bodies = createMarbleBodies(world, createModularLaunchPositions(100, built, 23));
+    const bodies = createMarbleBodies(world, createModularLaunchPositions(count, built, 23));
     const crossingTimes = new Array<number | undefined>(bodies.length).fill(undefined);
     const preOpenCrossings = new Set<number>();
     const escapes = new Set<number>();
@@ -534,5 +698,5 @@ describe("modular track physics", () => {
     expect(crossingTimes.filter((time) => time === undefined)).toEqual([]);
     expect(Math.max(...crossingTimes.map((time) => time ?? Infinity))).toBeLessThanOrEqual(2_500);
     resources.dispose(); world.free();
-  });
+  }, 30_000);
 });

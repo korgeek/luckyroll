@@ -253,6 +253,11 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   let fixedStep = 0;
   let previousPositions = new WeakMap<RapierBody, Vec3>();
   let recoveryStates = new WeakMap<RapierBody, { anchorDistance: number; stalledSteps: number }>();
+  const ensureMarbleCapacity = (marbleCount: number): void => {
+    if (consumed.length >= marbleCount * cellCount) return;
+    const nextConsumed = createBoosterState(marbleCount, cellCount); nextConsumed.set(consumed); consumed = nextConsumed;
+    const nextCooldown = new Uint32Array(marbleCount * cellCount); nextCooldown.set(returnAssistCooldownUntil); returnAssistCooldownUntil = nextCooldown;
+  };
   const ensureLive = (): void => { if (disposed) throw new Error("Modular physics resources have been disposed."); };
   const pose = (): ModularDevicePose => freeze({ elapsedSeconds, gateOpen, pusherCenter, pinwheelAngles: Object.freeze([...angles]) });
   const applyDevicePose = (next: boolean): void => {
@@ -298,9 +303,11 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   };
   const stepAfterWorld = (bodies: readonly RapierBody[]): readonly BoosterEvent[] => {
     ensureLive();
+    ensureMarbleCapacity(bodies.length);
     const events: BoosterEvent[] = [];
     for (let marbleIndex = 0; marbleIndex < bodies.length; marbleIndex += 1) {
       const body = bodies[marbleIndex];
+      if (!body.isEnabled()) continue;
       const current = toVec3(body.translation());
       const previous = previousPositions.get(body);
       previousPositions.set(body, current);
@@ -376,21 +383,26 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
 export { createModularPhysics };
 
 export const createModularLaunchPositions = (count: number, built: BuiltModularTrack, seed: number): readonly PhysicalLaunchPosition[] => {
-  if (!Number.isInteger(count) || count < 0 || count > 100 || !Number.isFinite(seed)) throw new Error("Modular launch positions require 0 through 100 marbles and a finite seed.");
+  if (!Number.isInteger(count) || count < 0 || count > 300 || !Number.isFinite(seed)) throw new Error("Modular launch positions require 0 through 300 marbles and a finite seed.");
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
-  const columns = Math.min(10, count);
+  const layerSize = Math.min(100, count);
+  const columns = Math.min(10, layerSize);
   const spacing = MARBLE_DIAMETER + 0.04;
-  const slots = Array.from({ length: count }, (_, index) => ({ row: Math.floor(index / columns), column: index % columns }));
+  const slots = Array.from({ length: count }, (_, index) => {
+    const layerIndex = index % layerSize;
+    return { row: Math.floor(layerIndex / columns), column: layerIndex % columns, layer: Math.floor(index / layerSize) };
+  });
   const random = createRandom(seed);
   for (let index = slots.length - 1; index > 0; index -= 1) {
     const other = Math.floor(random.next() * (index + 1));
     [slots[index], slots[other]] = [slots[other], slots[index]];
   }
-  return Object.freeze(slots.map(({ row, column }) => {
-    const rowColumns = Math.min(columns, count - row * columns);
+  return Object.freeze(slots.map(({ row, column, layer }) => {
+    const rowColumns = Math.min(columns, layerSize - row * columns);
     const along = 0.62 + row * spacing;
     const crossOffset = (column - (rowColumns - 1) / 2) * spacing;
-    const position = add(devices.start.frame.position, add(scale(devices.start.frame.tangent, along), add(scale(devices.start.frame.side, crossOffset), scale(devices.start.frame.up, MARBLE_DIAMETER / 2 + 0.02))));
+    const height = MARBLE_DIAMETER / 2 + 0.02 + layer * spacing;
+    const position = add(devices.start.frame.position, add(scale(devices.start.frame.tangent, along), add(scale(devices.start.frame.side, crossOffset), scale(devices.start.frame.up, height))));
     return Object.freeze({ ...position, crossOffset, row, column, physicalLaunchPosition: true as const });
   }));
 };
@@ -496,7 +508,7 @@ export const runModularCurveProbe = async ({ track, speed, lateral }: CurveProbe
 export const runModularValidationRace = async (
   options: ModularValidationOptions,
 ): Promise<ModularValidationResult> => {
-  if (!Number.isInteger(options.marbleCount) || options.marbleCount < 0 || options.marbleCount > 100) throw new Error("Modular validation supports 0 through 100 marbles.");
+  if (!Number.isInteger(options.marbleCount) || options.marbleCount < 0 || options.marbleCount > 300) throw new Error("Modular validation supports 0 through 300 marbles.");
   if (!Number.isFinite(options.durationSeconds) || options.durationSeconds < 0) throw new Error("Modular validation duration must be a finite non-negative number.");
   await initializeTrackPhysics();
   const built = buildModularTrack(options.track);

@@ -4,15 +4,17 @@ An instant, offline-friendly neon pinball marble party game. The last marble to 
 
 ## Race
 
-100 marbles are split as evenly as possible across 2–10 players. The final Top 10 is ranked in reverse finish order, so last wins.
+Choose 100 (default), 200, or 300 marbles above START RACE, split as evenly as possible across 2–10 players. Each layer holds up to 100 marbles; the complete slot pool is shuffled across players before gravity collapses the stack at launch. Higher counts need a faster device; use 100 for smoother play. The final Top 10 is ranked in reverse finish order, so last wins.
 
-Race sessions use the selected track, which can be changed directly from the Main Menu without opening the track manager. The Default Track's high-walled rectangular start pen randomizes 100 marbles, opens a physical gate, and uses a physical start pusher to guide every row into the first module. Its demo route includes rounded moguls, a wheel, waves, boosters, and a final six-post pinball section. The directed camera holds the wheel until 81 unique marbles pass (or all remaining marbles clear), and holds pinball until all live marbles clear, then smoothly returns to following the race. Bird View shows the whole course from above.
+Race sessions use the selected track, which can be changed directly from the Main Menu without opening the track manager. The Default Track's high-walled rectangular start pen opens a physical gate and uses a physical start pusher to guide every row into the first module. Its demo route includes rounded moguls, a wheel, waves, boosters, and a final six-post pinball section. Wheel and pinball broadcasts start overhead, ease into a closer elevated angle, and return overhead after 50% of the starting field passes. The wheel releases to automatic tracking after more than 80% pass (81/161/241), or all remaining marbles clear; pinball holds until all live marbles clear. Bird View shows the whole course from above.
 
-Results feature the last finisher, with a brief celebration only when every marble completes the race. Replay runs the same participants, prize, and course with a fresh seed; Back to Menu keeps the entered names and selected track.
+Results feature the last finisher, with a brief celebration only when every marble completes the race. Replay runs the same participants, marble count, prize, and course with a fresh seed; Back to Menu keeps the entered names, count, and selected track.
 
 Starting or replaying shows PREPARING RACE… until the scene is ready, then a three-second 3 → 2 → 1 → GO! countdown. Marbles and race time remain held until GO; opening the navigation menu also freezes the countdown.
 
 During a race, the compact reverse leaderboard shows the trailing (winning) five marbles on portrait phones and ten elsewhere, with gaps in track units. BOOST raises each active marble's forward speed to 1.5×, capped at 42 track units per second; it starts with a five-second charge, recharges after use, and freezes while paused.
+
+With 1–10 marbles still racing, RUSH activates once: remaining spheres and colliders grow to 1.5× and simulation runs at 2× using unchanged 1/60-second collision steps. A persistent pulsing RUSH! banner, accelerator bar, and speed lines mark the finale; reduced-motion uses a static treatment. Pause and new races suspend or reset the effect, and BOOST retains its normal recharge rate.
 
 ## Track Designer
 

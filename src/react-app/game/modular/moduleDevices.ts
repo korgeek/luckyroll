@@ -16,6 +16,7 @@ const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
 const PINWHEEL_ANGULAR_SPEED = 5;
 const START_LENGTH = 10.2;
 const START_WIDTH = 10.4;
+const START_GATE_HEIGHT = 2.5;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
 const scale = (a: Vec3, amount: number): Vec3 => ({ x: a.x * amount, y: a.y * amount, z: a.z * amount });
@@ -150,9 +151,9 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
   if (first === undefined) throw new Error("A modular device layout requires a sampled route.");
   const startFrame = Object.freeze({ ...frameFromSample(first), position: add(first.position, scale(first.tangent, -START_LENGTH)) });
   const gateFrame = Object.freeze({
-    center: add(add(startFrame.position, scale(startFrame.tangent, 9.4)), scale(startFrame.up, 1.24 / 2)),
+    center: add(add(startFrame.position, scale(startFrame.tangent, 9.4)), scale(startFrame.up, START_GATE_HEIGHT / 2)),
     tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
-    width: START_WIDTH, height: 1.24, depth: 0.36,
+    width: START_WIDTH, height: START_GATE_HEIGHT, depth: 0.36,
   });
   const pusher = Object.freeze({
     center: add(startFrame.position, scale(startFrame.up, 1.6)),

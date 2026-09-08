@@ -77,6 +77,29 @@ describe("track-bound race camera plan", () => {
 		expect(director.update(traffic(first81))).toBeUndefined();
 	});
 
+	it.each([[100, 81], [200, 161], [300, 241]])("releases a wheel only after more than 80%% of its starting field clears (%i -> %i)", (count, releaseCount) => {
+		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
+		const field = Array.from({ length: count }, () => 41);
+		const exits = (passed: number) => field.map((distance, index) => index < passed ? 61 : distance);
+
+		expect(director.update(traffic(field))?.key).toBe("pinwheel:8");
+		expect(director.update(traffic(exits(releaseCount - 1)))?.key).toBe("pinwheel:8");
+		expect(director.update(traffic(exits(releaseCount)))).toBeUndefined();
+	});
+
+	it("reports a latched top-return state when half the field has passed", () => {
+		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
+		const field = Array.from({ length: 100 }, () => 41);
+		const exits = (passed: number) => field.map((distance, index) => index < passed ? 61 : distance);
+
+		director.update(traffic(field));
+		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "establishing", passFraction: 0, activationElapsedMs: 0 });
+		director.update(traffic(exits(50)), 1_200);
+		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "returning-top", passFraction: 0.5, activationElapsedMs: 1_200 });
+		director.update(traffic(field), 500);
+		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "returning-top", passFraction: 0.5, activationElapsedMs: 1_700 });
+	});
+
 	it("releases a smaller wheel after all remaining marbles clear", () => {
 		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
 		expect(director.update(traffic([41, 39]))?.key).toBe("pinwheel:8");
@@ -106,6 +129,19 @@ describe("track-bound race camera plan", () => {
 		}
 		const view = subtract(shot.position, shot.lookAt);
 		expect(dot(view, zone.up) / Math.hypot(view.x, view.y, view.z)).toBeGreaterThan(0.9);
+	});
+
+	it("moves from a top establishing view to a closer oblique view, then latches back to top", () => {
+		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
+		const establishing = writeFeatureBroadcastShot(mutableShot(), zone, 60, 320 / 740, 0, undefined, { phase: "establishing", passFraction: 0, activationElapsedMs: 0 });
+		const approach = writeFeatureBroadcastShot(mutableShot(), zone, 60, 320 / 740, 0, undefined, { phase: "approach", passFraction: 0.5, activationElapsedMs: 3_200 });
+		const returningTop = writeFeatureBroadcastShot(mutableShot(), zone, 60, 320 / 740, 0, undefined, { phase: "returning-top", passFraction: 0.4, activationElapsedMs: 3_700 });
+		const distance = (shot: CameraShot) => Math.hypot(shot.position.x - shot.lookAt.x, shot.position.y - shot.lookAt.y, shot.position.z - shot.lookAt.z);
+
+		expect(distance(approach)).toBeLessThanOrEqual(distance(establishing) / 1.35);
+		expect(dot(subtract(approach.position, approach.lookAt), zone.up) / distance(approach)).toBeLessThan(0.9);
+		expect(distance(returningTop)).toBeGreaterThan(distance(approach));
+		expect(dot(subtract(returningTop.position, returningTop.lookAt), zone.up) / distance(returningTop)).toBeGreaterThan(0.9);
 	});
 
 	it("keeps a feature inside the far plane while easing from a distant bird view", () => {

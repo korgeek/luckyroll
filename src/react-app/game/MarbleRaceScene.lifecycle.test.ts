@@ -4,7 +4,7 @@ import type { TrackSample } from "./track/trackTypes";
 const seams = vi.hoisted(() => ({
   frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as TrackSample[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
-  worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
+  worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, badBodyIndex: -1, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 	featureSamples: false, bodyX: 0,
 }));
 
@@ -65,7 +65,7 @@ vi.mock("./track/trackPhysics", () => ({
     const id = seams.worlds.length + 1; const world = { id, freeCount: 0, timestep: 1 / 60, step: () => { seams.worldSteps += 1; seams.order.push(`world:${id}`); }, free: () => { world.freeCount += 1; seams.order.push(`world-free:${id}`); } };
     seams.worlds.push(world); return world;
   },
-  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : seams.featureSamples ? { x: seams.bodyX, y: 0, z: 0 } : position, rotation: () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }), setEnabled: () => undefined })),
+  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position, index) => ({ translation: () => seams.badBody || seams.badBodyIndex === index ? { x: Number.NaN, y: 0, z: 0 } : seams.featureSamples ? { x: seams.bodyX, y: 0, z: 0 } : position, rotation: () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }), setEnabled: () => undefined, collider: () => ({ setRadius: () => undefined }), recomputeMassPropertiesFromColliders: () => undefined, setTranslation: () => undefined })),
   distanceSquaredToSample: () => 0, distanceSquaredToTrackSegments: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
 }));
 
@@ -114,7 +114,7 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.bankedCameraSample = false; seams.featureSamples = false; seams.bodyX = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.featureSamples = false; seams.bodyX = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
@@ -128,7 +128,7 @@ describe("race scene lifecycle boundary", () => {
   it("uses custom samples, orders fixed work, pauses it, and times out custom races", async () => {
     const scene = await startScene(); const now = performance.now(); scene.setPaused(true); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
     expect(seams.order.filter((entry) => /^(before|world:|after)/.test(entry))).toEqual([]); expect(seams.worldSteps).toBe(0);
-    scene.setPaused(false); seams.frames.shift()?.(now + 34); expect(seams.order.slice(-4, -1)).toEqual(["before:1", "world:2", "after:1"]); expect(seams.projectedSamples).toContain(seams.courseSamples);
+    scene.setPaused(false); seams.frames.shift()?.(now + 34); expect(seams.order.filter((entry) => /^(before|world:|after)/.test(entry)).slice(-3)).toEqual(["before:1", "world:2", "after:1"]); expect(seams.order).toContain("emit:rush"); expect(seams.projectedSamples).toContain(seams.courseSamples);
     seams.frames.shift()?.(now + 120_100); expect(seams.emitted.map((event) => (event as { type: string }).type)).toContain("timeout"); scene.dispose();
   });
 
@@ -213,6 +213,41 @@ describe("race scene lifecycle boundary", () => {
 		expect(position).toEqual(new THREE.Vector3(0, 1, 0)); expect(scale).toEqual(new THREE.Vector3(1, 1, 1));
 		const now = performance.now(); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
 		expect(seams.worldSteps).toBe(0);
+		scene.dispose();
+	});
+
+	it("enters RUSH once for the final live marble, doubles later fixed steps, and renders it at 1.5x", async () => {
+		const scene = await startScene(); const now = performance.now();
+		seams.frames.shift()?.(now); seams.frames.shift()?.(now + 34);
+		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(1);
+		const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const rotation = new THREE.Quaternion(); const scale = new THREE.Vector3();
+		seams.marbleMeshes[0]!.getMatrixAt(0, matrix); matrix.decompose(position, rotation, scale);
+		expect(scale).toEqual(new THREE.Vector3(1.5, 1.5, 1.5));
+		const before = seams.worldSteps; seams.frames.shift()?.(now + 51);
+		expect(seams.worldSteps - before).toBeGreaterThanOrEqual(2);
+		scene.dispose();
+	});
+
+	it("waits at eleven, enters RUSH once at ten, and resets growth for an eleven-marble restart", async () => {
+		const scene = createRaceScene(document.createElement("canvas"), (event) => { seams.emitted.push(event); }, { kind: "custom", track: createValidTrackDesign("Rush threshold") });
+		await settle(); scene.start(Array.from({ length: 11 }, (_, index) => marble(index + 1)), 11); await settle();
+		const now = performance.now(); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
+		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(0);
+		seams.badBodyIndex = 10; seams.frames.shift()?.(now + 34);
+		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(1);
+		seams.frames.shift()?.(now + 51);
+		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(1);
+		seams.badBodyIndex = -1; scene.restartRemaining(Array.from({ length: 11 }, (_, index) => marble(index + 1))); await settle();
+		const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const rotation = new THREE.Quaternion(); const scale = new THREE.Vector3();
+		seams.marbleMeshes[seams.marbleMeshes.length - 1]!.getMatrixAt(0, matrix); matrix.decompose(position, rotation, scale);
+		expect(scale).toEqual(new THREE.Vector3(1, 1, 1));
+		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(1);
+		scene.dispose();
+	});
+
+	it("does not emit RUSH when all live marbles DNF in the fixed step", async () => {
+		const scene = await startScene(); seams.badBody = true; const now = performance.now(); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
+		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(0);
 		scene.dispose();
 	});
 
@@ -359,8 +394,9 @@ describe("race scene lifecycle boundary", () => {
   it("reports a DNF as eliminated rather than finished", async () => {
     const scene = await startScene();
     seams.badBody = true;
-    seams.frames.shift()?.(performance.now());
-    expect(seams.emitted.find((event) => (event as { type: string }).type === "tick")).toMatchObject({ type: "tick", finishedCount: 0, eliminatedCount: 1 });
+    const now = performance.now(); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
+    const ticks = seams.emitted.filter((event) => (event as { type: string }).type === "tick");
+    expect(ticks[ticks.length - 1]).toMatchObject({ type: "tick", finishedCount: 0, eliminatedCount: 1 });
     scene.dispose();
   });
 });

@@ -60,7 +60,7 @@ describe("canonical modular devices", () => {
       }
       for (let left = 0; left < bumpers.length; left += 1) for (let right = left + 1; right < bumpers.length; right += 1) {
         const a = bumpers[left]; const b = bumpers[right];
-        if (a.shape === "round" && b.shape === "round") expect(distance(a.center, b.center) - a.radius - b.radius).toBeGreaterThan(MARBLE_DIAMETER);
+        if (a.shape === "round" && b.shape === "round") expect(distance(a.center, b.center) - a.radius - b.radius).toBeGreaterThanOrEqual(1.5 * MARBLE_DIAMETER);
       }
     }
   });
@@ -90,6 +90,8 @@ describe("canonical modular devices", () => {
     const fromStart = { x: first.position.x - devices.start.frame.position.x, y: first.position.y - devices.start.frame.position.y, z: first.position.z - devices.start.frame.position.z };
     const along = dot(fromStart, devices.start.frame.tangent);
     expect(devices.start).toMatchObject({ length: 10.2, runoutLength: 30.2, width: 10.4, wallHeight: 6 });
+    expect(devices.start.gate.height).toBeGreaterThanOrEqual(2.14);
+    expect(dot({ x: devices.start.gate.center.x - devices.start.frame.position.x, y: devices.start.gate.center.y - devices.start.frame.position.y, z: devices.start.gate.center.z - devices.start.frame.position.z }, devices.start.frame.up)).toBeCloseTo(devices.start.gate.height / 2, 8);
     expect(along).toBeCloseTo(devices.start.length, 8);
     expect(dot({ x: devices.start.gate.center.x - devices.start.frame.position.x, y: devices.start.gate.center.y - devices.start.frame.position.y, z: devices.start.gate.center.z - devices.start.frame.position.z }, devices.start.frame.tangent)).toBeCloseTo(9.4, 8);
     expect(devices.start.pusher).toBeDefined();

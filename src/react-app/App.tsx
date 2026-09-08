@@ -27,7 +27,7 @@ const NAVIGATION_STATE_KEY = "luckyRollNavigation";
 const QUICK_PLAY: SetupValues = { prizePool: 0, participants: [
 	{ id: "player-1", name: "Player 1", color: "#ff4f8f", symbol: "◆" },
 	{ id: "player-2", name: "Player 2", color: "#58e7ff", symbol: "●" },
-] };
+] , marbleCount: 100 };
 
 function App() {
 	const [view, setView] = useState<View>("setup");
@@ -48,6 +48,7 @@ function App() {
 	const [muted, setMuted] = useState(false);
 	const [sceneReady, setSceneReady] = useState(false);
 	const [boostFlash, setBoostFlash] = useState(false);
+	const [rush, setRush] = useState(false);
 	const [countdown, setCountdown] = useState<Countdown>();
 	const [backChoice, setBackChoice] = useState<BackChoice>();
 	const [leaveGuidance, setLeaveGuidance] = useState("");
@@ -108,10 +109,10 @@ function App() {
 	const trackById = (id: string | undefined): LocalTrack | undefined => library.tracks.find((track) => track.id === id);
 	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "library" | "editor" = "setup") => {
 		void retroSounds.preload().catch(() => undefined);
-		const marbles = allocateMarbles(values.participants);
+		const marbles = allocateMarbles(values.participants, values.marbleCount ?? 100);
 		setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setRaceReturnView(returnView); countdownActiveRef.current = true; setCountdown("PREPARING RACE…");
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
-		setFinished([]); setRemaining(undefined); setBoostFlash(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setView("race");
+		setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setView("race");
 	};
 
 	useEffect(() => {
@@ -125,6 +126,7 @@ function App() {
 			scene = createRaceScene(canvasRef.current, (event) => {
 				if (!active) return;
 				if (event.type === "prepared" && countdownActiveRef.current) setCountdown("3");
+				if (event.type === "rush") setRush(true);
 				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, fps: event.fps, eliminatedCount: event.eliminatedCount, standings: event.standings, boostRemainingMs: event.boostRemainingMs });
 				if (event.type === "timeout") { retroSounds.timeout(); setRemaining(event.remaining); }
 				if (event.type === "error") { countdownActiveRef.current = false; setCountdown(undefined); setMessage(event.message); setView(raceReturnView); }
@@ -164,16 +166,16 @@ function App() {
 	const openShare = (track: TrackDesign | undefined) => { if (track) setShareTrack(track); };
 	const cancelRemainingRestart = () => { remainingRestartFramesRef.current.forEach((frame) => window.cancelAnimationFrame(frame)); remainingRestartFramesRef.current = []; };
 	const showResults = () => { cancelRemainingRestart(); countdownActiveRef.current = false; setCountdown(undefined); setRemaining(undefined); setCelebrate(false); setView("results"); };
-	const restartAll = () => { if (!session) return; void retroSounds.preload().catch(() => undefined); cancelRemainingRestart(); retroSounds.stop(); setFinished([]); setRemaining(undefined); setBoostFlash(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setBirdView(false); setPaused(false); setSceneReady(false); setCelebrate(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setSession({ ...session, seed: Date.now() }); setView("race"); };
+	const restartAll = () => { if (!session) return; void retroSounds.preload().catch(() => undefined); cancelRemainingRestart(); retroSounds.stop(); setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setBirdView(false); setPaused(false); setSceneReady(false); setCelebrate(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setSession({ ...session, seed: Date.now() }); setView("race"); };
 	const restartRemaining = () => {
 		if (!remaining) return;
 		void retroSounds.preload().catch(() => undefined);
-		const racers = remaining; cancelRemainingRestart(); setRemaining(undefined); setBoostFlash(false); setSceneReady(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setHud((current) => ({ ...current, standings: [], boostRemainingMs: 5_000 })); sceneRef.current?.setPaused(true);
+		const racers = remaining; cancelRemainingRestart(); setRemaining(undefined); setBoostFlash(false); setRush(false); setSceneReady(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setHud((current) => ({ ...current, standings: [], boostRemainingMs: 5_000 })); sceneRef.current?.setPaused(true);
 		const firstFrame = window.requestAnimationFrame(() => { const secondFrame = window.requestAnimationFrame(() => { remainingRestartFramesRef.current = []; if (countdownActiveRef.current && viewRef.current === "race") sceneRef.current?.restartRemaining(racers); }); remainingRestartFramesRef.current = [secondFrame]; });
 		remainingRestartFramesRef.current = [firstFrame];
 	};
-	const again = () => { cancelRemainingRestart(); retroSounds.stop(); countdownActiveRef.current = false; setCountdown(undefined); setSession(undefined); setFinished([]); setPaused(false); setBirdView(false); setSceneReady(false); setView(raceReturnView); };
-	const backToMenu = () => { cancelRemainingRestart(); retroSounds.stop(); countdownActiveRef.current = false; setCountdown(undefined); setShareTrack(undefined); setSession(undefined); setFinished([]); setRemaining(undefined); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setView("setup"); };
+	const again = () => { cancelRemainingRestart(); retroSounds.stop(); countdownActiveRef.current = false; setCountdown(undefined); setSession(undefined); setFinished([]); setRush(false); setPaused(false); setBirdView(false); setSceneReady(false); setView(raceReturnView); };
+	const backToMenu = () => { cancelRemainingRestart(); retroSounds.stop(); countdownActiveRef.current = false; setCountdown(undefined); setShareTrack(undefined); setSession(undefined); setFinished([]); setRemaining(undefined); setRush(false); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setView("setup"); };
 	const dismissBackChoice = () => {
 		const choice = backChoiceRef.current;
 		if (choice && viewRef.current === "race") { setPaused(choice.wasPaused); sceneRef.current?.setPaused(choice.wasPaused || countdownActiveRef.current); }
@@ -252,7 +254,7 @@ function App() {
 		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onSelectTrack={selectTrack} onManageTracks={() => setView("library")} /></div>
 		{view === "library" && <TrackLibraryPanel tracks={library.tracks} selectedTrackId={selectedTrackId} onBack={() => setView("setup")} onNew={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEdit={editTrack} onSelect={selectTrack} onPlay={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track, "library"); } }} onShare={(id) => openShare(trackById(id))} onDelete={removeTrack} onImport={importTrack} />}
 		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("library")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
-		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} fps={hud.fps} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} standings={hud.standings} finished={finished} participants={session.participants} />{countdown && <div className={countdown === "PREPARING RACE…" ? "race-countdown preparing" : "race-countdown"} role="status" aria-live="assertive"><strong>{countdown}</strong></div>}<div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>{raceBackLabel}</button></div><div className="boost-dock"><button className={hud.boostRemainingMs === 0 ? "boost-button ready" : "boost-button"} disabled={!sceneReady || paused || Boolean(backChoice) || Boolean(remaining) || hud.boostRemainingMs > 0} onClick={boost} aria-label={hud.boostRemainingMs === 0 ? "Boost ready" : `Boost charging, ${(hud.boostRemainingMs / 1000).toFixed(1)} seconds remaining`} style={{ "--boost-fill": boostFill } as CSSProperties}><i /><span>BOOST</span><small>{hud.boostRemainingMs === 0 ? "READY" : `${(hud.boostRemainingMs / 1000).toFixed(1)}s`}</small></button></div>{boostFlash && <strong className="boost-flash" role="status">BOOST!</strong>}{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
+		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} fps={hud.fps} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} standings={hud.standings} finished={finished} participants={session.participants} />{rush && <div className="rush-hud" role="status"><strong>RUSH!</strong><i aria-hidden="true" /></div>}{countdown && <div className={countdown === "PREPARING RACE…" ? "race-countdown preparing" : "race-countdown"} role="status" aria-live="assertive"><strong>{countdown}</strong></div>}<div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>{raceBackLabel}</button></div><div className="boost-dock"><button className={hud.boostRemainingMs === 0 ? "boost-button ready" : "boost-button"} disabled={!sceneReady || paused || Boolean(backChoice) || Boolean(remaining) || hud.boostRemainingMs > 0} onClick={boost} aria-label={hud.boostRemainingMs === 0 ? "Boost ready" : `Boost charging, ${(hud.boostRemainingMs / 1000).toFixed(1)} seconds remaining`} style={{ "--boost-fill": boostFill } as CSSProperties}><i /><span>BOOST</span><small>{hud.boostRemainingMs === 0 ? "READY" : `${(hud.boostRemainingMs / 1000).toFixed(1)}s`}</small></button></div>{boostFlash && <strong className="boost-flash" role="status">BOOST!</strong>}{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
 		{view === "results" && <ResultsScreen rankings={reverseRank(finished)} participants={participants} prizePool={session?.prizePool ?? 0} celebrate={celebrate} onReplay={restartAll} onBack={backToMenu} />}
 		{shareTrack && <ShareTrackDialog track={shareTrack} writeText={navigator.clipboard?.writeText.bind(navigator.clipboard)} onClose={() => setShareTrack(undefined)} />}
 		{backNavigation}

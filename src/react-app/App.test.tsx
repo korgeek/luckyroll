@@ -50,7 +50,7 @@ describe("default race course and camera controls", () => {
   });
   afterEach(cleanup);
 
-  it("starts on the editor-built Default Track and toggles a fixed bird view", async () => {
+	it("starts on the editor-built Default Track and toggles a fixed bird view", async () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("region", { name: "Main menu" });
@@ -128,6 +128,28 @@ describe("default race course and camera controls", () => {
 		expect(screen.getByRole("button", { name: "Boost charging, 5.0 seconds remaining" })).toBeDisabled();
 		act(() => { emit({ type: "tick", elapsedMs: 10_000, fps: 60, finishedCount: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 0 }); emit({ type: "timeout", remaining: [] }); });
 		expect(screen.getByRole("button", { name: "Boost ready" })).toBeDisabled();
+	});
+
+	it("retains the selected marble count for menu return and replay while clearing RUSH", async () => {
+		const user = userEvent.setup(); render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByRole("button", { name: "300" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await waitFor(() => expect(scene.start).toHaveBeenCalled());
+		expect(scene.start.mock.calls[0][0]).toHaveLength(300);
+		act(() => latestSceneEmitter()({ type: "rush" }));
+		expect(screen.getByText("RUSH!")).toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: "Back to Menu" }));
+		expect(screen.queryByText("RUSH!")).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "300" })).toHaveAttribute("aria-pressed", "true");
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(2));
+		expect(scene.start.mock.calls[1][0]).toHaveLength(300);
+		const emit = latestSceneEmitter();
+		act(() => { for (let id = 1; id <= 300; id += 1) emit({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+		await user.click(await screen.findByRole("button", { name: "Replay same settings" }));
+		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(3));
+		expect(scene.start.mock.calls[2][0]).toHaveLength(300);
 	});
 
 	it("waits for real scene preparation, then holds 3 2 1 and starts on GO", async () => {
