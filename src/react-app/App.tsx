@@ -27,7 +27,7 @@ const NAVIGATION_STATE_KEY = "luckyRollNavigation";
 const QUICK_PLAY: SetupValues = { prizePool: 0, participants: [
 	{ id: "player-1", name: "Player 1", color: "#ff4f8f", symbol: "◆" },
 	{ id: "player-2", name: "Player 2", color: "#58e7ff", symbol: "●" },
-] , marbleCount: 100 };
+] };
 
 function App() {
 	const [view, setView] = useState<View>("setup");
@@ -110,7 +110,7 @@ function App() {
 	const trackById = (id: string | undefined): LocalTrack | undefined => library.tracks.find((track) => track.id === id);
 	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "library" | "editor" = "setup") => {
 		void retroSounds.preload().catch(() => undefined);
-		const marbles = allocateMarbles(values.participants, values.marbleCount ?? 100);
+		const marbles = allocateMarbles(values.participants, 100);
 		setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setRaceReturnView(returnView); countdownActiveRef.current = true; setCountdown("PREPARING RACE…");
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
 		setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setView("race");

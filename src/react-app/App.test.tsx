@@ -148,26 +148,25 @@ describe("default race course and camera controls", () => {
 		expect(scene.boost).not.toHaveBeenCalled();
 	});
 
-	it("retains the selected marble count for menu return and replay while clearing RUSH", async () => {
+	it("uses 100 marbles for menu return and replay while clearing RUSH", async () => {
 		const user = userEvent.setup(); render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "300" }));
 		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
 		await waitFor(() => expect(scene.start).toHaveBeenCalled());
-		expect(scene.start.mock.calls[0][0]).toHaveLength(300);
+		expect(scene.start.mock.calls[0][0]).toHaveLength(100);
 		act(() => latestSceneEmitter()({ type: "rush" }));
 		expect(screen.getByText("RUSH!")).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "Back to Menu" }));
 		expect(screen.queryByText("RUSH!")).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "300" })).toHaveAttribute("aria-pressed", "true");
+		expect(screen.queryByLabelText("Marbles")).not.toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
 		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(2));
-		expect(scene.start.mock.calls[1][0]).toHaveLength(300);
+		expect(scene.start.mock.calls[1][0]).toHaveLength(100);
 		const emit = latestSceneEmitter();
-		act(() => { for (let id = 1; id <= 300; id += 1) emit({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+		act(() => { for (let id = 1; id <= 100; id += 1) emit({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
 		await user.click(await screen.findByRole("button", { name: "Replay same settings" }));
 		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(3));
-		expect(scene.start.mock.calls[2][0]).toHaveLength(300);
+		expect(scene.start.mock.calls[2][0]).toHaveLength(100);
 	});
 
 	it("waits for real scene preparation, then holds 3 2 1 and starts on GO", async () => {

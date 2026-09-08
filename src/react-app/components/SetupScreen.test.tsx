@@ -53,24 +53,13 @@ describe("SetupScreen", () => {
 		expect(prize).toHaveValue("12,345"); expect(prize.selectionStart).toBe(2);
 	});
 
-	it("starts with the selected marble count", async () => {
+	it("uses a fixed 100-marble setup without count controls", async () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);
-		const threeHundred = screen.getByRole("button", { name: "300" });
-		await user.click(threeHundred);
+		expect(screen.queryByLabelText("Marbles")).not.toBeInTheDocument();
+		expect(screen.getByText("100 marbles split as evenly as possible.")).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
-		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ marbleCount: 300 }));
-		expect(threeHundred).toHaveAttribute("aria-pressed", "true");
-		expect(threeHundred.compareDocumentPosition(screen.getByRole("button", { name: "START RACE · Default Track" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-	});
-
-	it("warns about performance only for 200 or more marbles", async () => {
-		const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
-		expect(screen.queryByText("More marbles need a faster device. Try 100 for smoother play.")).not.toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "200" }));
-		expect(screen.getByText("More marbles need a faster device. Try 100 for smoother play.")).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "100" }));
-		expect(screen.queryByText("More marbles need a faster device. Try 100 for smoother play.")).not.toBeInTheDocument();
+		expect(onStart.mock.calls[0][0]).not.toHaveProperty("marbleCount");
 	});
 
 	it("identifies the first screen as the main menu", () => {
