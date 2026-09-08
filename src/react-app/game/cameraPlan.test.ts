@@ -262,11 +262,13 @@ describe("action camera", () => {
     expect(director.update(state).mode).toBe("crowd");
     director.reset(); expect(director.update(state).mode).toBe("feature");
   });
-  it("tracks finale targets by id and replaces a DNF target", () => {
+  it("follows the current last marble at ten remaining and replaces a DNF target", () => {
     const director = createActionCameraDirector([]);
-    expect(director.update(input(0, 4)).mode).toBe("crowd");
-    const state = input(0, 3);
+    expect(director.update(input(0, 11)).mode).toBe("crowd");
+    const state = input(0, 10);
     const first = director.update(state); expect(first.mode).toBe("finale");
+    const swapped = director.update({ ...state, traffic: state.traffic.map(b => ({ ...b, distance: b.id === 5 ? -1 : 0 })) });
+    expect(swapped.targetId).toBe(5);
     const next = director.update({ ...state, traffic: state.traffic.map(b => b.id === first.targetId ? { ...b, done: true, eliminated: true } : b) });
     expect(next.targetId).not.toBe(first.targetId);
     director.reset(); expect(director.update(input(0))).toEqual({ mode: "crowd", framing: "wide" });

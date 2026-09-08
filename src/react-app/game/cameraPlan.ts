@@ -293,7 +293,7 @@ export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[
   const completed = new Set<string>();
   const passed = new Set<number>();
   let selected: ActionCameraSelection = { mode: "crowd", framing: "wide" };
-  let cohort: readonly number[] = []; let exitDistance = 0; let selectedAt = 0; let finale = false;
+  let cohort: readonly number[] = []; let exitDistance = 0; let selectedAt = 0;
   const clear = () => { selected = { mode: "crowd", framing: "wide" }; cohort = []; passed.clear(); };
   return {
     update: (input: ActionCameraInput): ActionCameraSelection => {
@@ -302,11 +302,9 @@ export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[
       if (!Number.isFinite(activeMs) || !Number.isFinite(crowd.distance)) return selected;
       const live = traffic.filter(b => !b.done && !b.eliminated && Number.isFinite(b.distance));
       if (!live.length) { clear(); return selected; }
-      const rear = live.reduce((a, b) => a.distance <= b.distance ? a : b);
-      if (live.length <= Math.max(3, Math.ceil(input.originalCount * 0.1))) finale = true;
-      if (finale) {
-        const target = selected.mode === "finale" && live.find(b => b.id === selected.targetId);
-        selected = { mode: "finale", targetId: (target || rear).id, framing: "close" }; return selected;
+      const rear = live.reduce((a, b) => a.distance < b.distance || a.distance === b.distance && a.id < b.id ? a : b);
+      if (live.length <= 10) {
+        selected = { mode: "finale", targetId: rear.id, framing: "close" }; return selected;
       }
       const byId = new Map(traffic.map(b => [b.id, b]));
       for (const id of cohort) {
@@ -337,6 +335,6 @@ export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[
       }
       return selected;
     },
-    reset: () => { clear(); completed.clear(); finale = false; selectedAt = 0; },
+    reset: () => { clear(); completed.clear(); selectedAt = 0; },
   };
 };
