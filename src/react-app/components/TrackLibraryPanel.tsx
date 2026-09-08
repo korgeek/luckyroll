@@ -30,7 +30,7 @@ export function TrackLibraryPanel({ tracks, selectedTrackId, onBack, onNew, onEd
 	}, [importOpen]);
 	const closeImport = () => { setImportOpen(false); setError(""); };
 	return <section className="track-library" aria-label="Track management">
-		<header className="track-library-header"><button className="secondary-button" onClick={onBack}>Back to Setup</button><div><p className="eyebrow">TRACK MANAGEMENT</p><h1>Your tracks</h1></div></header>
+		<header className="track-library-header"><button className="secondary-button" onClick={onBack}>Back to Menu</button><div><p className="eyebrow">TRACK MANAGEMENT</p><h1>Your tracks</h1></div></header>
 		<p className="track-count">{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</p>
 		<div className="track-library-tools"><button className="primary-button" onClick={onNew}>New Track</button><button ref={importButton} className="secondary-button" onClick={() => setImportOpen(true)}>Import Track</button></div>
 		<section className="builtin-track" aria-label="Default track">

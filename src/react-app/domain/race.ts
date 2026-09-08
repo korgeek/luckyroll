@@ -10,7 +10,7 @@ export function allocateMarbles(participants: Participant[], total = 100): Marbl
 	return participants.flatMap((participant, index) => Array.from({ length: base + (index < extras ? 1 : 0) }, () => ({ id: id++, ownerId: participant.id, color: participant.color, symbol: participant.symbol })));
 }
 
-export function reverseRank(finishOrder: Marble[]): RankedMarble[] {
+export function reverseRank(finishOrder: readonly Marble[]): RankedMarble[] {
 	return [...finishOrder].reverse().slice(0, 10).map((marble, index) => ({ ...marble, rank: index + 1, finishOrder: finishOrder.length - index }));
 }
 

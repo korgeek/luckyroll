@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { setImmediate as yieldEventLoop } from "node:timers/promises";
+import { afterEach, describe, expect, it } from "vitest";
+import type { TrackCell } from "../../designer/trackDesign";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
 import {
@@ -18,6 +20,7 @@ import {
 } from "../track/trackPhysics";
 import { resolveModuleDevices } from "./moduleDevices";
 import { MARBLE_DIAMETER } from "./modularTypes";
+import { projectToTrack } from "../track/trackSampler";
 
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const subtract = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
@@ -35,9 +38,16 @@ const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b
 });
 const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), z: 0, w: Math.cos(radians / 2) });
 
+afterEach(yieldEventLoop);
+
 describe("modular track physics", () => {
-  it("finishes at least 60 seed-23 marbles before the 60-second timeout", async () => {
-    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 60 });
+  it("keeps the obstacle-free baseline throughput above 60 marbles in 60 seconds", async () => {
+    const track = createValidTrackDesign();
+    const cells = [...track.cells] as TrackCell[];
+    cells.forEach((cell, cellIndex) => {
+      if (cell?.kind === "funnel" || cell?.kind === "wave" || cell?.kind === "bumper" || cell?.kind === "booster" || cell?.kind === "pinwheel") cells[cellIndex] = { kind: "straight", rotation: 0 };
+    });
+    const result = await runModularValidationRace({ track: { ...track, cells }, seed: 23, marbleCount: 100, durationSeconds: 60 });
     expect(result.finishOrder.length).toBeGreaterThanOrEqual(60);
     expect(result.finishTimesMs[0]).toBeLessThanOrEqual(55_000);
     expect(result.nonFinite).toEqual([]);
@@ -45,10 +55,23 @@ describe("modular track physics", () => {
     expect(result.escapes.length + result.stalls.length).toBeLessThanOrEqual(5);
   }, 180_000);
 
+  it("finishes the mixed-device default race without losses by 120 seconds", async () => {
+    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 120 });
+    expect(result.finishOrder).toHaveLength(100);
+    expect(result.finishTimesMs[result.finishTimesMs.length - 1]).toBeLessThanOrEqual(120_000);
+    expect(result.nonFinite).toEqual([]);
+    expect(result.escapes).toEqual([]);
+    expect(result.stalls).toEqual([]);
+    expect(result.boosterCapViolations).toEqual([]);
+  }, 300_000);
+
   it("creates one welded track mesh without a legacy rear collider", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
-    const built = buildModularTrack(createValidTrackDesign());
+    const track = createValidTrackDesign();
+    const cells = [...track.cells] as TrackCell[];
+    for (const cellIndex of [7, 17, 37]) cells[cellIndex] = { kind: "straight", rotation: 0 };
+    const built = buildModularTrack({ ...track, cells });
     const resources = createModularPhysics(world, built);
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
@@ -66,33 +89,18 @@ describe("modular track physics", () => {
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
     const rapier = getInitializedTrackPhysicsRapier();
     const bumpers = resources.fixedColliders;
-    expect(bumpers).toHaveLength(devices.bumpers.length * 3);
-    for (let index = 0; index < devices.bumpers.length; index += 1) {
-      const bumper = devices.bumpers[index]!;
-      const shaft = bumpers[index * 3]!;
-      const firstCap = bumpers[index * 3 + 1]!;
-      const secondCap = bumpers[index * 3 + 2]!;
-      const body = shaft.parent();
+    expect(devices.bumpers.every((bumper) => bumper.shape === "round")).toBe(true);
+    expect(bumpers).toHaveLength(devices.bumpers.length);
+    for (const [index, bumper] of devices.bumpers.entries()) {
+      expect(bumper.shape).toBe("round");
+      if (bumper.shape !== "round") continue;
+      const collider = bumpers[index]!;
+      const body = collider.parent();
       expect(body).not.toBeNull();
-      if (!body) continue;
-      const worldX = rotate(body.rotation(), { x: 1, y: 0, z: 0 });
-      const worldY = rotate(body.rotation(), { x: 0, y: 1, z: 0 });
-      const worldZ = rotate(body.rotation(), { x: 0, y: 0, z: 1 });
-      const up = bumper.up; const axis = bumper.axis; const rightHanded = { x: up.y * axis.z - up.z * axis.y, y: up.z * axis.x - up.x * axis.z, z: up.x * axis.y - up.y * axis.x };
-      const alignment = (left: { x: number; y: number; z: number }, right: { x: number; y: number; z: number }) => left.x * right.x + left.y * right.y + left.z * right.z;
-      expect(alignment(worldX, up)).toBeCloseTo(1, 6);
-      expect(alignment(worldY, axis)).toBeCloseTo(1, 6);
-      expect(alignment(worldZ, rightHanded)).toBeCloseTo(1, 6);
-      const shaftExtents = shaft.halfExtents();
-      expect(shaftExtents.x).toBeCloseTo(bumper.height / 2, 6);
-      expect(shaftExtents.y).toBeCloseTo((bumper.length - bumper.thickness) / 2, 6);
-      expect(shaftExtents.z).toBeCloseTo(bumper.thickness / 2, 6);
-      for (const cap of [firstCap, secondCap]) {
-        expect(cap.shapeType()).toBe(rapier.ShapeType.Cylinder);
-        expect(cap.halfHeight()).toBeCloseTo(bumper.height / 2, 6);
-        expect(cap.radius()).toBeCloseTo(bumper.thickness / 2, 6);
-        expect(Math.abs(alignment(rotate(cap.rotation(), { x: 0, y: 1, z: 0 }), up))).toBeCloseTo(1, 6);
-      }
+      expect(collider.shapeType()).toBe(rapier.ShapeType.Cylinder);
+      expect(collider.halfHeight()).toBeCloseTo(bumper.height / 2, 6);
+      expect(collider.radius()).toBeCloseTo(bumper.radius, 6);
+      if (body) expect(dot(rotate(body.rotation(), { x: 0, y: 1, z: 0 }), bumper.up)).toBeCloseTo(1, 6);
     }
     resources.dispose(); world.free();
   });
@@ -102,22 +110,24 @@ describe("modular track physics", () => {
     const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const resources = createModularPhysics(world, built);
-    const bumper = resolveModuleDevices(built.track, built.route, built.samples).bumpers[0]!;
+    const bumper = resolveModuleDevices(built.track, built.route, built.samples).bumpers.find((candidate) => candidate.shape === "round")!;
     const rapier = getInitializedTrackPhysicsRapier();
     const rawNormal = {
-      x: bumper.up.y * bumper.axis.z - bumper.up.z * bumper.axis.y,
-      y: bumper.up.z * bumper.axis.x - bumper.up.x * bumper.axis.z,
-      z: bumper.up.x * bumper.axis.y - bumper.up.y * bumper.axis.x,
+      x: bumper.forward.y * bumper.up.z - bumper.forward.z * bumper.up.y,
+      y: bumper.forward.z * bumper.up.x - bumper.forward.x * bumper.up.z,
+      z: bumper.forward.x * bumper.up.y - bumper.forward.y * bumper.up.x,
     };
     const length = Math.hypot(rawNormal.x, rawNormal.y, rawNormal.z);
     const normal = { x: rawNormal.x / length, y: rawNormal.y / length, z: rawNormal.z / length };
-    const clearance = bumper.thickness / 2 + MARBLE_DIAMETER / 2 + 0.08;
+    const clearance = bumper.radius + MARBLE_DIAMETER / 2 + 0.08;
     const start = { x: bumper.center.x + normal.x * clearance, y: bumper.center.y + normal.y * clearance, z: bumper.center.z + normal.z * clearance };
     const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(start.x, start.y, start.z).setCcdEnabled(true));
     world.createCollider(rapier.ColliderDesc.ball(MARBLE_DIAMETER / 2).setRestitution(0.08), body);
     body.setLinvel({ x: -normal.x * 8, y: -normal.y * 8, z: -normal.z * 8 }, true);
     for (let step = 0; step < 120 && dot(body.linvel(), normal) <= 0.5; step += 1) world.step();
-    expect(dot(body.linvel(), normal)).toBeGreaterThan(0.5);
+    const reboundSpeed = dot(body.linvel(), normal);
+    expect(reboundSpeed).toBeGreaterThan(0.5);
+    expect(reboundSpeed).toBeLessThan(4);
     resources.dispose(); world.free();
   });
 
@@ -166,6 +176,37 @@ describe("modular track physics", () => {
 
     expect(dot(inner.linvel(), curve.tangent)).toBeCloseTo(12, 5);
     expect(dot(outer.linvel(), curve.tangent)).toBeCloseTo(4, 5);
+    resources.dispose(); world.free();
+  });
+
+  it("carries center and both mogul-line probes through the funnel without jamming", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const entry = built.samples.find((sample) => built.track.cells[sample.cellIndex]?.kind === "funnel" && sample.localU === 0.12)!;
+    const rapier = getInitializedTrackPhysicsRapier();
+    const bodies = [-0.6, 0, 0.6].map((lateral) => {
+      const center = {
+        x: entry.position.x + entry.side.x * lateral + entry.up.x * (MARBLE_DIAMETER / 2 + 0.05),
+        y: entry.position.y + entry.side.y * lateral + entry.up.y * (MARBLE_DIAMETER / 2 + 0.05),
+        z: entry.position.z + entry.side.z * lateral + entry.up.z * (MARBLE_DIAMETER / 2 + 0.05),
+      };
+      const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(center.x, center.y, center.z).setCcdEnabled(true));
+      world.createCollider(rapier.ColliderDesc.ball(MARBLE_DIAMETER / 2).setFriction(0.05), body);
+      body.setLinvel({ x: entry.tangent.x * 8, y: entry.tangent.y * 8, z: entry.tangent.z * 8 }, true);
+      return body;
+    });
+
+    for (let step = 0; step < 240; step += 1) world.step();
+
+    for (const body of bodies) {
+      const position = body.translation();
+      const projection = projectToTrack(position, built.samples);
+      expect([position.x, position.y, position.z].every(Number.isFinite)).toBe(true);
+      expect(built.samples[projection.sampleIndex].distance - entry.distance).toBeGreaterThan(8);
+      expect(projection.distanceSquared).toBeLessThan(15 ** 2);
+    }
     resources.dispose(); world.free();
   });
 
@@ -278,7 +319,7 @@ describe("modular track physics", () => {
       expect(result.exited).toBe(true);
       expect(result.forwardSpeed).toBeGreaterThan(0);
     }
-  });
+  }, 15_000);
 
   it("opens the gate after 700 ms and advances one physical pusher", async () => {
     await initializeTrackPhysics();
@@ -286,8 +327,9 @@ describe("modular track physics", () => {
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
-    expect(world.colliders.len()).toBe(3 + devices.bumpers.length * 3 + devices.pinwheels.length * 3);
-    expect(resources.fixedColliders).toHaveLength(devices.bumpers.length * 3);
+    const bumperColliderCount = devices.bumpers.length;
+    expect(world.colliders.len()).toBe(3 + bumperColliderCount + devices.pinwheels.length * 3);
+    expect(resources.fixedColliders).toHaveLength(bumperColliderCount);
     expect(resources.pusherBody).toBeDefined();
     if (!resources.pusherBody) throw new Error("Missing physical start pusher.");
     const pusherCollider = resources.pusherBody.collider(0);

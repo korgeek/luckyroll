@@ -3,17 +3,14 @@ import type { ValidRoute } from "../../designer/trackValidation";
 import type { ResolvedFrame, ResolvedStart, Vec3 } from "../track/trackTypes";
 import {
   CHANNEL_WIDTH,
-  LANDING_LENGTH,
   MARBLE_DIAMETER,
   MODULE_SIZE,
   type ModulePathSample,
 } from "./modularTypes";
 
-const BUMPER_LENGTH = 4;
-const BUMPER_THICKNESS = 0.45 * MARBLE_DIAMETER;
 const BUMPER_HEIGHT = 1.4 * MARBLE_DIAMETER;
-const BUMPER_TIP_ANGLE = Math.PI / 6;
-const BUMPER_PLACEMENTS = [[0.25, -1], [0.375, 1], [0.5, -1], [0.625, 1], [0.75, -1]] as const;
+const ROUND_BUMPER_RADIUS = 0.75 * MARBLE_DIAMETER;
+const BUMPER_PLACEMENTS = [[0.25, -2.4], [0.25, 0], [0.25, 2.4], [0.5, -1.2], [0.5, 1.2], [0.75, 0]] as const;
 const PINWHEEL_RADIUS = 4;
 const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
 const PINWHEEL_ANGULAR_SPEED = 5;
@@ -21,14 +18,11 @@ const START_LENGTH = 10.2;
 const START_WIDTH = 10.4;
 
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-const subtract = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const scale = (a: Vec3, amount: number): Vec3 => ({ x: a.x * amount, y: a.y * amount, z: a.z * amount });
-const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const normalize = (a: Vec3): Vec3 => {
   const length = Math.hypot(a.x, a.y, a.z);
   return length === 0 ? { x: 0, y: 1, z: 0 } : scale(a, 1 / length);
 };
-const rotate = (a: Vec3, b: Vec3, angle: number): Vec3 => normalize(add(scale(a, Math.cos(angle)), scale(b, Math.sin(angle))));
 const frameFromSample = (sample: ModulePathSample): ResolvedFrame => Object.freeze({
   sampleIndex: sample.index,
   position: sample.position,
@@ -49,16 +43,14 @@ export type BoosterTrigger = Readonly<{
   up: Vec3;
 }>;
 
-export type BumperBar = Readonly<{
+export type RoundBumper = Readonly<{
+  shape: "round";
   cellIndex: number;
   localU: number;
   center: Vec3;
   forward: Vec3;
-  axis: Vec3;
   up: Vec3;
-  tipDirection: Vec3;
-  length: number;
-  thickness: number;
+  radius: number;
   height: number;
   clearPassage: number;
   distanceFromNearestSeam: number;
@@ -83,7 +75,7 @@ export type ModuleDevices = Readonly<{
     width: number;
   }>;
   boosters: readonly BoosterTrigger[];
-  bumpers: readonly BumperBar[];
+  bumpers: readonly RoundBumper[];
   pinwheels: readonly PinwheelLayout[];
 }>;
 
@@ -93,7 +85,7 @@ export type ModulePreviewDescriptor = Readonly<{
   collider: false;
 }>;
 
-const neutralBumperOffsets = Object.freeze([-CHANNEL_WIDTH / 2 + BUMPER_LENGTH / 2, 0, CHANNEL_WIDTH / 2 - BUMPER_LENGTH / 2] as const);
+const neutralBumperOffsets = Object.freeze([-2.4, 0, 2.4] as const);
 
 export type ModularDevicePose = Readonly<{
   elapsedSeconds: number;
@@ -136,27 +128,17 @@ const frameAtCellU = (samples: readonly ModulePathSample[], cellIndex: number, l
     distance: lower.distance + (upper.distance - lower.distance) * amount,
   });
 };
-const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[]): readonly BumperBar[] => {
-  const values: BumperBar[] = [];
-  for (const [localU, sign] of BUMPER_PLACEMENTS) {
+const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[]): readonly RoundBumper[] => {
+  const values: RoundBumper[] = [];
+  for (const [localU, lateral] of BUMPER_PLACEMENTS) {
     const frame = frameAtCellU(samples, cellIndex, localU);
     if (frame === undefined) continue;
-    const inward = scale(frame.side, -sign);
-    const axis = rotate(inward, frame.tangent, BUMPER_TIP_ANGLE);
-    const up = normalize(subtract(frame.up, scale(axis, dot(frame.up, axis))));
     values.push(Object.freeze({
-      cellIndex,
-      localU,
-      center: add(add(frame.position, scale(frame.side, sign * (CHANNEL_WIDTH / 2 - BUMPER_LENGTH / 2))), scale(frame.up, BUMPER_HEIGHT / 2)),
-      forward: frame.tangent,
-      axis,
-      up,
-      tipDirection: axis,
-      length: BUMPER_LENGTH,
-      thickness: BUMPER_THICKNESS,
-      height: BUMPER_HEIGHT,
-      clearPassage: CHANNEL_WIDTH - BUMPER_LENGTH * 2,
-      distanceFromNearestSeam: Math.max(LANDING_LENGTH, Math.min(localU, 1 - localU) * MODULE_SIZE),
+      shape: "round" as const, cellIndex, localU,
+      center: add(add(frame.position, scale(frame.side, lateral)), scale(frame.up, BUMPER_HEIGHT / 2)),
+      forward: frame.tangent, up: frame.up, radius: ROUND_BUMPER_RADIUS, height: BUMPER_HEIGHT,
+      clearPassage: CHANNEL_WIDTH / 2 - Math.abs(lateral) - ROUND_BUMPER_RADIUS,
+      distanceFromNearestSeam: Math.min(localU, 1 - localU) * MODULE_SIZE - ROUND_BUMPER_RADIUS,
     }));
   }
   return Object.freeze(values);
@@ -177,9 +159,9 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
     tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
     width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 0.36, durationMs: 650,
   });
-  const start = Object.freeze({ frame: startFrame, gate: gateFrame, pusher, length: START_LENGTH, runoutLength: START_LENGTH + 20, width: START_WIDTH, radius: START_WIDTH / 2, shuffleMs: 700, wallHeight: 4 });
+  const start = Object.freeze({ frame: startFrame, gate: gateFrame, pusher, length: START_LENGTH, runoutLength: START_LENGTH + 20, width: START_WIDTH, radius: START_WIDTH / 2, shuffleMs: 700, wallHeight: 6 });
   const boosters: BoosterTrigger[] = [];
-  const bumpers: BumperBar[] = [];
+  const bumpers: RoundBumper[] = [];
   const pinwheels: PinwheelLayout[] = [];
   for (const step of route.route) {
     const cell = track.cells[step.cellIndex];

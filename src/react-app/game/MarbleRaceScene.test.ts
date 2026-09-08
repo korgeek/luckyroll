@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { attachSceneTrackCollider, createDebugCameraState, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, stepSceneObstacleResources } from "./MarbleRaceScene";
+import { alongRouteDistance, attachSceneTrackCollider, createDebugCameraState, createFrameRateCounter, createLiveStandings, createRaceBoost, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, shouldEmitSceneTick, stepSceneObstacleResources } from "./MarbleRaceScene";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -13,7 +13,143 @@ const deferred = <Value,>() => {
   return { promise, resolve, reject };
 };
 
+const activeBoostState = { running: true, manualPaused: false, debugPaused: false, gateOpen: true, disposed: false };
+const chargeBoost = (boost: ReturnType<typeof createRaceBoost>) => {
+  for (let step = 0; step < 300; step += 1) boost.step(activeBoostState);
+};
+const boostBall = (initialVelocity: { x: number; y: number; z: number }, sampleIndex = 0, done = false) => {
+  let velocity = initialVelocity;
+  return {
+    ball: { done, sampleIndex, body: { linvel: () => velocity, setLinvel: (next: { x: number; y: number; z: number }) => { velocity = next; } } },
+    velocity: () => velocity,
+  };
+};
+
 describe("continuous-track scene seams", () => {
+	it("averages actual animation frames over half-second windows", () => {
+		const frameRate = createFrameRateCounter();
+		expect(frameRate.sample(0)).toBe(0);
+		let fps = 0;
+		for (let frame = 1; frame <= 30; frame += 1) fps = frameRate.sample(frame * 1000 / 60);
+		expect(fps).toBeCloseTo(60, 5);
+		expect(frameRate.sample(600)).toBeCloseTo(60, 5);
+		const slowFrameRate = createFrameRateCounter();
+		slowFrameRate.sample(0);
+		for (let frame = 1; frame <= 5; frame += 1) fps = slowFrameRate.sample(frame * 100);
+		expect(fps).toBe(10);
+	});
+	it("charges boost only during active post-gate fixed steps and resets for replay", () => {
+		const boost = createRaceBoost();
+		const blocked = [
+			{ ...activeBoostState, running: false },
+			{ ...activeBoostState, manualPaused: true },
+			{ ...activeBoostState, debugPaused: true },
+			{ ...activeBoostState, gateOpen: false },
+			{ ...activeBoostState, disposed: true },
+		];
+
+		expect(boost.remainingMs()).toBe(5_000);
+		blocked.forEach((state) => boost.step(state));
+		expect(boost.remainingMs()).toBe(5_000);
+		for (let step = 0; step < 299; step += 1) boost.step(activeBoostState);
+		expect(boost.remainingMs()).toBeGreaterThan(0);
+		boost.step(activeBoostState);
+		expect(boost.remainingMs()).toBe(0);
+		boost.reset();
+		expect(boost.remainingMs()).toBe(5_000);
+	});
+
+	it("boosts forward speed by half up to 42 without changing lateral or local-normal velocity", () => {
+		const boost = createRaceBoost();
+		const twenty = boostBall({ x: 15.2, y: 3, z: 13.6 });
+		const thirty = boostBall({ x: 22, y: -2, z: 21 });
+		const samples = [{ tangent: { x: 0.6, y: 0, z: 0.8 } }];
+		chargeBoost(boost);
+
+		expect(boost.activate(activeBoostState, [twenty.ball, thirty.ball], samples)).toBe(true);
+		expect(twenty.velocity()).toEqual({ x: 21.2, y: 3, z: 21.6 });
+		expect(thirty.velocity()).toEqual({ x: 29.2, y: -2, z: 30.6 });
+		expect(boost.remainingMs()).toBe(5_000);
+	});
+
+	it("skips finished and unsafe velocities without consuming a ready boost", () => {
+		const boost = createRaceBoost();
+		const unchanged = [
+			boostBall({ x: 42, y: 2, z: 0 }),
+			boostBall({ x: 50, y: 2, z: 0 }),
+			boostBall({ x: -4, y: 2, z: 0 }),
+			boostBall({ x: 0, y: 2, z: 0 }),
+			boostBall({ x: Number.NaN, y: 2, z: 0 }),
+			boostBall({ x: 20, y: 2, z: 0 }, 0, true),
+		];
+		const samples = [{ tangent: { x: 1, y: 0, z: 0 } }];
+		chargeBoost(boost);
+
+		expect(boost.activate(activeBoostState, unchanged.map(({ ball }) => ball), samples)).toBe(false);
+		expect(boost.remainingMs()).toBe(0);
+		const valid = boostBall({ x: 20, y: 2, z: 0 });
+		expect(boost.activate(activeBoostState, [valid.ball], samples)).toBe(true);
+		expect(valid.velocity()).toEqual({ x: 30, y: 2, z: 0 });
+		expect(boost.activate(activeBoostState, [valid.ball], samples)).toBe(false);
+		expect(valid.velocity()).toEqual({ x: 30, y: 2, z: 0 });
+	});
+
+	it("rejects boost activation for every unavailable scene state", () => {
+		const samples = [{ tangent: { x: 1, y: 0, z: 0 } }];
+		for (const state of [
+			{ ...activeBoostState, running: false },
+			{ ...activeBoostState, manualPaused: true },
+			{ ...activeBoostState, debugPaused: true },
+			{ ...activeBoostState, gateOpen: false },
+			{ ...activeBoostState, disposed: true },
+		]) {
+			const boost = createRaceBoost(); const candidate = boostBall({ x: 20, y: 0, z: 0 });
+			chargeBoost(boost);
+			expect(boost.activate(state, [candidate.ball], samples)).toBe(false);
+			expect(candidate.velocity().x).toBe(20);
+		}
+	});
+
+	it("forces a final scene tick at timeout or when the last marble finishes", () => {
+		expect(shouldEmitSceneTick(120_000, 119_950, 120_000, 1)).toBe(true);
+		expect(shouldEmitSceneTick(5_050, 5_000, 5_050, 0)).toBe(true);
+		expect(shouldEmitSceneTick(5_050, 5_000, 5_050, 1)).toBe(false);
+	});
+
+	it("orders only active standings by ascending route distance and reports gaps from last place", () => {
+		const marble = (id: number) => ({ id, ownerId: "owner", color: "#fff", symbol: "x" });
+		const samples = [
+			{ distance: 0, position: { x: 0, y: 0, z: 0 } },
+			{ distance: 10, position: { x: 2, y: 0, z: 0 } },
+			{ distance: 40, position: { x: 8, y: 0, z: 0 } },
+		];
+		const balls = [
+			{ id: 1, marble: marble(1), done: false, sampleIndex: 1, position: { x: 5, y: 0, z: 0 } },
+			{ id: 2, marble: marble(2), done: true, sampleIndex: 0, position: { x: 0, y: 0, z: 0 } },
+			{ id: 3, marble: marble(3), done: false, sampleIndex: 1, position: { x: 2, y: 0, z: 0 } },
+		];
+
+		expect(createLiveStandings([], samples)).toEqual([]);
+		expect(createLiveStandings(balls.filter((ball) => ball.done), samples)).toEqual([]);
+		expect(createLiveStandings(balls, samples)).toEqual([
+			{ marble: balls[2].marble, gap: 0 },
+			{ marble: balls[0].marble, gap: 15 },
+		]);
+	});
+
+	it("interpolates along the nearest adjacent real-distance segment", () => {
+		const samples = [
+			{ distance: 0, position: { x: 0, y: 0, z: 0 } },
+			{ distance: 10, position: { x: 2, y: 0, z: 0 } },
+			{ distance: 40, position: { x: 8, y: 0, z: 0 } },
+		];
+		expect(alongRouteDistance({ x: 5, y: 0, z: 0 }, 1, samples)).toBeCloseTo(25, 8);
+	});
+
+	it("returns a finite distance at route boundaries", () => {
+		const samples = [{ distance: 0, position: { x: 0, y: 0, z: 0 } }];
+		expect(alongRouteDistance({ x: 3, y: 0, z: 0 }, 0, samples)).toBe(0);
+	});
 
   it("parses only the explicit track-debug query flag", () => {
     expect(isTrackDebugEnabled("?trackDebug=1")).toBe(true);

@@ -60,7 +60,7 @@ export function TrackEditor({ state, onChange, onBack, onSave, onShare, onPlay }
 	};
 
 	return <main className="track-editor" aria-label="Track editor">
-		<header className="track-editor-header"><button className="secondary-button" onClick={() => (!state.dirty || window.confirm("Discard unsaved changes?")) && onBack()}>Back</button><div><p className="eyebrow">MODULAR TRACK DESIGNER</p><h1>Build your route</h1></div><button className="primary-button" disabled={!state.validation.ok} onClick={onSave}>Save</button></header>
+		<header className="track-editor-header"><button className="secondary-button" onClick={() => (!state.dirty || window.confirm("Discard unsaved changes?")) && onBack()}>Back to Tracks</button><div><p className="eyebrow">MODULAR TRACK DESIGNER</p><h1>Build your route</h1></div><button className="primary-button" disabled={!state.validation.ok} onClick={onSave}>Save</button></header>
 		<label className="track-name">Track name<input value={state.draft.name} maxLength={60} onChange={(event) => dispatch({ type: "name", name: event.target.value })} /></label>
 		<section className="track-editor-board" aria-label="Board editor">
 			<div className="palette" aria-label="Module palette">{PALETTE.map(([kind, label]) => <button key={kind} className={state.selectedKind === kind ? "selected" : ""} aria-pressed={state.selectedKind === kind} onClick={() => { dispatch({ type: "palette", kind }); setPaletteArmed(true); }}>{label}</button>)}</div>

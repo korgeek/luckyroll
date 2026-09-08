@@ -1,10 +1,38 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
+import { type TrackCell } from "../../designer/trackDesign";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
 import { createModularTrackRender, disposeModularTrackRender, setModularDevicePose } from "./modularTrackRender";
 
 describe("modular track rendering", () => {
+  it("renders the centered bumper as a distinct round cylinder", () => {
+    const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign()));
+    const mesh = rendered.group.getObjectByName("round-bumpers") as THREE.InstancedMesh;
+    const bumpers = rendered.devices.bumpers.filter((bumper) => bumper.shape === "round");
+    expect(bumpers).toHaveLength(rendered.devices.bumpers.length);
+    expect(bumpers.length).toBe(new Set(bumpers.map((bumper) => bumper.cellIndex)).size * 6);
+    expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
+    expect(mesh.count).toBe(bumpers.length);
+    expect((mesh.geometry as THREE.CylinderGeometry).parameters).toMatchObject({ radiusTop: 1, radiusBottom: 1, height: 1, radialSegments: 16 });
+    const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const quaternion = new THREE.Quaternion(); const scale = new THREE.Vector3();
+    bumpers.forEach((bumper, index) => {
+      mesh.getMatrixAt(index, matrix); matrix.decompose(position, quaternion, scale);
+      expect(position.distanceTo(new THREE.Vector3(bumper.center.x, bumper.center.y, bumper.center.z))).toBeLessThan(1e-5);
+      expect(new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion).dot(new THREE.Vector3(bumper.up.x, bumper.up.y, bumper.up.z))).toBeCloseTo(1, 5);
+      expect(scale.x).toBeCloseTo(bumper.radius, 6); expect(scale.y).toBeCloseTo(bumper.height, 6); expect(scale.z).toBeCloseTo(bumper.radius, 6);
+    });
+    disposeModularTrackRender(rendered);
+  });
+
+	it("adds collider-free finish dressing", () => {
+		const rendered = createModularTrackRender(buildModularTrack(createValidTrackDesign()));
+		const finish = rendered.group.getObjectByName("modular-finish-decoration")!;
+		expect(finish.userData.collider).toBe(false);
+		expect(finish.getObjectByName("finish-checker-strip")?.children).toHaveLength(12);
+		expect(finish.getObjectByName("finish-neon-arch")).toBeDefined();
+		disposeModularTrackRender(rendered);
+	});
   it("renders exact board buffers and collider-free booster chevrons", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const rendered = createModularTrackRender(built);
@@ -35,21 +63,8 @@ describe("modular track rendering", () => {
       const projected = child.position.clone().sub(new THREE.Vector3(booster.center.x, booster.center.y, booster.center.z)).dot(new THREE.Vector3(booster.forward.x, booster.forward.y, booster.forward.z));
       expect(projected).toBeCloseTo((booster.endDistance - booster.startDistance) * ((index + 1) / 4 - 0.5), 5);
     }
-    const shafts = rendered.group.getObjectByName("bumper-shafts") as THREE.InstancedMesh;
-    const caps = rendered.group.getObjectByName("bumper-caps") as THREE.InstancedMesh;
-    const scale = new THREE.Vector3(); const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const shaftQuaternion = new THREE.Quaternion();
-    rendered.devices.bumpers.forEach((bar, index) => {
-      shafts.getMatrixAt(index, matrix); matrix.decompose(position, shaftQuaternion, scale);
-      const center = new THREE.Vector3(bar.center.x, bar.center.y, bar.center.z); const axis = new THREE.Vector3(bar.axis.x, bar.axis.y, bar.axis.z);
-      const up = new THREE.Vector3(bar.up.x, bar.up.y, bar.up.z); const rightHanded = up.clone().cross(axis);
-      expect(position.distanceTo(center)).toBeLessThan(1e-5); expect(new THREE.Vector3(1, 0, 0).applyQuaternion(shaftQuaternion).dot(up)).toBeCloseTo(1, 5); expect(new THREE.Vector3(0, 1, 0).applyQuaternion(shaftQuaternion).dot(axis)).toBeCloseTo(1, 5); expect(new THREE.Vector3(0, 0, 1).applyQuaternion(shaftQuaternion).dot(rightHanded)).toBeCloseTo(1, 5);
-      expect(scale.x).toBeCloseTo(bar.height, 6); expect(scale.y).toBeCloseTo(bar.length - bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
-      for (const [capIndex, sign] of [-1, 1].entries()) {
-        caps.getMatrixAt(index * 2 + capIndex, matrix); matrix.decompose(position, new THREE.Quaternion(), scale);
-        const expected = new THREE.Vector3(bar.center.x, bar.center.y, bar.center.z).addScaledVector(new THREE.Vector3(bar.axis.x, bar.axis.y, bar.axis.z), sign * (bar.length - bar.thickness) / 2);
-        expect(position.distanceTo(expected)).toBeLessThan(1e-5); expect(scale.x).toBeCloseTo(bar.height, 6); expect(scale.y).toBeCloseTo(bar.thickness, 6); expect(scale.z).toBeCloseTo(bar.thickness, 6);
-      }
-    });
+    expect(rendered.group.getObjectByName("bumper-shafts")).toBeUndefined();
+    expect(rendered.group.getObjectByName("bumper-caps")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-neon-rims")).toBeUndefined();
     disposeModularTrackRender(rendered);
   });
@@ -109,7 +124,9 @@ describe("modular track rendering", () => {
   });
 
   it("does not allocate device meshes for a track with no devices and disposes once", () => {
-    const zeroDevice = createModularTrackRender(buildModularTrack(createValidTrackDesign()));
+    const cells = [...createValidTrackDesign().cells] as TrackCell[];
+    for (const cellIndex of [2, 7, 12, 17, 22, 27, 37]) cells[cellIndex] = { kind: "straight", rotation: 0 };
+    const zeroDevice = createModularTrackRender(buildModularTrack({ ...createValidTrackDesign(), cells }));
     expect(zeroDevice.group.getObjectByName("bumper-shafts")).toBeUndefined();
     expect(zeroDevice.group.getObjectByName("pinwheel-arms")).toBeUndefined();
     expect(zeroDevice.group.getObjectByName("booster-chevrons")).toBeUndefined();

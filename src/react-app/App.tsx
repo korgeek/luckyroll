@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { RaceHud } from "./components/RaceHud";
 import { ResultsScreen } from "./components/ResultsScreen";
 import { SetupScreen, type SetupValues } from "./components/SetupScreen";
@@ -11,19 +11,19 @@ import { decodeSharedTrack } from "./designer/trackCodec";
 import { createDefaultTrackDesign, type LocalTrack, type RaceCourseSelection, type TrackDesign, type TrackLibrary } from "./designer/trackDesign";
 import { deleteTrack, loadTrackLibrary, persistTrackLibrary, resetTrackLibrary, upsertTrack } from "./designer/trackLibrary";
 import { allocateMarbles, reverseRank } from "./domain/race";
-import { createRandom } from "./domain/seed";
-import { splitTeams } from "./domain/teams";
-import type { Marble, Participant, Team } from "./domain/types";
-import type { RaceScene } from "./game/MarbleRaceScene";
+import type { Marble, Participant } from "./domain/types";
+import type { LiveStanding, RaceScene } from "./game/MarbleRaceScene";
 import { retroSounds } from "./game/retroSounds";
 import "./App.css";
 
 type Session = SetupValues & { marbles: Marble[]; seed: number; course: RaceCourseSelection };
-type Hud = { elapsedMs: number; finishedCount: number; eliminatedCount: number; leader?: Marble; trailer?: Marble };
+type Hud = { elapsedMs: number; fps: number; eliminatedCount: number; standings: readonly LiveStanding[]; boostRemainingMs: number };
 type View = "setup" | "library" | "editor" | "race" | "results";
+type BackChoice = { wasPaused: boolean; canLeave: boolean };
 const EMPTY_LIBRARY: TrackLibrary = { version: 1, tracks: [] };
 const SELECTED_TRACK_KEY = "luckyroll.selectedTrack";
-const QUICK_PLAY: SetupValues = { mode: "race", prizePool: 0, teamCount: 2, participants: [
+const NAVIGATION_STATE_KEY = "luckyRollNavigation";
+const QUICK_PLAY: SetupValues = { prizePool: 0, participants: [
 	{ id: "player-1", name: "Player 1", color: "#ff4f8f", symbol: "◆" },
 	{ id: "player-2", name: "Player 2", color: "#58e7ff", symbol: "●" },
 ] };
@@ -39,16 +39,27 @@ function App() {
 	const [libraryError, setLibraryError] = useState(false);
 	const [session, setSession] = useState<Session>();
 	const [finished, setFinished] = useState<Marble[]>([]);
-	const [hud, setHud] = useState<Hud>({ elapsedMs: 0, finishedCount: 0, eliminatedCount: 0 });
+	const [hud, setHud] = useState<Hud>({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 });
 	const [remaining, setRemaining] = useState<Marble[]>();
-	const [teams, setTeams] = useState<Team[]>();
+	const [celebrate, setCelebrate] = useState(false);
 	const [paused, setPaused] = useState(false);
 	const [birdView, setBirdView] = useState(false);
 	const [muted, setMuted] = useState(false);
 	const [sceneReady, setSceneReady] = useState(false);
+	const [boostFlash, setBoostFlash] = useState(false);
+	const [backChoice, setBackChoice] = useState<BackChoice>();
+	const [leaveGuidance, setLeaveGuidance] = useState("");
 	const [raceReturnView, setRaceReturnView] = useState<"setup" | "library" | "editor">("setup");
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const sceneRef = useRef<RaceScene | undefined>(undefined);
+	const backDialogRef = useRef<HTMLDialogElement>(null);
+	const backChoiceRef = useRef<BackChoice | undefined>(undefined);
+	const leaveFallbackRef = useRef<number | undefined>(undefined);
+	const returningFromExitRef = useRef(false);
+	const viewRef = useRef(view);
+	const pausedRef = useRef(paused);
+	viewRef.current = view;
+	pausedRef.current = paused;
 
 	useEffect(() => {
 		const loaded = loadTrackLibrary(window.localStorage);
@@ -68,38 +79,42 @@ function App() {
 	}, []);
 	useEffect(() => {
 		let active = true;
-		void import("./game/MarbleRaceScene").then(({ initializeScenePhysics }) => initializeScenePhysics()).then(() => { if (active) setRuntimeReady(true); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Race engine could not load."));
+		void Promise.all([import("./game/MarbleRaceScene").then(({ initializeScenePhysics }) => initializeScenePhysics()), retroSounds.preload().catch(() => undefined)]).then(() => { if (active) setRuntimeReady(true); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Race engine could not load."));
 		return () => { active = false; };
 	}, []);
+	useEffect(() => {
+		if (!boostFlash) return;
+		const timeout = window.setTimeout(() => setBoostFlash(false), 900);
+		return () => window.clearTimeout(timeout);
+	}, [boostFlash]);
 
 	const trackById = (id: string | undefined): LocalTrack | undefined => library.tracks.find((track) => track.id === id);
 	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "library" | "editor" = "setup") => {
-		const marbles = values.mode === "race" ? allocateMarbles(values.participants) : values.participants.map((participant, index) => ({ id: index + 1, ownerId: participant.id, color: participant.color, symbol: participant.symbol }));
-		retroSounds.start(); setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setRaceReturnView(returnView);
+		const marbles = allocateMarbles(values.participants);
+		retroSounds.start(); setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setRaceReturnView(returnView);
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
-		setFinished([]); setTeams(undefined); setRemaining(undefined); setHud({ elapsedMs: 0, finishedCount: 0, eliminatedCount: 0 }); setView("race");
+		setFinished([]); setRemaining(undefined); setBoostFlash(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setView("race");
 	};
 
 	useEffect(() => {
 		if (view !== "race" || !session || !canvasRef.current) return;
-		let active = true; let scene: RaceScene | undefined; let completed = 0;
+		let active = true; let scene: RaceScene | undefined; let completed = 0; let finishers = 0;
 		void import("./game/MarbleRaceScene").then(({ createRaceScene }) => {
 			if (!active || !canvasRef.current) return;
 			scene = createRaceScene(canvasRef.current, (event) => {
-				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, finishedCount: event.finishedCount, eliminatedCount: event.eliminatedCount, leader: event.leader, trailer: event.trailer });
+				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, fps: event.fps, eliminatedCount: event.eliminatedCount, standings: event.standings, boostRemainingMs: event.boostRemainingMs });
 				if (event.type === "timeout") { retroSounds.timeout(); setRemaining(event.remaining); }
 				if (event.type === "error") { setMessage(event.message); setView(raceReturnView); }
-				if ((event.type === "finish" || event.type === "dnf") && session.mode === "race") {
+				if (event.type === "finish" || event.type === "dnf") {
 					completed += 1;
-					if (event.type === "finish") setFinished((current) => [...current, event.marble]);
+					if (event.type === "finish") { finishers += 1; setFinished((current) => [...current, event.marble]); }
 					else setMessage(`Marble #${event.marble.id} did not finish (${event.reason}).`);
-					if (completed === session.marbles.length) { retroSounds.finish(); setView("results"); }
+					if (completed === session.marbles.length) { const complete = finishers === session.marbles.length; if (complete) retroSounds.finish(); setCelebrate(complete); setView("results"); }
 				}
 			}, session.course);
 			sceneRef.current = scene; setSceneReady(true); scene.start(session.marbles, session.seed);
 		}).catch((error: unknown) => { if (active) { setMessage(error instanceof Error ? error.message : "Race could not start."); setView(raceReturnView); } });
-		const teamTimer = session.mode === "teams" ? window.setTimeout(() => { setTeams(splitTeams(session.participants, session.teamCount, createRandom(session.seed))); setView("results"); }, 4_500) : undefined;
-		return () => { active = false; if (teamTimer) window.clearTimeout(teamTimer); scene?.dispose(); sceneRef.current = undefined; };
+		return () => { active = false; scene?.dispose(); sceneRef.current = undefined; };
 	}, [raceReturnView, session, view]);
 
 	const importTrack = (input: string): string | undefined => {
@@ -122,22 +137,91 @@ function App() {
 	};
 	const editTrack = (id: string) => { const track = trackById(id); if (track) { setEditor(createEditorState(track, id)); setView("editor"); } };
 	const openShare = (track: TrackDesign | undefined) => { if (track) setShareTrack(track); };
-	const showResults = () => { setRemaining(undefined); setView("results"); };
-	const restartAll = () => { if (!session) return; setFinished([]); setRemaining(undefined); setHud({ elapsedMs: 0, finishedCount: 0, eliminatedCount: 0 }); setBirdView(false); setSceneReady(false); setSession({ ...session, seed: Date.now() }); };
-	const restartRemaining = () => { if (!remaining) return; setRemaining(undefined); sceneRef.current?.restartRemaining(remaining); };
-	const again = () => { setSession(undefined); setFinished([]); setTeams(undefined); setPaused(false); setBirdView(false); setSceneReady(false); setView(raceReturnView); };
-	const selectTrack = (id?: string) => { setSelectedTrackId(id); if (id) window.localStorage.setItem(SELECTED_TRACK_KEY, id); else window.localStorage.removeItem(SELECTED_TRACK_KEY); };
-	const participants: Participant[] = session?.participants ?? [];
+	const showResults = () => { setRemaining(undefined); setCelebrate(false); setView("results"); };
+	const restartAll = () => { if (!session) return; retroSounds.stop(); retroSounds.start(); setFinished([]); setRemaining(undefined); setBoostFlash(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setBirdView(false); setPaused(false); setSceneReady(false); setCelebrate(false); setSession({ ...session, seed: Date.now() }); setView("race"); };
+	const restartRemaining = () => { if (!remaining) return; setRemaining(undefined); setBoostFlash(false); setHud((current) => ({ ...current, standings: [], boostRemainingMs: 5_000 })); sceneRef.current?.restartRemaining(remaining); };
+	const again = () => { retroSounds.stop(); setSession(undefined); setFinished([]); setPaused(false); setBirdView(false); setSceneReady(false); setView(raceReturnView); };
+	const backToMenu = () => { retroSounds.stop(); setShareTrack(undefined); setSession(undefined); setFinished([]); setRemaining(undefined); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setView("setup"); };
+	const dismissBackChoice = () => {
+		const choice = backChoiceRef.current;
+		if (choice && viewRef.current === "race") { setPaused(choice.wasPaused); sceneRef.current?.setPaused(choice.wasPaused); }
+		backChoiceRef.current = undefined; setBackChoice(undefined);
+	};
+	const chooseMainMenu = () => { backChoiceRef.current = undefined; setBackChoice(undefined); backToMenu(); };
+	const leaveGame = () => {
+		const canLeave = backChoiceRef.current?.canLeave ?? false;
+		backChoiceRef.current = undefined; setBackChoice(undefined); backToMenu();
+		if (!canLeave) { setLeaveGuidance("No previous page is available. You can close this tab when you're finished."); return; }
+		returningFromExitRef.current = true;
+		const cancelFallback = () => { if (leaveFallbackRef.current !== undefined) window.clearTimeout(leaveFallbackRef.current); leaveFallbackRef.current = undefined; };
+		window.addEventListener("pagehide", cancelFallback, { once: true });
+		leaveFallbackRef.current = window.setTimeout(() => { window.removeEventListener("pagehide", cancelFallback); leaveFallbackRef.current = undefined; returningFromExitRef.current = false; setLeaveGuidance("No previous page is available. You can close this tab when you're finished."); }, 750);
+		window.history.go(-2);
+	};
 
-	if (!runtimeReady) return <main className="app-shell"><section className="setup-card" role="status"><p className="eyebrow">LUCKY ROLL</p><h1>Loading race engine…</h1>{message && <p>{message}</p>}</section></main>;
+	useEffect(() => {
+		if (!backChoice) return;
+		const dialog = backDialogRef.current;
+		dialog?.showModal();
+		return () => { if (dialog?.open) dialog.close(); };
+	}, [backChoice, runtimeReady]);
+	useEffect(() => () => { if (leaveFallbackRef.current !== undefined) window.clearTimeout(leaveFallbackRef.current); }, []);
+	useEffect(() => {
+		type NavigationState = { position: "base" | "guard"; hadPrevious: boolean };
+		const readMarker = (state: unknown): NavigationState | undefined => state && typeof state === "object" ? (state as Record<string, NavigationState>)[NAVIGATION_STATE_KEY] : undefined;
+		const addMarker = (state: unknown, marker: NavigationState) => ({ ...(state && typeof state === "object" ? state : {}), [NAVIGATION_STATE_KEY]: marker });
+		let marker = readMarker(window.history.state);
+		if (!marker) {
+			marker = { position: "base", hadPrevious: window.history.length > 1 };
+			window.history.replaceState(addMarker(window.history.state, marker), "", window.location.href);
+			window.history.pushState(addMarker(window.history.state, { ...marker, position: "guard" }), "", window.location.href);
+		} else if (marker.position === "base") {
+			window.history.pushState(addMarker(window.history.state, { ...marker, position: "guard" }), "", window.location.href);
+		}
+		const onPopState = (event: PopStateEvent) => {
+			const popped = readMarker(event.state);
+			if (popped?.position !== "base") return;
+			window.history.pushState(addMarker(event.state, { ...popped, position: "guard" }), "", window.location.href);
+			if (returningFromExitRef.current) { returningFromExitRef.current = false; return; }
+			if (backChoiceRef.current) return;
+			const choice = { wasPaused: pausedRef.current, canLeave: popped.hadPrevious };
+			backChoiceRef.current = choice; setBackChoice(choice);
+			if (viewRef.current === "race") { sceneRef.current?.setPaused(true); setPaused(true); }
+		};
+		const onPageShow = () => {
+			if (!returningFromExitRef.current) return;
+			window.setTimeout(() => {
+				if (!returningFromExitRef.current) return;
+				const current = readMarker(window.history.state);
+				if (current?.position === "base") window.history.pushState(addMarker(window.history.state, { ...current, position: "guard" }), "", window.location.href);
+				returningFromExitRef.current = false;
+			}, 0);
+		};
+		window.addEventListener("popstate", onPopState);
+		window.addEventListener("pageshow", onPageShow);
+		return () => { window.removeEventListener("popstate", onPopState); window.removeEventListener("pageshow", onPageShow); };
+	}, []);
+	const selectTrack = (id?: string) => { setSelectedTrackId(id); if (id) window.localStorage.setItem(SELECTED_TRACK_KEY, id); else window.localStorage.removeItem(SELECTED_TRACK_KEY); };
+	const boost = () => { if (!sceneReady || paused || remaining || hud.boostRemainingMs > 0 || !sceneRef.current?.boost()) return; retroSounds.start(); setHud((current) => ({ ...current, boostRemainingMs: 5_000 })); setBoostFlash(true); };
+	const participants: Participant[] = session?.participants ?? [];
+	const raceBackLabel = raceReturnView === "setup" ? "Back to Menu" : raceReturnView === "library" ? "Back to Tracks" : "Back to Editor";
+	const boostFill = `${100 - Math.min(100, hud.boostRemainingMs / 50)}%`;
+	const backTitle = view === "setup" ? "QUIT GAME?" : view === "race" ? "PAUSE MENU" : "GAME MENU";
+	const continueLabel = view === "race" ? "RESUME" : "CONTINUE";
+	const backNavigation = backChoice && <dialog ref={backDialogRef} className="dialog-backdrop back-choice-dialog" aria-labelledby="back-choice-title" onCancel={(event) => { event.preventDefault(); dismissBackChoice(); }} onClick={(event) => { if (event.target === event.currentTarget) dismissBackChoice(); }}><section className="timeout-dialog"><h2 id="back-choice-title">{backTitle}</h2><div className="dialog-actions">{view === "setup" ? <><button className="secondary-button" onClick={leaveGame}>QUIT</button><button className="text-button" onClick={dismissBackChoice}>CANCEL</button></> : <><button className="primary-button" onClick={dismissBackChoice}>{continueLabel}</button><button className="secondary-button" onClick={chooseMainMenu}>MAIN MENU</button><button className="text-button" onClick={leaveGame}>QUIT GAME</button></>}</div></section></dialog>;
+	const leaveNotice = leaveGuidance && <div className="app-message leave-guidance" role="status">{leaveGuidance}<button onClick={() => setLeaveGuidance("")}>Dismiss</button></div>;
+
+	if (!runtimeReady) return <main className="app-shell"><section className="setup-card" role="status"><p className="eyebrow">LUCKY ROLL</p><h1>Loading race engine…</h1>{message && <p>{message}</p>}</section>{backNavigation}{leaveNotice}</main>;
 	return <main className="app-shell">
 		{message && <div className="app-message" role="status">{message}{libraryError && <button onClick={() => { try { const next = resetTrackLibrary(window.localStorage); setLibrary(next); setLibraryError(false); setMessage("Saved track storage reset."); } catch (error) { setMessage(error instanceof Error ? error.message : "Saved track storage could not be reset."); } }}>Reset saved tracks</button>}</div>}
-		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onManageTracks={() => setView("library")} /></div>
+		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onSelectTrack={selectTrack} onManageTracks={() => setView("library")} /></div>
 		{view === "library" && <TrackLibraryPanel tracks={library.tracks} selectedTrackId={selectedTrackId} onBack={() => setView("setup")} onNew={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEdit={editTrack} onSelect={selectTrack} onPlay={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track, "library"); } }} onShare={(id) => openShare(trackById(id))} onDelete={removeTrack} onImport={importTrack} />}
 		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("library")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
-		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} finishedCount={hud.finishedCount} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} leader={hud.leader} trailer={hud.trailer} /><div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>Exit</button></div>{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
-		{view === "results" && <ResultsScreen rankings={session?.mode === "race" ? reverseRank(finished) : undefined} participants={participants} prizePool={session?.prizePool ?? 0} teams={teams} onAgain={again} />}
+		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} fps={hud.fps} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} standings={hud.standings} finished={finished} participants={session.participants} /><div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>{raceBackLabel}</button></div><div className="boost-dock"><button className={hud.boostRemainingMs === 0 ? "boost-button ready" : "boost-button"} disabled={!sceneReady || paused || Boolean(remaining) || hud.boostRemainingMs > 0} onClick={boost} aria-label={hud.boostRemainingMs === 0 ? "Boost ready" : `Boost charging, ${(hud.boostRemainingMs / 1000).toFixed(1)} seconds remaining`} style={{ "--boost-fill": boostFill } as CSSProperties}><i /><span>BOOST</span><small>{hud.boostRemainingMs === 0 ? "READY" : `${(hud.boostRemainingMs / 1000).toFixed(1)}s`}</small></button></div>{boostFlash && <strong className="boost-flash" role="status">BOOST!</strong>}{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
+		{view === "results" && <ResultsScreen rankings={reverseRank(finished)} participants={participants} prizePool={session?.prizePool ?? 0} celebrate={celebrate} onReplay={restartAll} onBack={backToMenu} />}
 		{shareTrack && <ShareTrackDialog track={shareTrack} writeText={navigator.clipboard?.writeText.bind(navigator.clipboard)} onClose={() => setShareTrack(undefined)} />}
+		{backNavigation}
+		{leaveNotice}
 	</main>;
 }
 

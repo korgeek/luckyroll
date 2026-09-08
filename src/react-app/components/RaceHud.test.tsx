@@ -1,0 +1,64 @@
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import type { LiveStanding } from "../game/MarbleRaceScene";
+import appCss from "../App.css?raw";
+import { RaceHud } from "./RaceHud";
+
+const participants = [
+	{ id: "a", name: "Ari", color: "#f00", symbol: "◆" },
+	{ id: "b", name: "Bea", color: "#0ff", symbol: "●" },
+];
+const standings: LiveStanding[] = [
+	{ marble: { id: 8, ownerId: "a", color: "#f00", symbol: "◆" }, gap: 0 },
+	{ marble: { id: 3, ownerId: "b", color: "#0ff", symbol: "●" }, gap: 4.25 },
+];
+
+afterEach(cleanup);
+
+describe("RaceHud", () => {
+	it("shows reverse standings and preserves keyed rows when places swap", () => {
+		const { rerender } = render(<RaceHud elapsedMs={1234} fps={59.7} eliminatedCount={1} total={100} standings={standings} finished={[]} participants={participants} />);
+		const marbleEight = screen.getByText("Ari · #8").closest("li");
+		expect(screen.getByText("WINNING")).toBeInTheDocument();
+		expect(screen.getByText("TOP 10")).toBeInTheDocument();
+		expect(screen.getByText("60 FPS")).toBeInTheDocument();
+		expect(screen.getByText("+4.3u")).toBeInTheDocument();
+		expect(marbleEight).toHaveStyle({ transform: "translateY(0px)" });
+
+		rerender(<RaceHud elapsedMs={2000} fps={58.4} eliminatedCount={1} total={100} standings={[{ ...standings[1], gap: 0 }, { ...standings[0], gap: 2 }]} finished={[]} participants={participants} />);
+		expect(screen.getByText("Ari · #8").closest("li")).toBe(marbleEight);
+		expect(marbleEight).toHaveStyle({ transform: "translateY(22px)" });
+		expect(screen.getByText("DONE 0/100")).toBeInTheDocument();
+		expect(screen.queryByText(/LEADING|LAST:/)).not.toBeInTheDocument();
+	});
+
+	it("removes stale active duplicates, rebases gaps, and appends real reverse-ranked finishers", () => {
+		render(<RaceHud elapsedMs={2000} fps={60} eliminatedCount={0} total={100} standings={[{ ...standings[0], gap: 3 }, { ...standings[1], gap: 7.25 }]} finished={[standings[0].marble]} participants={participants} />);
+		expect(screen.getAllByText("Ari · #8")).toHaveLength(1);
+		expect(screen.getByText("Bea · #3").closest("li")).toHaveTextContent("WINNING");
+		expect(screen.getByText("Ari · #8").closest("li")).toHaveTextContent("FIN");
+		expect(screen.queryByText("+4.3u")).not.toBeInTheDocument();
+		expect(screen.getByText("DONE 1/100")).toBeInTheDocument();
+	});
+
+	it("shows only the latest ten finishers in reverse finish order", () => {
+		const finished = Array.from({ length: 12 }, (_, index) => ({ ...standings[index % 2].marble, id: index + 1 }));
+		render(<RaceHud elapsedMs={2000} fps={60} eliminatedCount={0} total={100} standings={[]} finished={finished} participants={participants} />);
+		const rows = screen.getAllByRole("listitem");
+		expect(rows).toHaveLength(10);
+		expect(rows[0]).toHaveTextContent("#12FIN");
+		expect(rows[9]).toHaveTextContent("#3FIN");
+		expect(screen.queryByText(/#2$/)).not.toBeInTheDocument();
+	});
+
+	it("crops the live board to ten rows, or five on portrait phones", () => {
+		expect(appCss).toMatch(/\.live-standings ol\{[^}]*height:220px/);
+		expect(appCss).toMatch(/@media \(orientation:portrait\) and \(max-width:767px\)\{\.live-standings ol\{height:110px\}/);
+		expect(appCss).toContain(".standings-phone-title{display:none}");
+		expect(appCss).toContain(".standings-desktop-title{display:none}.standings-phone-title{display:inline}");
+		expect(appCss).toContain(".race-hud .hud-bottom{flex-direction:column;align-items:flex-end;gap:4px}");
+		expect(appCss).toContain(".live-standings li:nth-child(n+6){visibility:hidden}");
+		expect(appCss).toContain(".boost-dock");
+		expect(appCss).toContain("height:var(--boost-fill)");
+	});
+});

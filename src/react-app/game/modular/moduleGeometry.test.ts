@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { assertValidTrackDesign } from "../../designer/trackValidation";
-import { CHANNEL_WIDTH, MARBLE_DIAMETER, RAIL_HEIGHT, ROUTE_GRADE, sampleModulePath } from "./modulePath";
+import { CHANNEL_WIDTH, MARBLE_DIAMETER, MODULE_SIZE, RAIL_HEIGHT, ROUTE_GRADE, moduleWidthAt, sampleModulePath } from "./modulePath";
 import { buildModularTrack } from "./modularTrackBuild";
-import { buildModuleGeometry, validateModuleGeometry, PROFILE_SEGMENTS, profileAt } from "./moduleGeometry";
+import { buildModuleGeometry, validateModuleGeometry, PROFILE_SEGMENTS, profileAt, profileNormalsAt, funnelMogulHeight } from "./moduleGeometry";
 
 const vertex = (geometry: ReturnType<typeof buildModuleGeometry>, row: number, column: number) => {
   const offset = (row * (geometry.profileSegments + 1) + column) * 3;
@@ -25,10 +25,77 @@ const triangleNormal = (geometry: ReturnType<typeof buildModuleGeometry>, triang
   const length = Math.hypot(normal.x, normal.y, normal.z);
   return { x: normal.x / length, y: normal.y / length, z: normal.z / length };
 };
+const dot3 = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 
-describe("welded modular channel geometry", () => {
+describe("welded modular channel geometry", { timeout: 30_000 }, () => {
+  it("makes four noticeable circular C2 funnel moguls while leaving ports and throat flat", () => {
+    const peaks = [[0.22, -0.6], [0.36, 0.6], [0.64, -0.6], [0.78, 0.6]] as const;
+    const radial = 0.9;
+    const alongU = radial * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
+    const diagonal = radial / Math.sqrt(2);
+    const expectedHalfRadiusHeight = 0.253125;
+
+    expect(peaks.map(([u, lateral]) => funnelMogulHeight(u, lateral))).toEqual([0.6, 0.6, 0.6, 0.6]);
+    expect(funnelMogulHeight(0.22 + alongU, -0.6)).toBeCloseTo(expectedHalfRadiusHeight, 10);
+    expect(funnelMogulHeight(0.22, -0.6 + radial)).toBeCloseTo(expectedHalfRadiusHeight, 10);
+    expect(funnelMogulHeight(0.22 + diagonal * Math.cos(ROUTE_GRADE) / MODULE_SIZE, -0.6 + diagonal)).toBeCloseTo(expectedHalfRadiusHeight, 10);
+    for (const u of [0, 0.1, 0.5, 0.9, 1]) for (const lateral of [-2.4, 0, 2.4]) expect(funnelMogulHeight(u, lateral)).toBe(0);
+
+    const boundary = -2.4;
+    const epsilon = 1e-6;
+    expect(funnelMogulHeight(0.22, boundary)).toBeLessThan(1e-20);
+    expect(Math.abs((funnelMogulHeight(0.22, boundary + epsilon) - funnelMogulHeight(0.22, boundary - epsilon)) / (2 * epsilon))).toBeLessThan(1e-5);
+    expect(Math.abs((funnelMogulHeight(0.22, boundary + epsilon) - 2 * funnelMogulHeight(0.22, boundary) + funnelMogulHeight(0.22, boundary - epsilon)) / epsilon ** 2)).toBeLessThan(0.01);
+  });
+
+  it("puts the raised moguls in the shared mesh with finite derivative-consistent normals", () => {
+    const track = createValidTrackDesign();
+    const samples = sampleModulePath(track, assertValidTrackDesign(track));
+    const geometry = buildModuleGeometry(samples);
+    const peak = samples.find((sample) => sample.cellIndex === 2 && sample.localU === 0.22)!;
+    const profile = profileAt(peak.width);
+    const column = profile.slice(1).reduce((best, right, index) => Math.abs((profile[index].lateral + right.lateral) / 2 + 0.6) < Math.abs((profile[best].lateral + profile[best + 1].lateral) / 2 + 0.6) ? index : best, 0);
+    const raised = vertex(geometry, samples.indexOf(peak), column);
+    const raisedHeight = dot3({ x: raised.x - peak.position.x, y: raised.y - peak.position.y, z: raised.z - peak.position.z }, peak.up);
+    expect(raisedHeight).toBeGreaterThan(0.5);
+
+    const localU = 0.22 + 0.9 * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
+    const width = moduleWidthAt("funnel", localU);
+    const base = profileAt(width);
+    const floorColumn = base.slice(1).reduce((best, right, index) => Math.abs((base[index].lateral + right.lateral) / 2 + 0.6) < Math.abs((base[best].lateral + base[best + 1].lateral) / 2 + 0.6) ? index : best, 0);
+    const lateral = (base[floorColumn].lateral + base[floorColumn + 1].lateral) / 2;
+    const epsilon = 1e-6;
+    const longitudinalSlope = (funnelMogulHeight(localU + epsilon, lateral) - funnelMogulHeight(localU - epsilon, lateral)) / (2 * epsilon) * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
+    const lateralSlope = (funnelMogulHeight(localU, base[floorColumn + 1].lateral) - funnelMogulHeight(localU, base[floorColumn].lateral)) / (base[floorColumn + 1].lateral - base[floorColumn].lateral);
+    const normal = profileNormalsAt({ ...peak, localU }, width)[floorColumn];
+    expect([normal.x, normal.y, normal.z].every(Number.isFinite)).toBe(true);
+    expect(Math.hypot(normal.x, normal.y, normal.z)).toBeCloseTo(1, 8);
+    expect(dot3(normal, peak.tangent)).toBeCloseTo(-longitudinalSlope / Math.hypot(1, longitudinalSlope, lateralSlope), 5);
+  });
+
+  it("keeps transverse mogul facets within the 0.02D surface chord limit", () => {
+    const track = createValidTrackDesign();
+    const samples = sampleModulePath(track, assertValidTrackDesign(track));
+    const geometry = buildModuleGeometry(samples);
+    let maximumError = 0;
+    samples.forEach((sample, row) => {
+      if (sample.kind !== "funnel") return;
+      const base = profileAt(sample.width);
+      for (let column = 0; column < PROFILE_SEGMENTS; column += 1) {
+        if (base[column].height !== 0 || base[column + 1].height !== 0) continue;
+        const left = vertex(geometry, row, column); const right = vertex(geometry, row, column + 1);
+        const leftHeight = dot3({ x: left.x - sample.position.x, y: left.y - sample.position.y, z: left.z - sample.position.z }, sample.up);
+        const rightHeight = dot3({ x: right.x - sample.position.x, y: right.y - sample.position.y, z: right.z - sample.position.z }, sample.up);
+        const midpoint = (base[column].lateral + base[column + 1].lateral) / 2;
+        maximumError = Math.max(maximumError, Math.abs(funnelMogulHeight(sample.localU, midpoint) - (leftHeight + rightHeight) / 2));
+      }
+    });
+    expect(maximumError).toBeLessThanOrEqual(0.02 * MARBLE_DIAMETER);
+  });
   it("uses a tall open profile without an inward wall hook", () => {
     const profile = profileAt(CHANNEL_WIDTH);
+    expect(profile[0]?.height).toBe(12);
+    expect(profile[profile.length - 1]?.height).toBe(12);
     const floor = profile.filter((point) => Math.abs(point.height) < 1e-9);
     expect(floor[0].lateral).toBeCloseTo(-CHANNEL_WIDTH * 0.275, 8);
     expect(floor[floor.length - 1]?.lateral).toBeCloseTo(CHANNEL_WIDTH * 0.275, 8);

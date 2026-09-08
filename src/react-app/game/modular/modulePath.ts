@@ -21,7 +21,7 @@ const MIN_CHORD_ERROR = MARBLE_DIAMETER * 0.02;
 const MAX_TURN = 2 * Math.PI / 180;
 const HALF_SIZE = MODULE_SIZE / 2;
 const CURVE_RADIUS = (MODULE_SIZE - 2 * LANDING_LENGTH) / 2;
-const MIN_FUNNEL_WIDTH = 9.6;
+const MIN_FUNNEL_WIDTH = 8.8;
 const COLUMNS = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -78,9 +78,13 @@ const waveOffsetSecond = (localU: number): number => {
 export const waveOffset = waveOffsetAt;
 
 const funnelSmoothStep = (t: number): number => 6 * t ** 5 - 15 * t ** 4 + 10 * t ** 3;
-export const moduleWidthAt = (kind: ModuleKind, localU: number): number => {
-  if (kind !== "funnel") return CHANNEL_WIDTH;
+export const moduleWidthAt = (kind: ModuleKind | "start" | "finish", localU: number): number => {
   const u = clamp(localU, 0, 1);
+  if (kind === "wave") {
+    if (u <= 0.1 || u >= 0.9) return CHANNEL_WIDTH;
+    return CHANNEL_WIDTH - 1.2 * Math.sin(Math.PI * (u - 0.1) / 0.8) ** 2;
+  }
+  if (kind !== "funnel") return CHANNEL_WIDTH;
   if (u <= 0.1 || u >= 0.9) return CHANNEL_WIDTH;
   const interior = (u - 0.1) / 0.8;
   const taper = 0.25;
@@ -183,7 +187,7 @@ const surfaceTurnExceeds = (path: CellPath, kind: ModuleKind | "start" | "finish
     const planarTangent = normalize({ x: point.derivative.x, y: 0, z: point.derivative.z });
     const planarSide = path.sideAt(localU);
     const frame = gradeFrame(planarTangent, planarSide, bankAt(kind, localU, dot(curvature(point), planarSide)));
-    return profileNormalsAt({ ...frame, centerlineCurvature: curvature(point) }, widthAt(localU));
+    return profileNormalsAt({ ...frame, centerlineCurvature: curvature(point), kind, localU }, widthAt(localU));
   });
   for (let column = 0; column < rows[0].length; column += 1) {
     if (turnBetween(rows[0][column], rows[1][column]) > MAX_TURN
@@ -231,7 +235,7 @@ const adaptiveParameters = (
       output.set(end, Math.max(output.get(end) ?? 0, acceptedError));
     }
   };
-  const seeds = kind === "funnel" ? [0, 0.1, 0.3, 0.5, 0.7, 0.9, 1] : [0, 0.1, 0.9, 1];
+  const seeds = kind === "funnel" ? [0, 0.1, 0.12, 0.22, 0.32, 0.36, 0.46, 0.5, 0.54, 0.64, 0.74, 0.78, 0.88, 0.9, 1] : kind === "wave" ? [0, 0.1, 0.5, 0.9, 1] : [0, 0.1, 0.9, 1];
   for (let index = 0; index < seeds.length - 1; index += 1) visit(seeds[index], seeds[index + 1], 0);
   return [...output.entries()].sort(([left], [right]) => left - right).map(([localU, acceptedError]) => ({ localU, chordError: acceptedError }));
 };
@@ -257,7 +261,7 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
     const entry = step.entry ?? opposite(step.exit ?? "west");
     const exit = step.exit ?? opposite(step.entry ?? "east");
     const path = makeCellPath(cell.kind, entry, exit, step.cellIndex);
-    const widthAt = (localU: number): number => cell.kind === "funnel" ? moduleWidthAt(cell.kind, localU) : CHANNEL_WIDTH;
+		const widthAt = (localU: number): number => moduleWidthAt(cell.kind, localU);
     const parameters = adaptiveParameters(path, cell.kind, widthAt);
     for (const parameter of parameters) {
       const localU = parameter.localU;
@@ -290,6 +294,7 @@ export const sampleModulePath = (track: TrackDesign, route: ValidRoute): readonl
       }
       result.push(freeze({
         index: result.length,
+		kind: cell.kind,
         distance: planarDistance / Math.cos(ROUTE_GRADE),
         position,
         tangent: freeze(tangent),

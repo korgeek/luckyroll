@@ -9,6 +9,12 @@ const handlers = () => ({ onBack: vi.fn(), onNew: vi.fn(), onEdit: vi.fn(), onSe
 
 describe("TrackLibraryPanel", () => {
 	afterEach(cleanup);
+	it("returns to the main menu", async () => {
+		const h = handlers();
+		render(<TrackLibraryPanel tracks={[]} {...h} />);
+		await userEvent.click(screen.getByRole("button", { name: "Back to Menu" }));
+		expect(h.onBack).toHaveBeenCalledOnce();
+	});
 	it("renders one card per saved track with short visible actions and UUID-only accessible names", async () => {
 		const user = userEvent.setup();
 		const onEdit = vi.fn();

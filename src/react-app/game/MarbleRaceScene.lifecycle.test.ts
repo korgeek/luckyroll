@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { TrackSample } from "./track/trackTypes";
 
 const seams = vi.hoisted(() => ({
   frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
-  courseSamples: undefined as unknown[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
+  courseSamples: undefined as TrackSample[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 }));
 
@@ -64,7 +65,7 @@ vi.mock("./track/trackPhysics", () => ({
     seams.worlds.push(world); return world;
   },
   createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : position, rotation: () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }), setEnabled: () => undefined })),
-  distanceSquaredToSample: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
+  distanceSquaredToSample: () => 0, distanceSquaredToTrackSegments: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
 }));
 
 vi.mock("./track/trackSampler", () => ({ projectToTrack: (_position: unknown, samples: readonly unknown[]) => { seams.projectedSamples.push(samples as unknown[]); return { sampleIndex: 0, progress: 0, distanceSquared: 0 }; } }));
@@ -81,6 +82,7 @@ vi.mock("./cameraControls", async () => {
 
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import type { Marble } from "../domain/types";
+import { getTrackBounds, writeTrackFollowShot } from "./cameraPlan";
 import { createMarbleRollTexture, createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
@@ -139,14 +141,16 @@ describe("race scene lifecycle boundary", () => {
     expect(camera.up.x).toBeCloseTo(-1, 3);
     expect(camera.up.y).toBeCloseTo(0, 3);
     expect(camera.up.z).toBe(0);
-    const birdPosition = camera.position.clone();
-
     scene.setBirdView(false);
     for (let frame = 160; frame < 320; frame += 1) seams.frames.shift()?.(now + frame * 17);
     expect(camera.up.x).toBeCloseTo(0, 3);
     expect(camera.up.y).toBeCloseTo(1, 3);
     expect(camera.up.z).toBe(0);
-    expect(camera.position.distanceTo(new THREE.Vector3(7.5, 3.8, 0))).toBeLessThan(birdPosition.distanceTo(new THREE.Vector3(7.5, 3.8, 0)));
+    const samples = seams.courseSamples!;
+    const expected = writeTrackFollowShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 }, { x: 0, y: 1, z: 0 }, samples, 0, getTrackBounds(samples));
+    const settled = latestPose(camera);
+    expect(settled.position.distanceTo(new THREE.Vector3(expected.position.x, expected.position.y, expected.position.z))).toBeLessThan(0.1);
+    expect(settled.lookAt.distanceTo(new THREE.Vector3(expected.lookAt.x, expected.lookAt.y, expected.lookAt.z))).toBeLessThan(0.1);
     scene.dispose();
   });
 

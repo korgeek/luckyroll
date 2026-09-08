@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modular/modularTrackBuild";
 import { buildValidatedTrack } from "./track/trackBuild";
@@ -11,6 +12,7 @@ import {
   hasCameraClipChanged,
   selectFocusRank,
   writeControlledTrackFollowShot,
+  writeBirdViewFit,
   writeTrackFollowShot,
   type CameraShot,
   type RaceFocusTarget,
@@ -25,6 +27,36 @@ const field = (count: number, offset = 0): RaceFocusTarget[] => Array.from({ len
 const mutableShot = (): CameraShot => ({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 });
 
 describe("track-bound race camera plan", () => {
+	it.each([["portrait", 320 / 740], ["landscape", 1024 / 768]] as const)("fits every track-bound corner in a %s view", (_name, aspect) => {
+		const center = { x: 4, y: -2, z: 8 };
+		const half = { x: 10, y: 5, z: 24 };
+		const bounds = { center, radius: Math.hypot(half.x, half.y, half.z) };
+		const shot = writeBirdViewFit(mutableShot(), bounds, 60, aspect);
+		const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+		camera.position.set(shot.position.x, shot.position.y, shot.position.z);
+		camera.up.set(0, 0, -1);
+		camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z);
+		camera.updateMatrixWorld();
+
+		for (const x of [-half.x, half.x]) for (const y of [-half.y, half.y]) for (const z of [-half.z, half.z]) {
+			const projected = new THREE.Vector3(center.x + x, center.y + y, center.z + z).project(camera);
+			expect(Math.abs(projected.x)).toBeLessThanOrEqual(1);
+			expect(Math.abs(projected.y)).toBeLessThanOrEqual(1);
+			expect(projected.z).toBeGreaterThanOrEqual(-1);
+			expect(projected.z).toBeLessThanOrEqual(1);
+		}
+		expect(shot.lookAt).toEqual(center);
+		expect(shot.far).toBeGreaterThanOrEqual(Math.hypot(shot.position.x - center.x, shot.position.y - center.y, shot.position.z - center.z) + bounds.radius * 2);
+	});
+
+	it("falls back to finite bird framing for invalid camera inputs", () => {
+		const shot = writeBirdViewFit(mutableShot(), { center: { x: Number.NaN, y: 0, z: 0 }, radius: -1 }, Number.NaN, 0);
+		expect(isFiniteVec3(shot.position)).toBe(true);
+		expect(isFiniteVec3(shot.lookAt)).toBe(true);
+		expect(shot.near).toBeGreaterThan(0);
+		expect(shot.far).toBeGreaterThan(shot.near);
+	});
+
   it.each(["overview", "bird", "side", "profile", "leader", "trailer", "finish"] as const)("frames the %s debug shot inside the track bounds", (name) => {
     const shot = getCameraShot(name, canonicalTrackBounds);
 

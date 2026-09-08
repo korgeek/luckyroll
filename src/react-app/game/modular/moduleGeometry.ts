@@ -1,6 +1,7 @@
 import type { TrackGeometry, Vec3 } from "../track/trackTypes";
 import {
   CHANNEL_WIDTH,
+  MODULE_SIZE,
   MAX_CURVE_BANK,
   MARBLE_DIAMETER,
   RAIL_HEIGHT,
@@ -8,13 +9,19 @@ import {
   type ModulePathSample,
 } from "./modularTypes";
 
-export const PROFILE_SEGMENTS = 128;
+export const PROFILE_SEGMENTS = 160;
 export const FLOOR_SPAN = 0.55;
-const WALL_SEGMENTS = 62;
+const WALL_SEGMENTS = 64;
 const FLOOR_SEGMENTS = PROFILE_SEGMENTS - WALL_SEGMENTS * 2;
-const WALL_RISE_HEIGHT = RAIL_HEIGHT * 0.7875;
-const CURVE_INNER_RAIL_HEIGHT = 3;
+const WALL_RISE_HEIGHT = RAIL_HEIGHT * 0.5;
+const CURVE_INNER_RAIL_HEIGHT = 4.5;
+const BASE_CURVE_INNER_RAIL_HEIGHT = 3;
 export const CURVE_INNER_INSET = 2.8;
+const CURVE_INNER_INSET_COMPENSATION = (CURVE_INNER_RAIL_HEIGHT - BASE_CURVE_INNER_RAIL_HEIGHT) * Math.tan(MAX_CURVE_BANK) + 0.05;
+
+export const curveBankBlend = (sideY: number): number => Math.min(1, Math.abs(sideY) / (Math.sin(MAX_CURVE_BANK) * Math.cos(ROUTE_GRADE)));
+export const effectiveCurveInnerInset = (bankBlend: number): number =>
+  (CURVE_INNER_INSET + CURVE_INNER_INSET_COMPENSATION) * Math.max(0, Math.min(1, bankBlend));
 
 export type ChannelProfilePoint = Readonly<{ lateral: number; height: number }>;
 
@@ -76,22 +83,48 @@ const normalize = (a: Vec3): Vec3 => {
   return length === 0 ? { x: 0, y: 0, z: 0 } : scale(a, 1 / length);
 };
 
-const profileForFrame = (frame: Pick<ModulePathSample, "side" | "width"> & Readonly<{ centerlineCurvature: Vec3 }>): readonly ChannelProfilePoint[] => {
+const FUNNEL_MOGUL_HEIGHT = 0.6;
+const FUNNEL_MOGUL_RADIUS = 1.8;
+const FUNNEL_MOGUL_ALONG_SCALE = MODULE_SIZE / Math.cos(ROUTE_GRADE);
+const FUNNEL_MOGULS = [[0.22, -0.6], [0.36, 0.6], [0.64, -0.6], [0.78, 0.6]] as const;
+
+export const funnelMogulHeight = (localU: number, lateral: number): number => {
+  let height = 0;
+  for (const [center, side] of FUNNEL_MOGULS) {
+    const along = (localU - center) * FUNNEL_MOGUL_ALONG_SCALE;
+    const across = lateral - side;
+    const radial = (along ** 2 + across ** 2) / FUNNEL_MOGUL_RADIUS ** 2;
+    if (radial < 1) height += FUNNEL_MOGUL_HEIGHT * (1 - radial) ** 3;
+  }
+  return height;
+};
+const funnelMogulSlope = (localU: number, lateral: number): number => {
+  let slope = 0;
+  for (const [center, side] of FUNNEL_MOGULS) {
+    const along = (localU - center) * FUNNEL_MOGUL_ALONG_SCALE;
+    const across = lateral - side;
+    const radial = (along ** 2 + across ** 2) / FUNNEL_MOGUL_RADIUS ** 2;
+    if (radial < 1) slope -= 6 * FUNNEL_MOGUL_HEIGHT * along * FUNNEL_MOGUL_ALONG_SCALE / FUNNEL_MOGUL_RADIUS ** 2 * (1 - radial) ** 2;
+  }
+  return slope;
+};
+const profileForFrame = (frame: Pick<ModulePathSample, "side" | "width" | "kind" | "localU"> & Readonly<{ centerlineCurvature: Vec3 }>): readonly ChannelProfilePoint[] => {
   const signedCurvature = frame.centerlineCurvature.x * frame.side.x + frame.centerlineCurvature.y * frame.side.y + frame.centerlineCurvature.z * frame.side.z;
-  const bankBlend = Math.min(1, Math.abs(frame.side.y) / (Math.sin(MAX_CURVE_BANK) * Math.cos(ROUTE_GRADE)));
+  const bankBlend = curveBankBlend(frame.side.y);
   const innerHeight = lerp(RAIL_HEIGHT, CURVE_INNER_RAIL_HEIGHT, bankBlend);
-  const innerHalfWidth = frame.width / 2 - CURVE_INNER_INSET * bankBlend;
-  return profileAt(
+  const innerHalfWidth = frame.width / 2 - effectiveCurveInnerInset(bankBlend);
+  const profile = profileAt(
     frame.width,
     signedCurvature < 0 ? innerHeight : RAIL_HEIGHT,
     signedCurvature > 0 ? innerHeight : RAIL_HEIGHT,
     signedCurvature < 0 ? innerHalfWidth : frame.width / 2,
     signedCurvature > 0 ? innerHalfWidth : frame.width / 2,
   );
+  return frame.kind === "funnel" ? profile.map((point) => freeze({ ...point, height: point.height + funnelMogulHeight(frame.localU, point.lateral) })) : profile;
 };
 
 export const profileNormalsAt = (
-  frame: Pick<ModulePathSample, "tangent" | "side" | "up" | "centerlineCurvature">,
+  frame: Pick<ModulePathSample, "tangent" | "side" | "up" | "centerlineCurvature" | "kind" | "localU">,
   width: number,
 ): readonly Vec3[] => {
   const profile = profileForFrame({ ...frame, width });
@@ -101,7 +134,9 @@ export const profileNormalsAt = (
       scale(frame.side, right.lateral - left.lateral),
       scale(frame.up, right.height - left.height),
     );
-    return normalize(cross(transverse, frame.tangent));
+    const lateral = (left.lateral + right.lateral) / 2;
+    const slope = frame.kind === "funnel" ? funnelMogulSlope(frame.localU, lateral) * Math.cos(ROUTE_GRADE) / MODULE_SIZE : 0;
+    return normalize(cross(transverse, add(frame.tangent, scale(frame.up, slope))));
   });
 };
 

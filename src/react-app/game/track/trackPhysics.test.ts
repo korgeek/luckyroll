@@ -1,11 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, initializeTrackPhysics, launchPositionsFor, runValidationRace, runValidationSuite } from "./trackPhysics";
+import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, distanceSquaredToSample, distanceSquaredToTrackSegments, initializeTrackPhysics, launchPositionsFor, runValidationRace, runValidationSuite } from "./trackPhysics";
+import { createDefaultTrackDesign } from "../../designer/trackDesign";
+import { buildModularTrack } from "../modular/modularTrackBuild";
+import { projectToTrack } from "./trackSampler";
 import { buildValidatedTrack } from "./trackBuild";
 import { exactLaunchMeshDistance } from "./trackPhysics.mesh.testSupport";
 import { createLaunchSlots } from "./trackSpec";
 import { validateSeedsTwice } from "./trackPhysics.testSupport";
 
 describe.sequential("headless track physics", () => {
+	it("measures escape distance to adjacent sample segments instead of sparse points", () => {
+		const samples = [{ position: { x: 0, y: 0, z: 0 } }, { position: { x: 16, y: 0, z: 0 } }] as unknown as Parameters<typeof distanceSquaredToTrackSegments>[1];
+		expect(distanceSquaredToSample({ x: 8, y: 12, z: 6 }, samples[0])).toBe(244);
+		expect(distanceSquaredToTrackSegments({ x: 8, y: 12, z: 6 }, samples)).toBe(180);
+		expect(distanceSquaredToTrackSegments({ x: 8, y: 16, z: 0 }, samples)).toBe(256);
+		expect(distanceSquaredToTrackSegments({ x: -16, y: 0, z: 0 }, samples)).toBe(256);
+		expect(distanceSquaredToTrackSegments({ x: 3, y: 4, z: 0 }, [samples[0]])).toBe(25);
+		expect(distanceSquaredToTrackSegments({ x: 3, y: 4, z: 0 }, [samples[0], samples[0]])).toBe(25);
+	});
+
+	it("keeps a real Default Track wall midpoint inside the existing escape radius", () => {
+		const built = buildModularTrack(createDefaultTrackDesign());
+		const geometrySamples = built.geometry.samples as unknown as typeof built.samples;
+		const row = geometrySamples.findIndex((sample) => sample.cellIndex === 0 && sample.localU === 0.1);
+		const nextRow = geometrySamples.findIndex((sample, index) => index > row && sample.cellIndex === 0 && sample.localU === 0.9);
+		const rowSize = built.geometry.profileSegments + 1;
+		const a = row * rowSize * 3; const b = nextRow * rowSize * 3;
+		const position = { x: (built.geometry.positions[a] + built.geometry.positions[b]) / 2, y: (built.geometry.positions[a + 1] + built.geometry.positions[b + 1]) / 2, z: (built.geometry.positions[a + 2] + built.geometry.positions[b + 2]) / 2 };
+		const projection = projectToTrack(position, built.samples);
+		expect(distanceSquaredToSample(position, built.samples[projection.sampleIndex])).toBeGreaterThan(15 ** 2);
+		expect(distanceSquaredToTrackSegments(position, built.samples)).toBeLessThanOrEqual(15 ** 2);
+	});
   it("keeps all physical launch positions non-overlapping inside the entry channel", () => {
     const positions = launchPositionsFor(createLaunchSlots(100), buildValidatedTrack().geometry);
 

@@ -1,4 +1,31 @@
 import type { CSSProperties } from "react";
 import { prizeByOwner } from "../domain/race";
-import type { Participant, RankedMarble, Team } from "../domain/types";
-export function ResultsScreen({ rankings, participants, prizePool, teams, onAgain }: { rankings?: RankedMarble[]; participants: Participant[]; prizePool: number; teams?: Team[]; onAgain: () => void }) { const prizes = rankings && prizePool > 0 ? prizeByOwner(rankings, prizePool) : {}; return <section className="results-card"><p className="eyebrow">{teams ? "FAIR & SQUARE" : "WHO WAS LAST?"}</p><h1>{teams ? "TEAM SPLIT!" : "TOP 10"}</h1>{teams ? <div className="team-results">{teams.map((team) => <article className="team-card" key={team.id} style={{ "--team-color": team.color } as CSSProperties}><h2>{team.name}</h2>{team.members.map((member) => <p key={member.id}><i style={{ background: member.color }} />{member.name}</p>)}</article>)}</div> : <>{prizePool > 0 && <p className="pool-label">Prize Pool: {prizePool.toLocaleString()}</p>}<ol className="ranking-list">{(rankings ?? []).map((marble) => <li key={marble.id}><b>#{marble.rank} {marble.rank === 1 ? "LAST FINISHER" : ""}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>{prizePool > 0 && <div className="prize-summary">{Object.entries(prizes).filter(([, amount]) => amount > 0).map(([owner, amount]) => <p key={owner}>{participants.find((person) => person.id === owner)?.name}<strong>{amount.toLocaleString()}</strong></p>)}</div>}</>}<button className="primary-button" onClick={onAgain}>AGAIN!</button></section>; }
+import type { Participant, RankedMarble } from "../domain/types";
+
+export function ResultsScreen({ rankings, participants, prizePool, celebrate, onReplay, onBack }: { rankings: RankedMarble[]; participants: Participant[]; prizePool: number; celebrate: boolean; onReplay: () => void; onBack: () => void }) {
+	const prizes = prizePool > 0 ? prizeByOwner(rankings, prizePool) : {};
+	const winner = rankings[0];
+	const winnerName = participants.find((person) => person.id === winner?.ownerId)?.name;
+	return <section className="results-card">
+		{celebrate && <div className="result-confetti" aria-hidden="true">{Array.from({ length: 300 }, (_, index) => {
+			const angle = index * 2.399963; // Golden angle spreads successive pieces around the whole burst.
+			const radius = .45 + ((index * 37) % 101) / 100 * .55;
+			return <i key={index} style={{
+				background: ["#ff4f8f", "#58e7ff", "#ffcf58", "#a883ff", "#6dffae", "#fff4cc"][index % 6],
+				borderRadius: index % 4 === 0 ? "50%" : "2px",
+				animationDelay: `${Math.floor(index / 100) * 180 + index % 7 * 12}ms`,
+				animationDuration: `${6 + index % 7 * .16}s`,
+				"--burst-x": `${Math.cos(angle) * radius * 58}vw`,
+				"--burst-y": `${Math.sin(angle) * radius * 52 - 10}svh`,
+				"--size": .75 + index % 5 * .16,
+				"--spin": `${(index % 2 ? -1 : 1) * (720 + index % 7 * 180)}deg`,
+			} as CSSProperties} />;
+		})}</div>}
+		<p className="eyebrow">WHO WAS LAST?</p><h1>TOP 10</h1>
+		{winner && <article className="result-hero"><span>{celebrate ? "#1 · LAST FINISHER" : "LATEST FINISHER · PARTIAL RESULTS"}</span><h2>{winnerName}</h2><p><i className="result-hero-dot" style={{ background: winner.color }} />{winner.symbol} Marble #{winner.id}</p></article>}
+		{prizePool > 0 && <p className="pool-label">Prize Pool: {prizePool.toLocaleString()}</p>}
+		<ol className="ranking-list">{rankings.slice(1).map((marble) => <li key={marble.id}><b>#{marble.rank}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>
+		{prizePool > 0 && <div className="prize-summary">{Object.entries(prizes).filter(([, amount]) => amount > 0).map(([owner, amount]) => <p key={owner}>{participants.find((person) => person.id === owner)?.name}<strong>{amount.toLocaleString()}</strong></p>)}</div>}
+		<div className="result-actions"><button className="primary-button" onClick={onReplay}>Replay same settings</button><button className="secondary-button" onClick={onBack}>Back to Menu</button></div>
+	</section>;
+}

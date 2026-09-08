@@ -33,10 +33,6 @@ const toGeometry = (resource: IndexedGeometry): THREE.BufferGeometry => {
 };
 const toVector = (value: Vec3): THREE.Vector3 => new THREE.Vector3(value.x, value.y, value.z);
 const orient = (object: THREE.Object3D, axis: Vec3): void => { object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(axis).normalize()); };
-const orientBasis = (object: THREE.Object3D, up: Vec3, axis: Vec3): void => {
-  const x = toVector(up).normalize(); const y = toVector(axis).normalize(); const z = new THREE.Vector3().crossVectors(x, y).normalize();
-  object.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-};
 const frameQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
   const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.up), toVector(frame.tangent).negate());
   return new THREE.Quaternion().setFromRotationMatrix(basis);
@@ -53,21 +49,14 @@ const chevronGeometry = (): THREE.ShapeGeometry => {
 
 const createBumpers = (devices: ModuleDevices, group: THREE.Group, bumperMaterial: THREE.Material): void => {
   if (devices.bumpers.length === 0) return;
-  const shafts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), bumperMaterial, devices.bumpers.length);
-  shafts.name = "bumper-shafts";
-  const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), bumperMaterial, devices.bumpers.length * 2);
-  caps.name = "bumper-caps";
+  const cylinders = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 16), bumperMaterial, devices.bumpers.length);
+  cylinders.name = "round-bumpers";
   const transform = new THREE.Object3D();
-  devices.bumpers.forEach((bar, index) => {
-    const coreLength = bar.length - bar.thickness;
-    transform.position.copy(toVector(bar.center)); orientBasis(transform, bar.up, bar.axis); transform.scale.set(bar.height, coreLength, bar.thickness); transform.updateMatrix(); shafts.setMatrixAt(index, transform.matrix);
-    for (const [capIndex, sign] of [-1, 1].entries()) {
-      transform.position.copy(toVector(bar.center)).addScaledVector(toVector(bar.axis), sign * coreLength / 2);
-      transform.scale.set(bar.height, bar.thickness, bar.thickness); transform.updateMatrix(); caps.setMatrixAt(index * 2 + capIndex, transform.matrix);
-    }
+  devices.bumpers.forEach((bumper, index) => {
+    transform.position.copy(toVector(bumper.center)); orient(transform, bumper.up); transform.scale.set(bumper.radius, bumper.height, bumper.radius); transform.updateMatrix(); cylinders.setMatrixAt(index, transform.matrix);
   });
-  shafts.instanceMatrix.needsUpdate = true; caps.instanceMatrix.needsUpdate = true;
-  group.add(shafts, caps);
+  cylinders.instanceMatrix.needsUpdate = true;
+  group.add(cylinders);
 };
 
 const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMaterial: THREE.Material, refs: ModularDeviceRefs): void => {
@@ -131,6 +120,27 @@ const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Mat
   refs.gate = gate; refs.pusher = pusher;
 };
 
+const createFinishDecoration = (built: BuiltModularTrack, group: THREE.Group): void => {
+  const finish = built.samples[built.samples.length - 1];
+  if (finish === undefined) return;
+  const decoration = new THREE.Group(); decoration.name = "modular-finish-decoration"; decoration.userData.collider = false;
+  const checker = new THREE.Group(); checker.name = "finish-checker-strip";
+  const black = material("#101018"); const white = material("#f5f4dd", "#444433");
+  for (let row = 0; row < 2; row += 1) for (let column = 0; column < 6; column += 1) {
+    const square = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), (row + column) % 2 ? black : white);
+    square.position.copy(toVector(finish.position)).addScaledVector(toVector(finish.side), (column - 2.5) * 1).addScaledVector(toVector(finish.tangent), -(row + 0.5)).addScaledVector(toVector(finish.up), 0.05);
+    square.quaternion.copy(planeQuaternion(finish)); checker.add(square);
+  }
+  const rails = new THREE.Group(); rails.name = "finish-neon-arch"; const neon = material("#ff3ca8", "#8d004c");
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 5, 8), neon);
+    post.position.copy(toVector(finish.position)).addScaledVector(toVector(finish.side), side * (finish.width / 2 + 1.2)).addScaledVector(toVector(finish.up), 2.5); post.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(finish.up)); rails.add(post);
+  }
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(finish.width / 2 + 1.2, 0.28, 8, 20, Math.PI), neon);
+  arch.position.copy(toVector(finish.position)).addScaledVector(toVector(finish.up), 5); arch.quaternion.copy(frameQuaternion(finish)); rails.add(arch);
+  decoration.add(checker, rails); group.add(decoration);
+};
+
 const disposeGroup = (group: THREE.Group): void => {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
@@ -152,6 +162,7 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
   createCurveSafetyChevrons(built, group);
+  createFinishDecoration(built, group);
   group.userData[REFS] = refs;
   let disposed = false;
   const resources: ModularRenderResources = { group, devices, dispose: () => { if (disposed) return; disposed = true; disposeGroup(group); delete group.userData[REFS]; } };

@@ -4,6 +4,7 @@ import type { TrackDesign } from "../../designer/trackDesign";
 import {
   createMarbleBodies,
   createTrackPhysicsWorld,
+  distanceSquaredToTrackSegments,
   distanceSquaredToSample,
   getInitializedTrackPhysicsRapier,
   insideFinishVolume,
@@ -15,13 +16,13 @@ import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
-import { CURVE_INNER_INSET, profileAt } from "./moduleGeometry";
+import { curveBankBlend, effectiveCurveInnerInset, profileAt } from "./moduleGeometry";
 
 const TIMESTEP_SECONDS = 1 / 60;
 const TRACK_FRICTION = 0.05;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
-const BUMPER_RESTITUTION = 0.65;
+const BUMPER_RESTITUTION = 0.35;
 const MAX_BOOSTER_SPEED = 42;
 const CURVE_GUARD_MIN_SPEED = 12;
 const STALL_RECOVERY_SPEED = 8;
@@ -212,23 +213,12 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     .setFriction(FRICTION).setRestitution(RESTITUTION), pusherBody);
 
   for (const bumper of devices.bumpers) {
-    const axis = normalize(bumper.axis);
-    const up = normalize(bumper.up);
-    const rotation = rotationFromBasis(up, axis, normalize(cross(up, axis)));
-    const body = world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(bumper.center.x, bumper.center.y, bumper.center.z).setRotation(rotation));
-    const coreLength = Math.max(0, bumper.length - bumper.thickness);
-    const shaft = world.createCollider(rapier.ColliderDesc.cuboid(bumper.height / 2, coreLength / 2, bumper.thickness / 2)
+    const body = world.createRigidBody(rapier.RigidBodyDesc.fixed()
+      .setTranslation(bumper.center.x, bumper.center.y, bumper.center.z)
+      .setRotation(rotationFromUp(bumper.up)));
+    const collider = world.createCollider(rapier.ColliderDesc.cylinder(bumper.height / 2, bumper.radius)
       .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION).setRestitutionCombineRule(rapier.CoefficientCombineRule.Max), body);
-    const capDescriptor = rapier.ColliderDesc.cylinder(bumper.height / 2, bumper.thickness / 2)
-      .setRotation(rotationAround({ x: 0, y: 0, z: 1 }, Math.PI / 2))
-      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION).setRestitutionCombineRule(rapier.CoefficientCombineRule.Max);
-    const firstCap = world.createCollider(capDescriptor, body);
-    firstCap.setTranslation({ x: 0, y: -coreLength / 2, z: 0 });
-    const secondCap = world.createCollider(rapier.ColliderDesc.cylinder(bumper.height / 2, bumper.thickness / 2)
-      .setRotation(rotationAround({ x: 0, y: 0, z: 1 }, Math.PI / 2))
-      .setFriction(FRICTION).setRestitution(BUMPER_RESTITUTION).setRestitutionCombineRule(rapier.CoefficientCombineRule.Max), body);
-    secondCap.setTranslation({ x: 0, y: coreLength / 2, z: 0 });
-    addFixedBody(body, [shaft, firstCap, secondCap]);
+    addFixedBody(body, [collider]);
   }
 
   const pinwheelBodies: readonly RapierBody[] = devices.pinwheels.map((pinwheel) => {
@@ -321,7 +311,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
       const slot = marbleIndex * cellCount + sample.cellIndex;
       const forwardSpeed = dot(velocity, sample.tangent);
       const innerContact = Math.sign(dot(sample.centerlineCurvature, sample.side)) * dot(subtract(current, sample.position), sample.side)
-        >= CHANNEL_WIDTH / 2 - CURVE_INNER_INSET - MARBLE_DIAMETER;
+        >= CHANNEL_WIDTH / 2 - effectiveCurveInnerInset(curveBankBlend(sample.side.y)) - MARBLE_DIAMETER;
       if (built.track.cells[sample.cellIndex]?.kind === "curve" && sample.localU > 0.4 && sample.localU < 0.6 && innerContact && consumed[slot] === 0 && forwardSpeed < CURVE_GUARD_MIN_SPEED) {
         const after = add(velocity, scale(sample.tangent, CURVE_GUARD_MIN_SPEED - forwardSpeed));
         consumed[slot] = 1; velocity = after; body.setLinvel(after, true);
@@ -471,7 +461,7 @@ export const runModularCurveProbe = async ({ track, speed, lateral }: CurveProbe
     for (let step = 0; step < 3 / TIMESTEP_SECONDS; step += 1) {
       resources.stepBeforeWorld(); world.step(); resources.stepAfterWorld([body]);
       const current = toVec3(body.translation()); const projection = projectToTrack(current, built.samples);
-      if (distanceSquaredToSample(current, built.samples[projection.sampleIndex]) > 15 ** 2) { escaped = true; break; }
+      if (distanceSquaredToSample(current, built.samples[projection.sampleIndex]) > 15 ** 2 && distanceSquaredToTrackSegments(current, built.samples) > 15 ** 2) { escaped = true; break; }
       if ((built.samples[projection.sampleIndex]?.distance ?? -Infinity) >= exit.distance) {
         exited = true; forwardSpeed = dot(toVec3(body.linvel()), exit.tangent); break;
       }
@@ -528,7 +518,7 @@ export const runModularValidationRace = async (
         }
         const projection = projectToTrack(position, built.samples);
         const nearestSample = built.samples[projection.sampleIndex];
-        if (distanceSquaredToSample(position, nearestSample) > 15 ** 2) {
+        if (distanceSquaredToSample(position, nearestSample) > 15 ** 2 && distanceSquaredToTrackSegments(position, built.samples) > 15 ** 2) {
           escapes.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity, nearestSampleIndex: projection.sampleIndex, category: "escape" });
           failed.add(marbleId);
           continue;

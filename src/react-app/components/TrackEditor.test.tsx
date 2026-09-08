@@ -69,6 +69,7 @@ describe("TrackEditor", () => {
 	it("renders a valid default route with enabled actions", () => {
 		render(<TrackEditor state={createEditorState(createDefaultTrackDesign("Course"))} {...props()} />);
 		for (const name of ["Save", "Share", "Test Play"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+		expect(screen.getByRole("button", { name: "Back to Tracks" })).toBeEnabled();
 	});
 
 	it("replaces an occupied cell with the newly selected module", async () => {

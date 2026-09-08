@@ -7,37 +7,54 @@ import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const lerp = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, amount: number) => ({ x: a.x + (b.x - a.x) * amount, y: a.y + (b.y - a.y) * amount, z: a.z + (b.z - a.z) * amount });
 const distance = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-const frameAt = (rows: readonly { localU: number; position: { x: number; y: number; z: number }; side: { x: number; y: number; z: number }; up: { x: number; y: number; z: number } }[], localU: number) => {
+const frameAt = (rows: readonly { localU: number; position: { x: number; y: number; z: number }; tangent: { x: number; y: number; z: number }; side: { x: number; y: number; z: number }; up: { x: number; y: number; z: number } }[], localU: number) => {
   const lower = rows.reduce((candidate, row) => row.localU <= localU && row.localU >= candidate.localU ? row : candidate, rows[0]);
   const upper = rows.find((row) => row.localU >= localU) ?? rows[rows.length - 1];
   const amount = (localU - lower.localU) / (upper.localU - lower.localU || 1);
-  return { position: lerp(lower.position, upper.position, amount), side: lerp(lower.side, upper.side, amount), up: lerp(lower.up, upper.up, amount) };
+  return { position: lerp(lower.position, upper.position, amount), tangent: lerp(lower.tangent, upper.tangent, amount), side: lerp(lower.side, upper.side, amount), up: lerp(lower.up, upper.up, amount) };
 };
 
 describe("canonical modular devices", () => {
-  it("mirrors bumper tips downstream and keeps all obstacles out of landings", () => {
+  it("uses six small round bumpers in a three-two-one pinball pattern", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
-    expect(devices.bumpers.length % 5).toBe(0);
-    expect(new Set(devices.bumpers.map((bumper) => bumper.cellIndex)).size * 5).toBe(devices.bumpers.length);
+    const cellIndex = devices.bumpers[0]!.cellIndex;
+    const bumpers = devices.bumpers.filter((bumper) => bumper.cellIndex === cellIndex);
+
+    expect(bumpers.map((bumper) => bumper.shape)).toEqual(Array.from({ length: 6 }, () => "round"));
+    expect(bumpers.map((bumper) => bumper.localU)).toEqual([0.25, 0.25, 0.25, 0.5, 0.5, 0.75]);
+    const laterals = bumpers.map((bumper) => {
+      const frame = frameAt(built.samples.filter((sample) => sample.cellIndex === cellIndex), bumper.localU);
+      return dot({ x: bumper.center.x - frame.position.x, y: bumper.center.y - frame.position.y, z: bumper.center.z - frame.position.z }, frame.side);
+    });
+    laterals.forEach((lateral, index) => expect(lateral).toBeCloseTo([-2.4, 0, 2.4, -1.2, 1.2, 0][index], 8));
+    expect(bumpers[5]).toMatchObject({ radius: 0.75 * MARBLE_DIAMETER, height: 1.4 * MARBLE_DIAMETER });
+  });
+
+  it("keeps every round bumper clear of walls, seams, and its neighbours", () => {
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+    expect(devices.bumpers.length % 6).toBe(0);
+    expect(new Set(devices.bumpers.map((bumper) => bumper.cellIndex)).size * 6).toBe(devices.bumpers.length);
     for (const cellIndex of new Set(devices.bumpers.map((bumper) => bumper.cellIndex))) {
-      const bars = devices.bumpers.filter((bumper) => bumper.cellIndex === cellIndex);
-      expect(bars.map((bumper) => bumper.localU)).toEqual([0.25, 0.375, 0.5, 0.625, 0.75]);
+      const bumpers = devices.bumpers.filter((bumper) => bumper.cellIndex === cellIndex);
       const rows = built.samples.filter((sample) => sample.cellIndex === cellIndex);
-      for (const [index, localU] of [0.25, 0.375, 0.5, 0.625, 0.75].entries()) {
-        const frame = frameAt(rows, localU);
-        const sign = index % 2 === 0 ? -1 : 1;
-        const expected = { x: frame.position.x + frame.side.x * sign * 4 + frame.up.x * 1.4 * 0.68 / 2, y: frame.position.y + frame.side.y * sign * 4 + frame.up.y * 1.4 * 0.68 / 2, z: frame.position.z + frame.side.z * sign * 4 + frame.up.z * 1.4 * 0.68 / 2 };
-        expect(distance(bars[index].center, expected)).toBeLessThan(1e-6);
+      for (const bumper of bumpers) {
+        expect(bumper.shape).toBe("round");
+        if (bumper.shape !== "round") continue;
+        const frame = frameAt(rows, bumper.localU);
+        const lateral = dot({ x: bumper.center.x - frame.position.x, y: bumper.center.y - frame.position.y, z: bumper.center.z - frame.position.z }, frame.side);
+        const expected = { x: frame.position.x + frame.side.x * lateral + frame.up.x * bumper.height / 2, y: frame.position.y + frame.side.y * lateral + frame.up.y * bumper.height / 2, z: frame.position.z + frame.side.z * lateral + frame.up.z * bumper.height / 2 };
+        expect(distance(bumper.center, expected)).toBeLessThan(1e-6);
+        expect(bumper.clearPassage).toBeCloseTo(CHANNEL_WIDTH / 2 - Math.abs(lateral) - bumper.radius, 8);
+        expect(bumper.clearPassage).toBeGreaterThanOrEqual(3 * MARBLE_DIAMETER);
+        expect(bumper.distanceFromNearestSeam).toBeCloseTo(Math.min(bumper.localU, 1 - bumper.localU) * 20 - bumper.radius, 8);
+        expect(bumper.distanceFromNearestSeam).toBeGreaterThanOrEqual(2);
       }
-    }
-    for (const bumper of devices.bumpers) {
-      expect(dot(bumper.forward, bumper.tipDirection)).toBeGreaterThan(0);
-      expect(Math.abs(dot(bumper.up, bumper.axis))).toBeLessThan(1e-6);
-      expect(bumper.clearPassage).toBeGreaterThanOrEqual(3 * 0.68);
-      expect(bumper.distanceFromNearestSeam).toBeGreaterThanOrEqual(2);
-      expect(bumper.thickness).toBeCloseTo(0.45 * 0.68, 8);
-      expect(bumper.height).toBeCloseTo(1.4 * 0.68, 8);
+      for (let left = 0; left < bumpers.length; left += 1) for (let right = left + 1; right < bumpers.length; right += 1) {
+        const a = bumpers[left]; const b = bumpers[right];
+        if (a.shape === "round" && b.shape === "round") expect(distance(a.center, b.center) - a.radius - b.radius).toBeGreaterThan(MARBLE_DIAMETER);
+      }
     }
   });
 
@@ -65,7 +82,7 @@ describe("canonical modular devices", () => {
     const first = built.samples[0]!;
     const fromStart = { x: first.position.x - devices.start.frame.position.x, y: first.position.y - devices.start.frame.position.y, z: first.position.z - devices.start.frame.position.z };
     const along = dot(fromStart, devices.start.frame.tangent);
-    expect(devices.start).toMatchObject({ length: 10.2, runoutLength: 30.2, width: 10.4, wallHeight: 4 });
+    expect(devices.start).toMatchObject({ length: 10.2, runoutLength: 30.2, width: 10.4, wallHeight: 6 });
     expect(along).toBeCloseTo(devices.start.length, 8);
     expect(dot({ x: devices.start.gate.center.x - devices.start.frame.position.x, y: devices.start.gate.center.y - devices.start.frame.position.y, z: devices.start.gate.center.z - devices.start.frame.position.z }, devices.start.frame.tangent)).toBeCloseTo(9.4, 8);
     expect(devices.start.pusher).toBeDefined();

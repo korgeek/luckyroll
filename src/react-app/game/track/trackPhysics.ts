@@ -97,6 +97,21 @@ export const distanceSquaredToSample = (position: Vec3, sample: TrackSample): nu
   return x * x + y * y + z * z;
 };
 
+export const distanceSquaredToTrackSegments = (position: Vec3, samples: readonly TrackSample[]): number => {
+  if (![position.x, position.y, position.z].every(Number.isFinite) || samples.length === 0) return Number.POSITIVE_INFINITY;
+  if (samples.length === 1) return distanceSquaredToSample(position, samples[0]);
+  let best = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < samples.length - 1; index += 1) {
+    const start = samples[index].position; const end = samples[index + 1].position;
+    const x = end.x - start.x; const y = end.y - start.y; const z = end.z - start.z;
+    const lengthSquared = x * x + y * y + z * z;
+    const amount = lengthSquared > 0 ? Math.max(0, Math.min(1, ((position.x - start.x) * x + (position.y - start.y) * y + (position.z - start.z) * z) / lengthSquared)) : 0;
+    const offsetX = position.x - (start.x + x * amount); const offsetY = position.y - (start.y + y * amount); const offsetZ = position.z - (start.z + z * amount);
+    best = Math.min(best, offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ);
+  }
+  return best;
+};
+
 export const insideFinishVolume = (position: Vec3, finish: TrackSample): boolean =>
   Math.hypot(position.x - finish.position.x, position.z - finish.position.z) <= 4 &&
   position.y >= finish.position.y &&
@@ -263,7 +278,7 @@ export const runValidationRace = async (
       const projection = projectToTrack(position, built.samples);
       const nearestSample = built.samples[projection.sampleIndex];
 
-      if (distanceSquaredToSample(position, nearestSample) > ESCAPE_RADIUS ** 2) {
+      if (distanceSquaredToSample(position, nearestSample) > ESCAPE_RADIUS ** 2 && distanceSquaredToTrackSegments(position, built.samples) > ESCAPE_RADIUS ** 2) {
         escapes.push({
           seed: options.seed,
           marbleId,
@@ -354,7 +369,7 @@ export const runObstacleValidationRace = async (options: Readonly<{ seed: number
         const marbleId = index + 1;
         if (finished.has(marbleId) || failed.has(marbleId)) continue;
         const body = bodies[index]; const position = toVec3(body.translation()); const projection = projectToTrack(position, built.samples); const nearestSample = built.samples[projection.sampleIndex];
-        if (distanceSquaredToSample(position, nearestSample) > ESCAPE_RADIUS ** 2) {
+        if (distanceSquaredToSample(position, nearestSample) > ESCAPE_RADIUS ** 2 && distanceSquaredToTrackSegments(position, built.samples) > ESCAPE_RADIUS ** 2) {
           escapes.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity: toVec3(body.linvel()), nearestSampleIndex: projection.sampleIndex, category: "escape" }); failed.add(marbleId); continue;
         }
         if (pose.raceClockStarted) {
