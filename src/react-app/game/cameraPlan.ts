@@ -284,20 +284,27 @@ export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): Fe
   return zones.sort((left, right) => left.entryDistance - right.entryDistance);
 };
 
-export const writeFeatureOverviewShot = (target: CameraShot, zone: FeatureBroadcastZone, samples: readonly TrackSample[], bounds: TrackBounds, fov: number, aspect: number): CameraShot => {
-  const frame = frameAtDistance(samples, (zone.entryDistance + zone.exitDistance) / 2);
-  if (!frame) return writeCameraShot(target, "overview", bounds);
-  const center = { x: frame.position.x + frame.up.x * frame.channelDepth / 2, y: frame.position.y + frame.up.y * frame.channelDepth / 2, z: frame.position.z + frame.up.z * frame.channelDepth / 2 };
-  const radius = Math.hypot((zone.exitDistance - zone.entryDistance) / 2 + 2, frame.width / 2 + 1, frame.channelDepth / 2 + 1);
-  writeBirdViewFit(target, { center, radius }, fov, aspect);
-  const distance = Math.hypot(target.position.x - center.x, target.position.y - center.y, target.position.z - center.z);
-  const direction = normalized({ x: frame.up.x - frame.tangent.x * 0.5, y: frame.up.y - frame.tangent.y * 0.5, z: frame.up.z - frame.tangent.z * 0.5 }, frame.up);
-  target.position.x = center.x + direction.x * distance;
-  target.position.y = center.y + direction.y * distance;
-  target.position.z = center.z + direction.z * distance;
-  const fittedFar = target.far;
+export const writeBumperTrackShot = (target: CameraShot, zone: FeatureBroadcastZone, samples: readonly TrackSample[], bounds: TrackBounds, cameraDistance = zone.entryDistance - 3, marble?: Vec3): CameraShot => {
+  const anchor = frameAtDistance(samples, cameraDistance);
+  const focus = frameAtDistance(samples, zone.entryDistance + (zone.exitDistance - zone.entryDistance) * 0.55);
+  if (!anchor || !focus) return writeCameraShot(target, "overview", bounds);
+  target.position.x = anchor.position.x + anchor.up.x * 6;
+  target.position.y = anchor.position.y + anchor.up.y * 6;
+  target.position.z = anchor.position.z + anchor.up.z * 6;
+  target.lookAt.x = focus.position.x + focus.up.x * 0.8;
+  target.lookAt.y = focus.position.y + focus.up.y * 0.8;
+  target.lookAt.z = focus.position.z + focus.up.z * 0.8;
+  if (marble) {
+    const delta = { x: marble.x - target.lookAt.x, y: marble.y - target.lookAt.y, z: marble.z - target.lookAt.z };
+    for (const [axis, limit] of [[focus.side, 0.6], [focus.tangent, 1], [focus.up, 0.3]] as const) {
+      const offset = Math.max(-limit, Math.min(limit, (delta.x * axis.x + delta.y * axis.y + delta.z * axis.z) * 0.15));
+      for (const key of ["x", "y", "z"] as const) {
+        target.lookAt[key] += axis[key] * offset;
+        target.position[key] += axis[key] * offset * 0.4;
+      }
+    }
+  }
   writeClip(target, bounds);
-  target.far = Math.max(target.far, fittedFar);
   return target;
 };
 
@@ -349,6 +356,12 @@ export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[
           clear(); cohort = ids; exitDistance = action.exitDistance; selectedAt = activeMs;
           selected = { mode: action.kind, targetId: action.kind === "rush" ? ids[0] : undefined, framing: "close" };
         }
+      }
+      const bumper = zones.find(z => z.key === selected.zoneKey && z.kind === "bumper");
+      if (selected.mode === "feature" && bumper) {
+        const inside = live.filter(b => b.distance >= bumper.entryDistance && b.distance <= bumper.exitDistance);
+        const target = inside.find(b => b.id === selected.targetId) ?? inside[0];
+        selected = { ...selected, targetId: target?.id };
       }
       return selected;
     },

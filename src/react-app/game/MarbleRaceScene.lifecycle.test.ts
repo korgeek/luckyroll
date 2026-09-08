@@ -338,7 +338,7 @@ describe("race scene lifecycle boundary", () => {
 		scene.dispose();
 	});
 
-  it("holds the bumper overview while a large live pack moves inside it", async () => {
+  it("approaches the bumper along the preceding channel and gently follows a marble inside the track", async () => {
     seams.featureSamples = true; seams.bodyX = 12;
     const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 360 }, clientHeight: { value: 800 } });
     const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign() });
@@ -347,9 +347,16 @@ describe("race scene lifecycle boundary", () => {
     for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
     const camera = cameraPoses[0].camera;
     expect(latestPose(camera).lookAt.x).toBeCloseTo(20, 2);
+    expect(latestPose(camera).position.x).toBeCloseTo(6.6, 1);
+    expect(latestPose(camera).position.y).toBeCloseTo(6, 1);
+    const before = latestPose(camera).position.x;
     seams.bodyX = 24;
-    for (let frame = 501; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
-    expect(latestPose(camera).lookAt.x).toBeCloseTo(20, 2);
+    seams.frames.shift()?.(now + 501 * 17);
+    expect(Math.abs(latestPose(camera).position.x - before)).toBeLessThan(0.1);
+    for (let frame = 502; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(latestPose(camera).lookAt.x).toBeCloseTo(21.45, 2);
+    expect(latestPose(camera).position.x).toBeCloseTo(7.18, 1);
+    expect(latestPose(camera).position.y).toBeCloseTo(6, 1);
     seams.bodyX = 35;
     for (let frame = 701; frame <= 900; frame++) seams.frames.shift()?.(now + frame * 17);
     expect(latestPose(camera).lookAt.x).toBeGreaterThan(30);

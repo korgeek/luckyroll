@@ -118,10 +118,13 @@ Final verification: 49 test files passed (487 tests passed, 3 optional tests ski
   and end positions, so spawn and gate clearance stay unchanged. Follow-camera
   clearance is lowered uniformly by one unit, with no corner-triggered zoom.
 
-- Bumper overview now starts on first entry, stays wide through gaps and returning
-  marbles until every live marble passes its exit, and yields first to last-place
-  follow at ten or fewer live marbles. Portrait/landscape projections cover the
-  channel edges and wall tops; pinwheel framing keeps its existing behavior.
+- Bumper camera starts on first entry and approaches along the preceding channel
+  to a low, close view (height 6, three units before entry). Position and gaze
+  gently follow one marble, retaining it until it leaves and smoothing target
+  handoffs. Bounded movement keeps all six posts and bounce height visible in
+  portrait/landscape projection checks. It holds through gaps until every live
+  marble passes, yielding first to last-place follow at ten or fewer marbles.
+  Pinwheel framing keeps its existing behavior.
 
 - Final friction 0.06 exposed a pre-existing finish-volume bug: a fixed radius-4
   circle missed edge-lane crossings on the width-12 channel. The shared detector

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
+import { resolveModuleDevices } from "./modular/moduleDevices";
 import { buildModularTrack } from "./modular/modularTrackBuild";
 import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
@@ -14,7 +15,7 @@ import {
   getTrackBounds,
   hasCameraClipChanged,
   writeControlledTrackFollowShot,
-  writeFeatureOverviewShot,
+  writeBumperTrackShot,
   writeBirdViewFit,
   writeRouteCrowdFollowShot,
   writeTrackFollowShot,
@@ -306,16 +307,33 @@ describe("action camera", () => {
     director.reset(); director.update({ ...state, traffic: entering });
     expect(director.update(input(zone.exitDistance + 1)).mode).toBe("crowd");
   });
-  it.each([360 / 800, 1024 / 768])("fits the entire bumper channel and wall tops at aspect %s", aspect => {
-    const samples = buildModularTrack(createValidTrackDesign()).samples;
+  it("keeps the bumper target until it leaves and hands off to another live marble", () => {
     const zone = zones.find(zone => zone.kind === "bumper")!;
-    const shot = writeFeatureOverviewShot(mutableShot(), zone, samples, getTrackBounds(samples), 60, aspect);
-    const frame = samples.find(sample => sample.distance >= (zone.entryDistance + zone.exitDistance) / 2)!;
-    const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
-    camera.position.copy(shot.position); camera.up.copy(frame.up); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
-    for (const sample of samples.filter(sample => sample.distance >= zone.entryDistance && sample.distance <= zone.exitDistance)) {
-      for (const side of [-1, 1]) for (const height of [0, sample.channelDepth]) {
-        const point = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z).addScaledVector(new THREE.Vector3(sample.side.x, sample.side.y, sample.side.z), side * sample.width / 2).addScaledVector(new THREE.Vector3(sample.up.x, sample.up.y, sample.up.z), height).project(camera);
+    const director = createActionCameraDirector(zones);
+    const state = input(zone.entryDistance + 5);
+    const first = director.update(state).targetId;
+    expect(first).toBeDefined();
+    expect(director.update({ ...state, traffic: [...state.traffic].reverse() }).targetId).toBe(first);
+    const traffic = state.traffic.map(b => b.id === first ? { ...b, distance: zone.exitDistance + 1 } : b);
+    const next = director.update({ ...state, traffic }).targetId;
+    expect(next).toBeDefined(); expect(next).not.toBe(first);
+    expect(director.update({ ...state, traffic: traffic.slice(0, 10) }).mode).toBe("finale");
+  });
+  it.each([360 / 800, 1024 / 768])("views every bumper from inside the preceding channel at aspect %s", aspect => {
+    const built = buildModularTrack(createValidTrackDesign()); const samples = built.samples;
+    const zone = zones.find(zone => zone.kind === "bumper")!;
+    const frame = samples.find(sample => sample.distance >= zone.entryDistance)!;
+    for (const along of [0, 10, 20]) for (const lateral of [-6, 0, 6]) for (const bounce of [0, 4]) {
+      const marble = new THREE.Vector3().copy(frame.position).addScaledVector(new THREE.Vector3().copy(frame.tangent), along).addScaledVector(new THREE.Vector3().copy(frame.side), lateral).addScaledVector(new THREE.Vector3().copy(frame.up), bounce);
+      const shot = writeBumperTrackShot(mutableShot(), zone, samples, getTrackBounds(samples), undefined, marble);
+      const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+      camera.position.copy(shot.position); camera.up.copy(frame.up); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
+      const relative = subtract(shot.position, frame.position);
+      expect(Math.abs(dot(relative, frame.tangent) + 3)).toBeLessThanOrEqual(0.41);
+      expect(Math.abs(dot(relative, frame.up) - 6)).toBeLessThanOrEqual(0.13);
+      const devices = resolveModuleDevices(built.track, built.route, samples);
+      for (const bumper of devices.bumpers) for (const side of [-1, 1]) for (const height of [-bumper.height / 2, bumper.height / 2 + 2]) {
+        const point = new THREE.Vector3(bumper.center.x, bumper.center.y, bumper.center.z).addScaledVector(new THREE.Vector3(frame.side.x, frame.side.y, frame.side.z), side * bumper.radius).addScaledVector(new THREE.Vector3(bumper.up.x, bumper.up.y, bumper.up.z), height).project(camera);
         expect(Math.abs(point.x)).toBeLessThan(1); expect(Math.abs(point.y)).toBeLessThan(1); expect(Math.abs(point.z)).toBeLessThan(1);
       }
     }

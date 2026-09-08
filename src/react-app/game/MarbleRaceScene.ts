@@ -3,7 +3,7 @@ import { retroSounds, soundProximity } from "./retroSounds";
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
-import { alongRouteDistance, cameraLerpAlpha, createRouteCrowdDirector, createActionCameraDirector, deriveFeatureBroadcastZones, deriveRouteRuns, getBirdViewUp, getTrackBounds, writeFeatureOverviewShot, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeRouteCrowdFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName, type CameraAction, type ActionCameraSelection } from "./cameraPlan";
+import { alongRouteDistance, cameraLerpAlpha, createRouteCrowdDirector, createActionCameraDirector, deriveFeatureBroadcastZones, deriveRouteRuns, getBirdViewUp, getTrackBounds, writeBumperTrackShot, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeRouteCrowdFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName, type CameraAction, type ActionCameraSelection } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
@@ -464,10 +464,11 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     emit({ type: "prepared" });
   };
 
+  let bumperCameraDistance: number | undefined;
   const updateCamera = (cameraDelta: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
     let cameraClearance = 5;
-    let fixedFeature = false;
+    let bumperFeature = false;
     if (birdView) {
       activeShot = "bird"; controls = initialCameraControls;
       localUp = getBirdViewUp(course.samples);
@@ -479,16 +480,20 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       activeShot = debug.activeShot();
       writeCameraShot(cameraShot, activeShot, bounds);
     } else {
-      const fixedZone = actionShot.mode === "feature" ? featureZones.find(zone => zone.key === actionShot.zoneKey && zone.kind === "bumper") : undefined;
-      const followDistance = fixedZone ? (fixedZone.entryDistance + fixedZone.exitDistance) / 2 : crowdDistance;
+      const bumperZone = actionShot.mode === "feature" ? featureZones.find(zone => zone.key === actionShot.zoneKey && zone.kind === "bumper") : undefined;
+      if (bumperZone) {
+        bumperCameraDistance ??= crowdDistance - 10;
+        bumperCameraDistance += (bumperZone.entryDistance - 3 - bumperCameraDistance) * cameraLerpAlpha(0.025, cameraDelta);
+      }
+      const followDistance = bumperZone ? bumperCameraDistance! : crowdDistance;
       const target = rankedCameraBalls.find(b => b.id === actionShot.targetId);
-      const sample = target ? course.samples[target.sampleIndex] : course.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - followDistance) < Math.abs(nearest.distance - followDistance) ? candidate : nearest, course.samples[0]);
+      const sample = target && !bumperZone ? course.samples[target.sampleIndex] : course.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - followDistance) < Math.abs(nearest.distance - followDistance) ? candidate : nearest, course.samples[0]);
       if (sample) {
         localUp = sample.up;
         cameraClearance = Math.max(5, sample.channelDepth);
-        if (fixedZone) {
-          fixedFeature = true; activeShot = "profile";
-          writeFeatureOverviewShot(cameraShot, fixedZone, course.samples, bounds, camera.fov, camera.aspect);
+        if (bumperZone) {
+          bumperFeature = true; activeShot = "profile";
+          writeBumperTrackShot(cameraShot, bumperZone, course.samples, bounds, bumperCameraDistance, target?.position);
         } else if (target) {
           activeShot = actionShot.mode === "finale" && sample.zone === "finish" ? "finish" : "trailer";
           writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds, cameraClearance);
@@ -501,7 +506,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         writeCameraShot(cameraShot, activeShot, bounds);
       }
     }
-    if (birdView || fixedFeature) {
+    if (!bumperFeature) bumperCameraDistance = undefined;
+    if (birdView || bumperFeature) {
       Object.assign(controlledCameraShot.position, cameraShot.position);
       Object.assign(controlledCameraShot.lookAt, cameraShot.lookAt);
       controlledCameraShot.near = cameraShot.near; controlledCameraShot.far = cameraShot.far;
@@ -512,7 +518,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     cameraFocus.set(controlledCameraShot.lookAt.x, controlledCameraShot.lookAt.y, controlledCameraShot.lookAt.z);
     cameraTarget.set(controlledCameraShot.position.x, controlledCameraShot.position.y, controlledCameraShot.position.z);
     cameraUpTarget.set(localUp.x, localUp.y, localUp.z);
-    const upAlpha = cameraLerpAlpha(0.05, cameraDelta); const positionAlpha = cameraLerpAlpha(crowdPace === "fast" ? 0.09 : 0.03, cameraDelta);
+    const upAlpha = cameraLerpAlpha(0.05, cameraDelta); const positionAlpha = cameraLerpAlpha(!bumperFeature && crowdPace === "fast" ? 0.09 : 0.03, cameraDelta);
     if (birdView || (cameraUpTarget.x === 0 && cameraUpTarget.y === 1 && cameraUpTarget.z === 0)) camera.up.lerp(cameraUpTarget, upAlpha); else camera.up.lerp(cameraUpTarget, upAlpha).normalize();
     camera.position.lerp(cameraTarget, positionAlpha); cameraLook.lerp(cameraFocus, upAlpha); camera.lookAt(cameraLook);
   };
