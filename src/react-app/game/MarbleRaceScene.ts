@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
-import { alongRouteDistance, cameraLerpAlpha, createFeatureBroadcastDirector, createRaceFocusDirector, deriveFeatureBroadcastZones, getBirdViewUp, getTrackBounds, shouldPresentFeatureBroadcast, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeFeatureBroadcastShot, writeTrackFollowShot, type CameraShot, type CameraShotName, type FeatureBroadcastZone } from "./cameraPlan";
+import { alongRouteDistance, cameraLerpAlpha, createFeatureBroadcastDirector, createRaceFocusDirector, deriveFeatureBroadcastZones, getBirdViewUp, getFeatureDisplayUp, getTrackBounds, shouldPresentFeatureBroadcast, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeFeatureBroadcastShot, writeTrackFollowShot, type CameraShot, type CameraShotName, type FeatureBroadcastZone } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
@@ -442,6 +442,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   const updateCamera = (elapsedMs: number, leaderProgress: number, now: number, cameraDelta: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
+    let featureDisplayUp: Vec3 | undefined;
     let cameraClearance = 5;
     if (birdView) {
       activeShot = "bird"; controls = initialCameraControls;
@@ -454,7 +455,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       activeShot = debug.activeShot();
       writeCameraShot(cameraShot, activeShot, bounds);
     } else if (activeFeature && shouldPresentFeatureBroadcast({ birdView, reducedMotion, debugPaused: debug.isPaused(), recentManualInput: hasCameraInput && now - lastCameraInputAt < 3_000 })) {
-      activeShot = "profile"; localUp = activeFeature.up; cameraClearance = Math.max(5, activeFeature.height / 2 + 1);
+      activeShot = "profile"; localUp = activeFeature.up; featureDisplayUp = getFeatureDisplayUp(activeFeature, camera.aspect); cameraClearance = Math.max(5, activeFeature.height * 3 / 4 + 1);
       writeFeatureBroadcastShot(cameraShot, activeFeature, camera.fov, camera.aspect, elapsedMs, camera.position, featureBroadcast.getFeatureBroadcastState());
     } else {
       const target = raceFocus.select(rankedCameraBalls, leaderProgress, elapsedMs);
@@ -479,7 +480,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     }
     cameraFocus.set(controlledCameraShot.lookAt.x, controlledCameraShot.lookAt.y, controlledCameraShot.lookAt.z);
     cameraTarget.set(controlledCameraShot.position.x, controlledCameraShot.position.y, controlledCameraShot.position.z);
-    cameraUpTarget.set(localUp.x, localUp.y, localUp.z);
+    const displayUp = featureDisplayUp ?? localUp;
+    cameraUpTarget.set(displayUp.x, displayUp.y, displayUp.z);
     const upAlpha = cameraLerpAlpha(0.05, cameraDelta); const positionAlpha = cameraLerpAlpha(0.042, cameraDelta);
     if (birdView || (cameraUpTarget.x === 0 && cameraUpTarget.y === 1 && cameraUpTarget.z === 0)) camera.up.lerp(cameraUpTarget, upAlpha); else camera.up.lerp(cameraUpTarget, upAlpha).normalize();
     camera.position.lerp(cameraTarget, positionAlpha); cameraLook.lerp(cameraFocus, upAlpha); camera.lookAt(cameraLook);

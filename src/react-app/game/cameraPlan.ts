@@ -8,7 +8,7 @@ export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarg
 export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number; panX?: number; panY?: number }>;
 export type FeatureBroadcastZone = Readonly<{ key: string; kind: "bumper" | "pinwheel"; entryDistance: number; exitDistance: number; center: Vec3; tangent: Vec3; side: Vec3; up: Vec3; length: number; width: number; height: number }>;
 export type FeatureTraffic = Readonly<{ id: string | number; distance: number; eliminated: boolean }>;
-export type FeatureBroadcastState = Readonly<{ phase: "establishing" | "approach" | "returning-top"; passFraction: number; activationElapsedMs: number }>;
+export type FeatureBroadcastState = Readonly<{ phase: "establishing" | "approach" | "close" | "returning-top"; passFraction: number; activationElapsedMs: number }>;
 
 const fallbackBounds: TrackBounds = Object.freeze({ center: Object.freeze({ x: 0, y: 0, z: 0 }), radius: 1 });
 
@@ -49,6 +49,15 @@ const normalized = (value: Vec3, fallback: Vec3): Vec3 => {
   const length = Math.hypot(value.x, value.y, value.z);
   return length > 1e-9 ? { x: value.x / length, y: value.y / length, z: value.z / length } : fallback;
 };
+
+const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * right.y + left.z * right.z;
+const cross = (left: Vec3, right: Vec3): Vec3 => ({ x: left.y * right.z - left.z * right.y, y: left.z * right.x - left.x * right.z, z: left.x * right.y - left.y * right.x });
+
+// Camera screen orientation follows the route; collision and control clearance still use zone.up.
+export const getFeatureDisplayUp = (zone: Pick<FeatureBroadcastZone, "tangent" | "side" | "up">, aspect = 1): Vec3 =>
+  aspect < 1
+    ? normalized({ x: -zone.tangent.x, y: -zone.tangent.y, z: -zone.tangent.z }, { x: 0, y: 0, z: -1 })
+    : normalized(zone.side, zone.up);
 
 export const alongRouteDistance = (position: Vec3, sampleIndex: number, samples: readonly Pick<TrackSample, "distance" | "position">[]): number => {
   const candidates = [[sampleIndex - 1, sampleIndex], [sampleIndex, sampleIndex + 1]];
@@ -118,11 +127,17 @@ export const createFeatureBroadcastDirector = (zones: readonly FeatureBroadcastZ
       if (!active) return undefined;
       for (const marble of traffic) if (!marble.eliminated && marble.distance > active.exitDistance) passed.add(marble.id);
       const pending = traffic.some((marble) => !marble.eliminated && marble.distance <= active!.exitDistance);
+      const occupied = traffic.some((marble) => !marble.eliminated && marble.distance >= active!.entryDistance && marble.distance <= active!.exitDistance);
       if (passed.size / startingCount >= 0.5) returningTop = true;
-      if ((active.kind === "pinwheel" ? passed.size > startingCount * 0.8 || !pending : !pending)) { completed.add(active.key); active = undefined; passed.clear(); }
+      const wheelReady = passed.size > startingCount * 0.8 && (!occupied || activationElapsedMs >= 3_100);
+      if ((active.kind === "pinwheel" ? wheelReady || !pending : !pending)) { completed.add(active.key); active = undefined; passed.clear(); }
       return active;
     },
-    getFeatureBroadcastState: (): FeatureBroadcastState | undefined => active && Object.freeze({ phase: returningTop ? "returning-top" : activationElapsedMs < 1_200 ? "establishing" : "approach", passFraction: passed.size / startingCount, activationElapsedMs }),
+    getFeatureBroadcastState: (): FeatureBroadcastState | undefined => active && Object.freeze({
+      phase: returningTop && activationElapsedMs >= 3_100 ? "returning-top" : activationElapsedMs < 500 ? "establishing" : activationElapsedMs < 1_600 ? "approach" : "close",
+      passFraction: passed.size / startingCount,
+      activationElapsedMs,
+    }),
     reset: () => { completed.clear(); passed.clear(); active = undefined; startingCount = 0; activationElapsedMs = 0; returningTop = false; },
   });
 };
@@ -160,14 +175,34 @@ export const writeFeatureBroadcastShot = (target: CameraShot, zone: FeatureBroad
   const halfHorizontal = Math.atan(Math.tan(halfVertical) * safeAspect);
   const radius = Math.max(1, Math.hypot(zone.length / 2, zone.width / 2, zone.height / 2));
   const distance = 1.08 * radius / Math.sin(Math.min(halfVertical, halfHorizontal));
-  const glide = Math.sin((Number.isFinite(elapsedMs) ? elapsedMs : 0) / 1800) * 1.2;
-  const approach = broadcast?.phase === "approach" ? Math.max(0, Math.min(1, (broadcast.activationElapsedMs - 1_200) / 2_000)) : 0;
-  const returningTop = broadcast?.phase === "returning-top";
-  const view = broadcast ? normalized({ x: zone.up.x * 1.3 + zone.side.x * approach * 0.7, y: zone.up.y * 1.3 + zone.side.y * approach * 0.7, z: zone.up.z * 1.3 + zone.side.z * approach * 0.7 }, zone.up) : normalized({ x: zone.side.x * 0.2 + zone.up.x, y: zone.side.y * 0.2 + zone.up.y, z: zone.side.z * 0.2 + zone.up.z }, zone.up);
-  const shotDistance = broadcast ? distance * (returningTop ? 1.15 : 1.15 - approach * 0.33) : distance;
-  const aimDown = broadcast ? -zone.height / 4 : 0;
+  const state = broadcast ?? { phase: "establishing" as const, passFraction: 0, activationElapsedMs: 0 };
+  const elapsed = Math.max(0, Number.isFinite(state.activationElapsedMs) ? state.activationElapsedMs : 0);
+  const closing = state.phase === "returning-top" ? 0 : Math.max(0, Math.min(1, (elapsed - 500) / 1_100));
+  const displayUp = getFeatureDisplayUp(zone, safeAspect);
+  const lateralLimit = Math.max(0, zone.width / 2 - 1.5);
+  const lateral = closing * Math.min(lateralLimit, lateralLimit * (0.72 + Math.sin(elapsed / 700) * 0.08));
+  const along = closing * zone.length * 0.22 * Math.sin(elapsed / 750);
+  const clearance = zone.height * 3 / 4 + 1;
+  const provisionalView = normalized({ x: zone.up.x * clearance + zone.side.x * lateral + zone.tangent.x * along, y: zone.up.y * clearance + zone.side.y * lateral + zone.tangent.y * along, z: zone.up.z * clearance + zone.side.z * lateral + zone.tangent.z * along }, zone.up);
+  const extent = (axis: Vec3): number => Math.abs(dot(axis, zone.tangent)) * zone.length * 0.4 + Math.abs(dot(axis, zone.side)) * zone.width / 2 + Math.abs(dot(axis, zone.up)) * zone.height * 0.3;
+  const fitDistance = (view: Vec3): number => {
+    const screenRight = normalized(cross(view, displayUp), zone.side);
+    const screenUp = normalized(cross(screenRight, view), displayUp);
+    return 1.06 * Math.max(extent(screenRight) / Math.tan(halfHorizontal), extent(screenUp) / Math.tan(halfVertical)) + extent(view) + 0.5;
+  };
+  const topDistance = distance * 1.15;
+  const firstDistance = Math.max(fitDistance(provisionalView), topDistance / 2.2);
+  const planarSquared = lateral * lateral + along * along;
+  const firstElevation = Math.max(clearance, Math.sqrt(Math.max(0, firstDistance * firstDistance - planarSquared)));
+  const firstView = normalized({ x: zone.up.x * firstElevation + zone.side.x * lateral + zone.tangent.x * along, y: zone.up.y * firstElevation + zone.side.y * lateral + zone.tangent.y * along, z: zone.up.z * firstElevation + zone.side.z * lateral + zone.tangent.z * along }, zone.up);
+  const closeDistance = Math.max(firstDistance, fitDistance(firstView));
+  const elevation = Math.max(clearance, Math.sqrt(Math.max(0, closeDistance * closeDistance - planarSquared)));
+  const vertical = topDistance + (elevation - topDistance) * closing;
+  const shotDistance = Math.hypot(vertical, lateral, along);
+  const glide = Math.sin((Number.isFinite(elapsedMs) ? elapsedMs : 0) / 1_800) * (1 - closing) * 1.2 + Math.sin(elapsed / 750) * closing * 0.5;
+  const aimDown = -zone.height / 4;
   target.lookAt.x = zone.center.x + zone.tangent.x * glide + zone.up.x * aimDown; target.lookAt.y = zone.center.y + zone.tangent.y * glide + zone.up.y * aimDown; target.lookAt.z = zone.center.z + zone.tangent.z * glide + zone.up.z * aimDown;
-  target.position.x = target.lookAt.x + view.x * shotDistance; target.position.y = target.lookAt.y + view.y * shotDistance; target.position.z = target.lookAt.z + view.z * shotDistance;
+  target.position.x = target.lookAt.x + zone.up.x * vertical + zone.side.x * lateral + zone.tangent.x * along; target.position.y = target.lookAt.y + zone.up.y * vertical + zone.side.y * lateral + zone.tangent.y * along; target.position.z = target.lookAt.z + zone.up.z * vertical + zone.side.z * lateral + zone.tangent.z * along;
   target.near = Math.max(0.05, radius * 0.012); target.far = Math.max(shotDistance + radius * 2 + 20, finiteVector(currentCameraPosition) ? Math.hypot(currentCameraPosition.x - zone.center.x, currentCameraPosition.y - zone.center.y, currentCameraPosition.z - zone.center.z) + radius * 2 : 0);
   return target;
 };

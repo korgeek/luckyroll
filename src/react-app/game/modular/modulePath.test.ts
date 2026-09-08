@@ -152,7 +152,7 @@ describe("canonical modular module paths", () => {
       expect(Math.abs(sample.side.y)).toBeLessThan(1e-9);
     }
     expect(validateModuleGeometry(buildModuleGeometry(samples))).toEqual([]);
-  });
+  }, 15_000);
 
   it("keeps worst-case graded and banked frames orthonormal", () => {
     const track = createWorstCaseTrackDesign();

@@ -268,15 +268,19 @@ describe("race scene lifecycle boundary", () => {
 
 	it("continues feature bookkeeping while recent manual input suppresses its shot", async () => {
 		seams.featureSamples = true; seams.bodyX = 12;
-		const canvas = prepareCanvas(); const scene = createRaceScene(canvas, (event) => seams.emitted.push(event), { kind: "custom", track: createValidTrackDesign("Feature") });
+		const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 320 }, clientHeight: { value: 740 } }); const scene = createRaceScene(canvas, (event) => seams.emitted.push(event), { kind: "custom", track: createValidTrackDesign("Feature") });
 		await settle(); scene.start([marble(1)], 11); await settle();
 		const camera = cameraPoses[0].camera; const now = performance.now();
 		for (let frame = 0; frame < 120; frame += 1) seams.frames.shift()?.(now + frame * 17);
 		expect(latestPose(camera).lookAt.x).toBeGreaterThan(17);
+		expect(camera.up.x).toBeLessThan(-0.99);
+		expect(Math.abs(camera.up.y)).toBeLessThan(0.01);
 		canvasDrag(canvas); seams.bodyX = 31;
 		seams.frames.shift()?.(now + 2_100);
 		for (let frame = 0; frame < 180; frame += 1) seams.frames.shift()?.(now + 5_100 + frame * 17);
 		expect(latestPose(camera).lookAt.x).toBeGreaterThan(27);
+		expect(Math.abs(camera.up.x)).toBeLessThan(0.01);
+		expect(camera.up.y).toBeGreaterThan(0.99);
 		scene.dispose();
 	});
 

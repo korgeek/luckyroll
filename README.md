@@ -6,7 +6,7 @@ An instant, offline-friendly neon pinball marble party game. The last marble to 
 
 Choose 100 (default), 200, or 300 marbles above START RACE, split as evenly as possible across 2–10 players. Each layer holds up to 100 marbles; the complete slot pool is shuffled across players before gravity collapses the stack at launch. Higher counts need a faster device; use 100 for smoother play. The final Top 10 is ranked in reverse finish order, so last wins.
 
-Race sessions use the selected track, which can be changed directly from the Main Menu without opening the track manager. The Default Track's high-walled rectangular start pen opens a physical gate and uses a physical start pusher to guide every row into the first module. Its demo route includes rounded moguls, a wheel, waves, boosters, and a final six-post pinball section. Wheel and pinball broadcasts start overhead, ease into a closer elevated angle, and return overhead after 50% of the starting field passes. The wheel releases to automatic tracking after more than 80% pass (81/161/241), or all remaining marbles clear; pinball holds until all live marbles clear. Bird View shows the whole course from above.
+Race sessions use the selected track, which can be changed directly from the Main Menu without opening the track manager. The Default Track's high-walled rectangular start pen opens a physical gate and uses a physical start pusher to guide every row into the first module. Its demo route includes rounded moguls, a wheel, waves, boosters, and a final six-post pinball section. Wheel and pinball broadcasts start overhead, ease closer after 0.5 seconds, then hold the close shot for 1.5 seconds before returning overhead once 50% pass. The camera travels inside the channel, with route-aligned portrait framing and horizontal landscape framing. The wheel releases after more than 80% pass (81/161/241), allowing the occupied close shot to finish first; an emptied section does not delay release. Pinball holds until all live marbles clear. Bird View shows the whole course from above.
 
 Results feature the last finisher, with a brief celebration only when every marble completes the race. Replay runs the same participants, marble count, prize, and course with a fresh seed; Back to Menu keeps the entered names, count, and selected track.
 
@@ -64,3 +64,5 @@ The bundled 90s-style start, finish, and timeout effects use [MIT-licensed Sound
 ## Deployment
 
 This repository retains its Cloudflare Workers configuration. Pushes to the connected branch are handled by the existing Cloudflare Git integration.
+
+Wrangler explicitly enables Observability, Workers Logs, and invocation logs. These record Worker invocations; they do not add browser gameplay logging or force static asset requests through the Worker. See [Cloudflare Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/).

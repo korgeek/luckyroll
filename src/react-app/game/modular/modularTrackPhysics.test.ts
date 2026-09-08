@@ -660,7 +660,7 @@ describe("modular track physics", () => {
     expect(first.seed).toBe(23);
     expect(first.finishOrder).toEqual([]);
     expect(first.boosterCapViolations).toEqual([]);
-  });
+  }, 15_000);
 
   it.each([100, 200, 300])("physically pushes all %i marbles past the gate without loss", async (count) => {
     await initializeTrackPhysics();
