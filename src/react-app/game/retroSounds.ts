@@ -1,22 +1,20 @@
-import startUrl from "../assets/audio/nox-start.wav?url";
-import winUrl from "../assets/audio/kenney-win.wav?url";
+import startUrl from "../assets/audio/race-start.wav?url";
+import winUrl from "../assets/audio/race-fanfare.wav?url";
 import timeoutUrl from "../assets/audio/kenney-timeout.wav?url";
-import countdownUrl from "../assets/audio/kenney-countdown.wav?url";
-import boostUrl from "../assets/audio/nox-boost.wav?url";
-import rushUrl from "../assets/audio/nox-rush.wav?url";
+import countdownUrl from "../assets/audio/race-countdown.wav?url";
+import boostUrl from "../assets/audio/race-boost.wav?url";
+import rushUrl from "../assets/audio/race-rush.wav?url";
 import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
 import pinwheelUrl from "../assets/audio/kenney-pinwheel.wav?url";
-import rushLoopUrl from "../assets/audio/nox-rush-loop.wav?url";
 
 export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
 
-const loops = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
 const lastEffects = new Map<string, number>();
-const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl, rushLoop: rushLoopUrl };
+const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -99,27 +97,6 @@ function cue(name: keyof typeof urls, frequencies: number[], volume = 0.22) {
 	if (!sample(name, volume)) frequencies.forEach((frequency, index) => note(frequency, ctx.currentTime + index * 0.075, 0.12, "sine", 0.035));
 }
 
-function loop(name: "rushLoop", volume: number) {
-	const existing = loops.get(name);
-	if (muted || volume <= 0.001) {
-		if (existing) { existing.source.stop(); loops.delete(name); }
-		return;
-	}
-	const ctx = audio();
-	const buffer = buffers.get(name);
-	if (!ctx || !buffer) return;
-	if (existing) { existing.gain.gain.setTargetAtTime(volume, ctx.currentTime, 0.15); return; }
-	const source = track(ctx.createBufferSource());
-	const gain = ctx.createGain();
-	gain.gain.value = 0;
-	gain.gain.setTargetAtTime(volume, ctx.currentTime, 0.15);
-	source.buffer = buffer;
-	source.loop = true;
-	source.connect(gain).connect(ctx.destination);
-	loops.set(name, { source, gain });
-	source.start();
-}
-
 export const retroSounds = {
 	preload() {
 		audio();
@@ -130,12 +107,8 @@ export const retroSounds = {
 			try { source.stop(); } catch { /* already ended */ }
 		}
 		active.clear();
-		loops.clear();
 		lastEffects.clear();
 		lastMarbleCue = -Infinity;
-	},
-	ambience(rush: boolean) {
-		loop("rushLoop", rush ? 0.10 : 0);
 	},
 	obstacle(kind: "bumper" | "pinwheel" | "boost", proximity = 1) {
 		if (muted || proximity <= 0.01) return;
@@ -145,7 +118,7 @@ export const retroSounds = {
 		lastEffects.set(kind, ctx.currentTime);
 		sample(kind, Math.min(1, proximity) * (kind === "boost" ? 0.22 : 0.5));
 	},
-	countdown() { cue("countdown", [440], 0.18); },
+	countdown() { cue("countdown", [660], 0.18); },
 	boost() { cue("boost", [330, 660, 990]); },
 	rush() { cue("rush", [523, 784, 1047], 0.3); },
 	checkpoint() { cue("checkpoint", [880], 0.12); },
@@ -157,7 +130,7 @@ export const retroSounds = {
 		const ctx = audio();
 		if (!ctx) return;
 		const now = ctx.currentTime;
-		[262, 330, 392, 523].forEach((frequency, index) => note(frequency, now + index * 0.075, 0.12));
+		note(1320, now, 0.65);
 	},
 	finish() {
 		this.stop();

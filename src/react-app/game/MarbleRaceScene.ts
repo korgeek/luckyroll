@@ -414,7 +414,6 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const resetQualityWindow = () => { quality.sample(0, false); };
   document.addEventListener("visibilitychange", resetQualityWindow);
   const stopRace = () => {
-    retroSounds.ambience(false);
     bumperContacts.clear(); pinwheelContacts.clear();
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
@@ -440,7 +439,6 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
     quality.reset();
     bumperContacts.clear(); pinwheelContacts.clear();
-    retroSounds.ambience(false);
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
     world = createTrackPhysicsWorld();
@@ -469,6 +467,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const updateCamera = (cameraDelta: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
     let cameraClearance = 5;
+    let targetZoom = 1;
     if (birdView) {
       activeShot = "bird"; controls = initialCameraControls;
       localUp = getBirdViewUp(course.samples);
@@ -483,6 +482,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       const target = rankedCameraBalls.find(b => b.id === actionShot.targetId);
       const sample = target ? course.samples[target.sampleIndex] : course.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - crowdDistance) < Math.abs(nearest.distance - crowdDistance) ? candidate : nearest, course.samples[0]);
       if (sample) {
+        targetZoom = (sample as TrackSample & { kind?: string }).kind === "curve" ? 1.15 : 1;
         localUp = sample.up;
         cameraClearance = Math.max(5, sample.channelDepth + 1);
         if (target) {
@@ -502,6 +502,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       Object.assign(controlledCameraShot.lookAt, cameraShot.lookAt);
       controlledCameraShot.near = cameraShot.near; controlledCameraShot.far = cameraShot.far;
     } else writeControlledTrackFollowShot(controlledCameraShot, cameraShot, localUp, controls, cameraClearance);
+    const nextZoom = camera.zoom + (targetZoom - camera.zoom) * cameraLerpAlpha(0.05, cameraDelta);
+    if (Math.abs(nextZoom - camera.zoom) > 0.00001) { camera.zoom = nextZoom; camera.updateProjectionMatrix(); }
     if (camera.near !== controlledCameraShot.near || camera.far !== controlledCameraShot.far) {
       camera.near = controlledCameraShot.near; camera.far = controlledCameraShot.far; camera.updateProjectionMatrix();
     }
@@ -598,7 +600,6 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
-    retroSounds.ambience(running && !paused && rushActive);
     if (paused) updateCamera(cameraDelta);
     const renderStarted = clock();
     renderer.render(scene, camera);
@@ -631,7 +632,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (changed) signalCameraAction("boost");
       return changed;
     },
-    setPaused: (paused) => { manualPaused = paused; if (paused) retroSounds.ambience(false); },
+    setPaused: (paused) => { manualPaused = paused; if (paused) retroSounds.stop(); },
     setBirdView: (enabled) => { birdView = enabled; if (enabled) controls = initialCameraControls; },
     reset: () => { starts?.reset(); routeCrowd.reset(); actionDirector.reset(); pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; raceClock.reset(); stopRace(); },
     dispose: teardown,

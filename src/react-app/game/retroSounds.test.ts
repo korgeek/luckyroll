@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(11);
+		expect(fetch).toHaveBeenCalledTimes(10);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -67,17 +67,17 @@ describe("retroSounds lifecycle and event mapping", () => {
 	});
 });
 
- it("reuses only the rush loop and resumes it after mute", async () => {
+ it("loads no engine sounds and plays RUSH once without a loop", async () => {
   const { sources } = mockAudio();
   await retroSounds.preload();
-  retroSounds.ambience(false); expect(sources).toHaveLength(0);
-  retroSounds.ambience(true); retroSounds.ambience(true); expect(sources).toHaveLength(1);
-  retroSounds.ambience(false); expect(sources[0].stop).toHaveBeenCalledOnce();
-  retroSounds.ambience(true); expect(sources).toHaveLength(2);
-  retroSounds.setMuted(true); retroSounds.ambience(true); expect(sources).toHaveLength(2);
-  expect(sources[1].stop).toHaveBeenCalled();
-  retroSounds.setMuted(false); retroSounds.ambience(true); expect(sources).toHaveLength(3);
-  retroSounds.finish(); expect(sources[2].stop).toHaveBeenCalled();
+  expect(vi.mocked(fetch).mock.calls.every(([url]) => !String(url).includes("nox-"))).toBe(true);
+  retroSounds.rush();
+  expect(sources).toHaveLength(1);
+  expect(sources[0]).not.toHaveProperty("loop", true);
+  retroSounds.setMuted(true);
+  expect(sources[0].stop).toHaveBeenCalled();
+  retroSounds.setMuted(false);
+  expect(sources).toHaveLength(1);
  });
 
  it("attenuates distant impacts and keeps a distinct, throttled pinwheel impact", async () => {

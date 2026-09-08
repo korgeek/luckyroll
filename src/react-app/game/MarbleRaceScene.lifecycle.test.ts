@@ -124,18 +124,32 @@ describe("race scene lifecycle boundary", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
 
-  it("plays the first marble's physical booster event and stops ambience on pause/disposal", async () => {
+  it("smoothly zooms in on curves and restores the bird view framing", async () => {
+    const scene = await startScene();
+    seams.courseSamples!.forEach(sample => Object.assign(sample, { kind: "curve" }));
+    const now = performance.now();
+    for (let frame = 1; frame <= 90; frame++) seams.frames.shift()?.(now + frame * 17);
+    const camera = cameraPoses[cameraPoses.length - 1]!.camera;
+    expect(camera.zoom).toBeGreaterThan(1.1);
+    expect(camera.zoom).toBeLessThanOrEqual(1.15);
+    scene.setBirdView(true);
+    for (let frame = 91; frame <= 180; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(camera.zoom).toBeCloseTo(1, 2);
+    scene.dispose();
+  });
+
+  it("plays the first marble's physical booster event and stops audio on pause", async () => {
     const obstacle = vi.spyOn(retroSounds, "obstacle").mockImplementation(() => undefined);
-    const ambience = vi.spyOn(retroSounds, "ambience").mockImplementation(() => undefined);
+    const stop = vi.spyOn(retroSounds, "stop").mockImplementation(() => undefined);
     const scene = await startScene();
     seams.boosterEvent = true;
     const now = performance.now(); seams.frames.shift()?.(now + 17);
     expect(obstacle).toHaveBeenCalledWith("boost", expect.any(Number));
-    scene.setPaused(true); expect(ambience).toHaveBeenLastCalledWith(false);
+    scene.setPaused(true); expect(stop).toHaveBeenCalled();
     const calls = obstacle.mock.calls.length; seams.frames.shift()?.(now + 34);
     expect(obstacle).toHaveBeenCalledTimes(calls);
-    scene.dispose(); expect(ambience).toHaveBeenLastCalledWith(false);
-    obstacle.mockRestore(); ambience.mockRestore();
+    scene.dispose();
+    obstacle.mockRestore(); stop.mockRestore();
   });
 
   it("lowers render resolution on sustained slow frames without altering physics steps", async () => {
