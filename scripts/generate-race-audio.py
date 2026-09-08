@@ -40,13 +40,13 @@ for start, duration, notes in [(0, .2, [60, 64, 67]), (.24, .2, [60, 64, 67]), (
             fanfare[round(start * RATE) + i] += value / len(notes)
 write('race-fanfare.wav', fanfare)
 # Filtered noise swells and falls in pitch: a passing gust, with no engine loop.
-for name, duration in [('race-rush.wav', 1.3), ('race-boost.wav', .55)]:
+for name, duration, bandwidth in [('race-rush.wav', 1.3, 6500), ('race-boost.wav', .55, 6500), ('race-pinwheel.wav', .16, 1800)]:
     rng = random.Random(7)
     low = 0.
     gust = []
     for i in range(round(duration * RATE)):
         t = i / RATE / duration
-        cutoff = 450 + 6500 * math.sin(math.pi * t) ** 2
+        cutoff = 450 + bandwidth * math.sin(math.pi * t) ** 2
         alpha = 1 - math.exp(-2 * math.pi * cutoff / RATE)
         low += alpha * (rng.uniform(-1, 1) - low)
         gust.append(low * math.sin(math.pi * t) ** 1.5)

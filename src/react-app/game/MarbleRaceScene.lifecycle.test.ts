@@ -124,17 +124,20 @@ describe("race scene lifecycle boundary", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
 
-  it("smoothly zooms in on curves and restores the bird view framing", async () => {
+  it("zooms closer and lowers the curve angle while keeping wall clearance, then restores bird view", async () => {
     const scene = await startScene();
-    seams.courseSamples!.forEach(sample => Object.assign(sample, { kind: "curve" }));
     const now = performance.now();
-    for (let frame = 1; frame <= 90; frame++) seams.frames.shift()?.(now + frame * 17);
-    const camera = cameraPoses[cameraPoses.length - 1]!.camera;
-    expect(camera.zoom).toBeGreaterThan(1.1);
-    expect(camera.zoom).toBeLessThanOrEqual(1.15);
+    for (let frame = 1; frame <= 240; frame++) seams.frames.shift()?.(now + frame * 17);
+    const straight = cameraPoses[cameraPoses.length - 1]!;
+    seams.courseSamples!.forEach(sample => Object.assign(sample, { kind: "curve" }));
+    for (let frame = 241; frame <= 480; frame++) seams.frames.shift()?.(now + frame * 17);
+    const curve = cameraPoses[cameraPoses.length - 1]!;
+    expect(curve.camera.zoom).toBeCloseTo(1.25, 2);
+    expect(curve.position.y).toBeLessThan(straight.position.y - 0.3);
+    expect(curve.position.y - curve.lookAt.y).toBeGreaterThanOrEqual(4.49);
     scene.setBirdView(true);
-    for (let frame = 91; frame <= 180; frame++) seams.frames.shift()?.(now + frame * 17);
-    expect(camera.zoom).toBeCloseTo(1, 2);
+    for (let frame = 481; frame <= 600; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(curve.camera.zoom).toBeCloseTo(1, 2);
     scene.dispose();
   });
 

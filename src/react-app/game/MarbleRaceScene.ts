@@ -482,15 +482,21 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       const target = rankedCameraBalls.find(b => b.id === actionShot.targetId);
       const sample = target ? course.samples[target.sampleIndex] : course.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - crowdDistance) < Math.abs(nearest.distance - crowdDistance) ? candidate : nearest, course.samples[0]);
       if (sample) {
-        targetZoom = (sample as TrackSample & { kind?: string }).kind === "curve" ? 1.15 : 1;
+        const curve = (sample as TrackSample & { kind?: string }).kind === "curve";
+        targetZoom = curve ? 1.25 : 1;
         localUp = sample.up;
-        cameraClearance = Math.max(5, sample.channelDepth + 1);
+        cameraClearance = curve ? Math.max(4.5, sample.channelDepth + 0.5) : Math.max(5, sample.channelDepth + 1);
         if (target) {
           activeShot = actionShot.mode === "finale" && sample.zone === "finish" ? "finish" : "trailer";
           writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds, cameraClearance);
         } else if (rankedCameraBalls.length || !gateOpen) {
           activeShot = "profile";
           writeRouteCrowdFollowShot(cameraShot, crowdDistance, course.samples, bounds, cameraClearance, actionShot.mode === "boost" ? "fast" : crowdPace, camera.fov, camera.aspect, actionShot.mode === "feature" && actionShot.framing === "close");
+        }
+        if (curve) {
+          cameraShot.position.x -= localUp.x * 0.5;
+          cameraShot.position.y -= localUp.y * 0.5;
+          cameraShot.position.z -= localUp.z * 0.5;
         }
       } else {
         activeShot = "overview";

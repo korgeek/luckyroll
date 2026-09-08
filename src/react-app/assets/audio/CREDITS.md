@@ -15,6 +15,7 @@ The generator checks finite samples, non-silence and quiet endpoints.
 | win / race-fanfare.wav | 3-second original C-major brass-style fanfare |
 | boost / race-boost.wav | 550 ms filtered-noise passing gust |
 | rush / race-rush.wav | 1.3-second filtered-noise swell, played once on entry |
+| pinwheel / race-pinwheel.wav | 160 ms soft, narrow-band air flap on blade contact; gain 0.22 |
 
 NOX vehicle recordings and the continuous RUSH engine loop were removed at user
 request. RUSH has no repeating ambience; unmuting does not replay its entry cue.
@@ -33,13 +34,12 @@ Kenney (Kenney Vleugels) assets, downloaded 2026-09-08, released under
 | dnf | Interface / drop_002.ogg |
 | timeout | Interface / error_003.ogg |
 | bumper | Impact / impactMetal_medium_000.ogg |
-| pinwheel | Impact / impactWood_medium_000.ogg |
 
 Converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
 `loudnorm=I=-18:TP=-3:LRA=7`. All assets ship locally, without a runtime CDN or audio library.
 
 Bumper and blade impacts play on contact onset, with camera-distance attenuation
-(32 world units for bumper/boost, 12 for blades). Impact gain is 0.5 before
+(32 world units for bumper/boost, 12 for blades). Bumper gain is 0.5 and blade gain is 0.22 before
 attenuation. Impact/track-boost bursts are limited to 90/220 ms; checkpoint/DNF
 share a 150 ms cooldown. Muting and pausing stop playback. Failed asset downloads
 retry on preload; event cues retain synthesized tone fallbacks.

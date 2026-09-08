@@ -8,7 +8,7 @@ import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
-import pinwheelUrl from "../assets/audio/kenney-pinwheel.wav?url";
+import pinwheelUrl from "../assets/audio/race-pinwheel.wav?url";
 
 export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
@@ -116,7 +116,7 @@ export const retroSounds = {
 		if (!ctx) return;
 		if (ctx.currentTime - (lastEffects.get(kind) ?? -Infinity) < (kind === "boost" ? 0.22 : 0.09)) return;
 		lastEffects.set(kind, ctx.currentTime);
-		sample(kind, Math.min(1, proximity) * (kind === "boost" ? 0.22 : 0.5));
+		sample(kind, Math.min(1, proximity) * (kind === "bumper" ? 0.5 : 0.22));
 	},
 	countdown() { cue("countdown", [660], 0.18); },
 	boost() { cue("boost", [330, 660, 990]); },
