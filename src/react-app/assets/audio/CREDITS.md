@@ -47,9 +47,9 @@ Kenney (Kenney Vleugels) assets, downloaded 2026-09-08, released under
 | checkpoint | Interface / glass_001.ogg |
 | dnf | Interface / drop_002.ogg |
 | timeout | Interface / error_003.ogg |
-| bumper | Impact / impactMetal_medium_000.ogg |
+| bumper (kenney-bumper.ogg) | Impact / impactMining_003.ogg (user-provided, copied unchanged) |
 
-Converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
+Other Kenney effects were converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
 `loudnorm=I=-18:TP=-3:LRA=7`. All assets ship locally, without a runtime CDN or audio library.
 
 Bumper and blade impacts play on contact onset, with camera-distance attenuation

@@ -10,7 +10,7 @@ import rushUrl from "../assets/audio/kenney-hurry-up.ogg?url";
 import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
-import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
+import bumperUrl from "../assets/audio/kenney-bumper.ogg?url";
 import pinwheelUrl from "../assets/audio/race-pinwheel.wav?url";
 
 export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
