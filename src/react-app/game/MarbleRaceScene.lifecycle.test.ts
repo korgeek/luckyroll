@@ -83,7 +83,7 @@ vi.mock("./cameraControls", async () => {
 
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import type { Marble } from "../domain/types";
-import { getTrackBounds, writeRouteCrowdFollowShot } from "./cameraPlan";
+import { getTrackBounds, writeTrackFollowShot } from "./cameraPlan";
 import { createMarbleRollTexture, createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
@@ -148,7 +148,7 @@ describe("race scene lifecycle boundary", () => {
     expect(camera.up.y).toBeCloseTo(1, 3);
     expect(camera.up.z).toBe(0);
     const samples = seams.courseSamples!;
-    const expected = writeRouteCrowdFollowShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 }, 0, samples, getTrackBounds(samples), 5, "fast", camera.fov, camera.aspect);
+    const expected = writeTrackFollowShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 }, { x: 0, y: 1, z: 0 }, samples, 0, getTrackBounds(samples), 5);
     const settled = latestPose(camera);
     expect(settled.position.distanceTo(new THREE.Vector3(expected.position.x, expected.position.y, expected.position.z))).toBeLessThan(0.1);
     expect(settled.lookAt.distanceTo(new THREE.Vector3(expected.lookAt.x, expected.lookAt.y, expected.lookAt.z))).toBeLessThan(0.1);

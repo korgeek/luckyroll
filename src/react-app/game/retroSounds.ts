@@ -1,6 +1,14 @@
-import startUrl from "../assets/audio/soundkit-start.m4a?url";
-import winUrl from "../assets/audio/soundkit-win.m4a?url";
-import timeoutUrl from "../assets/audio/soundkit-timeout.m4a?url";
+import startUrl from "../assets/audio/kenney-start.wav?url";
+import winUrl from "../assets/audio/kenney-win.wav?url";
+import timeoutUrl from "../assets/audio/kenney-timeout.wav?url";
+import countdownUrl from "../assets/audio/kenney-countdown.wav?url";
+import boostUrl from "../assets/audio/kenney-boost.wav?url";
+import rushUrl from "../assets/audio/kenney-rush.wav?url";
+import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
+import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
+
+const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl };
+let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
 let muted = false;
@@ -49,41 +57,56 @@ async function load(name: string, url: string) {
 		const ctx = audio();
 		if (!ctx || buffers.has(name)) return;
 		const response = await fetch(url);
+		if (!response.ok) return;
 		buffers.set(name, await ctx.decodeAudioData(await response.arrayBuffer()));
 	} catch {
 		// Unsupported/failed assets use the existing synth fallback.
 	}
 }
 
-function sample(name: string) {
+function sample(name: string, volume = 0.3) {
 	if (muted) return false;
 	const ctx = audio();
 	const buffer = buffers.get(name);
 	if (!ctx || !buffer) return false;
 	const source = track(ctx.createBufferSource());
 	const gain = ctx.createGain();
-	gain.gain.value = 0.35;
+	gain.gain.value = volume;
 	source.buffer = buffer;
 	source.connect(gain).connect(ctx.destination);
 	source.start();
 	return true;
 }
 
+function cue(name: keyof typeof urls, frequencies: number[], volume = 0.22) {
+	if (muted) return;
+	const ctx = audio();
+	if (!ctx) return;
+	if (name === "checkpoint" || name === "dnf") {
+		// ponytail: group marble events within 150ms; use a mixer if individual spatial audio is needed.
+		if (ctx.currentTime - lastMarbleCue < 0.15) return;
+		lastMarbleCue = ctx.currentTime;
+	}
+	if (!sample(name, volume)) frequencies.forEach((frequency, index) => note(frequency, ctx.currentTime + index * 0.075, 0.12, "sine", 0.035));
+}
+
 export const retroSounds = {
 	preload() {
 		audio();
-		return loading ??= Promise.all([
-			load("start", startUrl),
-			load("win", winUrl),
-			load("timeout", timeoutUrl),
-		]).then(() => undefined);
+		return loading ??= Promise.all(Object.entries(urls).map(([name, url]) => load(name, url))).then(() => { loading = undefined; });
 	},
 	stop() {
 		for (const source of active) {
 			try { source.stop(); } catch { /* already ended */ }
 		}
 		active.clear();
+		lastMarbleCue = -Infinity;
 	},
+	countdown() { cue("countdown", [440], 0.18); },
+	boost() { cue("boost", [330, 660, 990]); },
+	rush() { cue("rush", [523, 784, 1047], 0.3); },
+	checkpoint() { cue("checkpoint", [880], 0.12); },
+	dnf() { cue("dnf", [220, 165], 0.12); },
 	start() {
 		this.stop();
 		if (sample("start")) return;

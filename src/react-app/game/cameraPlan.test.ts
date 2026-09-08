@@ -7,6 +7,8 @@ import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
   cameraLerpAlpha,
   createRouteCrowdDirector,
+  createActionCameraDirector,
+  deriveFeatureBroadcastZones,
   getBirdViewUp,
   getCameraShot,
   getTrackBounds,
@@ -128,7 +130,7 @@ describe("track-bound race camera plan", () => {
     expect(director.update([{ id: "trailer", distance: 1 }, { id: "a", distance: 30 }, { id: "b", distance: 31 }, { id: "c", distance: 32 }], 4).distance).toBeCloseTo(31, 8);
   });
 
-  it("advances after eighty percent of the original field uniquely passes a run, despite rebounds and DNFs", () => {
+  it("follows the live pack through a corner without waiting for trailing marbles", () => {
     const samples = [
       { index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const },
       { index: 1, distance: 20, position: { x: 20, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const },
@@ -137,12 +139,14 @@ describe("track-bound race camera plan", () => {
     ];
     const director = createRouteCrowdDirector(samples);
 
-    expect(director.update([{ id: 1, distance: 21 }, { id: 2, distance: 21 }, { id: 3, distance: 19 }, { id: 4, distance: 19 }, { id: 5, distance: 19 }], 5).runEnd).toBe(20);
-    expect(director.update([{ id: 1, distance: 18, eliminated: true }, { id: 2, distance: 18 }, { id: 3, distance: 21 }, { id: 4, distance: 19 }, { id: 5, distance: 19 }], 5).runEnd).toBe(20);
-    expect(director.update([{ id: 1, distance: 18, eliminated: true }, { id: 2, distance: 18 }, { id: 3, distance: 21 }, { id: 4, distance: 19, eliminated: true }, { id: 5, distance: 19 }], 5).runEnd).toBe(40);
+    const traffic = (distance: number) => [{ id: 1, distance: 0 }, { id: 2, distance }, { id: 3, distance: distance + 1 }, { id: 4, distance: distance + 2 }];
+    expect(director.update(traffic(18), 4).distance).toBe(19);
+    expect(director.update(traffic(21), 4)).toMatchObject({ distance: 22, runEnd: 40 });
+    expect(director.update(traffic(25), 4).distance).toBe(26);
+    expect(director.update([], 4).distance).toBe(26);
   });
 
-  it("changes from the slow straight follow to the fast corner follow at the eightieth unique pass", () => {
+  it("changes corner pace with the pack position rather than a passage quota", () => {
     const samples = [
       { index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const, kind: "straight" },
       { index: 1, distance: 100, position: { x: 100, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const, kind: "straight" },
@@ -151,8 +155,8 @@ describe("track-bound race camera plan", () => {
     const director = createRouteCrowdDirector(samples);
     const traffic = (passed: number) => Array.from({ length: 100 }, (_, index) => ({ id: index, distance: index < passed ? 100 : 0 }));
 
-    expect(director.update(traffic(79), 100).pace).toBe("slow");
-    expect(director.update(traffic(80), 100).pace).toBe("fast");
+    expect(director.update(traffic(49), 100).pace).toBe("slow");
+    expect(director.update(traffic(51), 100).pace).toBe("fast");
   });
 
   it.each([320 / 740, 1024 / 768])("frames the route pack from behind at aspect %s", (aspect) => {
@@ -229,5 +233,78 @@ describe("track-bound race camera plan", () => {
   it("only flags a projection update when camera clipping actually changes", () => {
     expect(hasCameraClipChanged({ near: 0.5, far: 300 }, { near: 0.5, far: 300 })).toBe(false);
     expect(hasCameraClipChanged({ near: 0.5, far: 300 }, { near: 0.6, far: 300 })).toBe(true);
+  });
+});
+
+
+describe("action camera", () => {
+  const zones = deriveFeatureBroadcastZones(buildModularTrack(createValidTrackDesign()).samples);
+  const traffic = (distance: number, count = 20) => Array.from({ length: count }, (_, id) => ({ id, distance, sampleIndex: 0, done: false, eliminated: false }));
+  const input = (distance: number, count = 20) => ({ traffic: traffic(distance, count), crowd: { distance, runStart: 0, runEnd: 100, pace: "slow" as const }, originalCount: 20, activeMs: 0, enabled: true });
+  it("never changes shots from elapsed time alone", () => {
+    const director = createActionCameraDirector([]);
+    expect(director.update(input(0)).mode).toBe("crowd");
+    expect(director.update({ ...input(0), activeMs: 12000 }).mode).toBe("crowd");
+  });
+  it("releases boost on unique passage and does not replay it after manual input", () => {
+    const director = createActionCameraDirector([]); const state = input(0);
+    const action = { kind: "boost" as const, targetIds: state.traffic.map(b => b.id), exitDistance: 100 };
+    expect(director.update({ ...state, action }).mode).toBe("boost");
+    expect(director.update({ ...state, traffic: state.traffic.map((b, i) => ({ ...b, distance: i < 16 ? 101 : 0 })) }).mode).toBe("crowd");
+    director.update({ ...state, enabled: false, action });
+    expect(director.update(state).mode).toBe("crowd");
+  });
+  it("prioritizes occupied features and releases empty ones immediately", () => {
+    const director = createActionCameraDirector(zones); const zone = zones[0];
+    const state = input((zone.entryDistance + zone.exitDistance) / 2);
+    expect(director.update({ ...state, action: { kind: "rush", targetIds: [0], exitDistance: zone.exitDistance } }).mode).toBe("feature");
+    expect(director.update(input(zone.exitDistance + 20)).mode).toBe("crowd");
+    expect(director.update(state).mode).toBe("crowd");
+    director.reset(); expect(director.update(state).mode).toBe("feature");
+  });
+  it("tracks finale targets by id and replaces a DNF target", () => {
+    const director = createActionCameraDirector([]);
+    expect(director.update(input(0, 4)).mode).toBe("crowd");
+    const state = input(0, 3);
+    const first = director.update(state); expect(first.mode).toBe("finale");
+    const next = director.update({ ...state, traffic: state.traffic.map(b => b.id === first.targetId ? { ...b, done: true, eliminated: true } : b) });
+    expect(next.targetId).not.toBe(first.targetId);
+    director.reset(); expect(director.update(input(0))).toEqual({ mode: "crowd", framing: "wide" });
+  });
+  it("uses passage for feature framing, keeps unique counts, and yields to finale", () => {
+    const director = createActionCameraDirector(zones); const zone = zones[0];
+    const state = input((zone.entryDistance + zone.exitDistance) / 2);
+    const original = JSON.stringify(state);
+    expect(director.update(state).framing).toBe("wide");
+    expect(director.update({ ...state, activeMs: 1799 }).framing).toBe("wide");
+    expect(director.update({ ...state, activeMs: 1800 }).framing).toBe("close");
+    const half = state.traffic.map((b, i) => ({ ...b, distance: i < 10 ? zone.exitDistance + 1 : b.distance }));
+    expect(director.update({ ...state, traffic: half, activeMs: 1801 }).framing).toBe("wide");
+    expect(director.update({ ...state, traffic: half, activeMs: 4000 }).mode).toBe("feature");
+    expect(director.update({ ...state, activeMs: 4001 }).framing).toBe("wide");
+    expect(director.update({ ...state, traffic: state.traffic.slice(0, 3), activeMs: 4002 }).mode).toBe("finale");
+    expect(JSON.stringify(state)).toBe(original);
+  });
+  it("replaces boost with rush and releases an invalid rush target", () => {
+    const director = createActionCameraDirector([]); const state = input(0);
+    director.update({ ...state, action: { kind: "boost", targetIds: [0, 1], exitDistance: 100 } });
+    expect(director.update({ ...state, action: { kind: "rush", targetIds: [1], exitDistance: 100 } }).mode).toBe("rush");
+    expect(director.update({ ...state, traffic: state.traffic.map(b => b.id === 1 ? { ...b, distance: NaN } : b) }).mode).toBe("crowd");
+  });
+  it.each([360 / 800, 1024 / 768])("follows moving traffic closer through feature slots at aspect %s", aspect => {
+    const samples = buildModularTrack(createValidTrackDesign()).samples;
+    const bounds = getTrackBounds(samples);
+    for (const zone of zones) {
+      const distance = (zone.entryDistance + zone.exitDistance) / 2;
+      const wide = writeRouteCrowdFollowShot(mutableShot(), distance, samples, bounds, 13, "slow", 60, aspect);
+      const close = writeRouteCrowdFollowShot(mutableShot(), distance, samples, bounds, 13, "slow", 60, aspect, true);
+      const moved = writeRouteCrowdFollowShot(mutableShot(), distance + 2, samples, bounds, 13, "slow", 60, aspect, true);
+      expect(isFiniteVec3(close.position)).toBe(true);
+      expect(Math.hypot(...Object.values(subtract(close.position, close.lookAt)))) .toBeLessThan(Math.hypot(...Object.values(subtract(wide.position, wide.lookAt))));
+      expect(Math.hypot(...Object.values(subtract(moved.lookAt, close.lookAt)))).toBeGreaterThan(1);
+      const sample = samples.find(s => s.distance >= distance)!;
+      expect(dot(subtract(close.position, sample.position), sample.up)).toBeGreaterThan(sample.channelDepth);
+      expect(Math.abs(dot(subtract(close.position, close.lookAt), sample.tangent))).toBeGreaterThan(5);
+    }
   });
 });

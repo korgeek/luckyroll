@@ -95,6 +95,7 @@ function App() {
 	useEffect(() => {
 		if (countdown !== "3" && countdown !== "2" && countdown !== "1" && countdown !== "GO!") return;
 		if (backChoice) return;
+		if (countdown !== "GO!") retroSounds.countdown();
 		const timeout = window.setTimeout(() => {
 			if (countdown === "3") setCountdown("2");
 			else if (countdown === "2") setCountdown("1");
@@ -126,14 +127,14 @@ function App() {
 			scene = createRaceScene(canvasRef.current, (event) => {
 				if (!active) return;
 				if (event.type === "prepared" && countdownActiveRef.current) setCountdown("3");
-				if (event.type === "rush") setRush(true);
+				if (event.type === "rush") { retroSounds.rush(); setRush(true); }
 				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, fps: event.fps, eliminatedCount: event.eliminatedCount, standings: event.standings, boostRemainingMs: event.boostRemainingMs });
 				if (event.type === "timeout") { retroSounds.timeout(); setRemaining(event.remaining); }
 				if (event.type === "error") { countdownActiveRef.current = false; setCountdown(undefined); setMessage(event.message); setView(raceReturnView); }
 				if (event.type === "finish" || event.type === "dnf") {
 					completed += 1;
-					if (event.type === "finish") { finishers += 1; setFinished((current) => [...current, event.marble]); }
-					else setMessage(`Marble #${event.marble.id} did not finish (${event.reason}).`);
+					if (event.type === "finish") { retroSounds.checkpoint(); finishers += 1; setFinished((current) => [...current, event.marble]); }
+					else { retroSounds.dnf(); setMessage(`Marble #${event.marble.id} did not finish (${event.reason}).`); }
 					if (completed === session.marbles.length) { const complete = finishers === session.marbles.length; if (complete) retroSounds.finish(); setCelebrate(complete); setView("results"); }
 				}
 			}, session.course);
@@ -170,7 +171,7 @@ function App() {
 	const restartRemaining = () => {
 		if (!remaining) return;
 		void retroSounds.preload().catch(() => undefined);
-		const racers = remaining; cancelRemainingRestart(); setRemaining(undefined); setBoostFlash(false); setRush(false); setSceneReady(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setHud((current) => ({ ...current, standings: [], boostRemainingMs: 5_000 })); sceneRef.current?.setPaused(true);
+		const racers = remaining; retroSounds.stop(); cancelRemainingRestart(); setRemaining(undefined); setBoostFlash(false); setRush(false); setSceneReady(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setHud((current) => ({ ...current, standings: [], boostRemainingMs: 5_000 })); sceneRef.current?.setPaused(true);
 		const firstFrame = window.requestAnimationFrame(() => { const secondFrame = window.requestAnimationFrame(() => { remainingRestartFramesRef.current = []; if (countdownActiveRef.current && viewRef.current === "race") sceneRef.current?.restartRemaining(racers); }); remainingRestartFramesRef.current = [secondFrame]; });
 		remainingRestartFramesRef.current = [firstFrame];
 	};
@@ -201,7 +202,7 @@ function App() {
 	}, [backChoice, runtimeReady]);
 	useEffect(() => {
 		const restartFrames = remainingRestartFramesRef;
-		return () => { if (leaveFallbackRef.current !== undefined) window.clearTimeout(leaveFallbackRef.current); restartFrames.current.forEach((frame) => window.cancelAnimationFrame(frame)); };
+		return () => { retroSounds.stop(); if (leaveFallbackRef.current !== undefined) window.clearTimeout(leaveFallbackRef.current); restartFrames.current.forEach((frame) => window.cancelAnimationFrame(frame)); };
 	}, []);
 	useEffect(() => {
 		type NavigationState = { position: "base" | "guard"; hadPrevious: boolean };
@@ -223,7 +224,7 @@ function App() {
 			if (backChoiceRef.current) return;
 			const choice = { wasPaused: pausedRef.current, canLeave: popped.hadPrevious };
 			backChoiceRef.current = choice; setBackChoice(choice);
-			if (viewRef.current === "race") { sceneRef.current?.setPaused(true); setPaused(true); }
+			if (viewRef.current === "race") { sceneRef.current?.setPaused(true); retroSounds.stop(); setPaused(true); }
 		};
 		const onPageShow = () => {
 			if (!returningFromExitRef.current) return;
@@ -239,7 +240,7 @@ function App() {
 		return () => { window.removeEventListener("popstate", onPopState); window.removeEventListener("pageshow", onPageShow); };
 	}, []);
 	const selectTrack = (id?: string) => { setSelectedTrackId(id); if (id) window.localStorage.setItem(SELECTED_TRACK_KEY, id); else window.localStorage.removeItem(SELECTED_TRACK_KEY); };
-	const boost = () => { if (rush || !sceneReady || paused || backChoice || remaining || hud.boostRemainingMs > 0 || !sceneRef.current?.boost()) return; retroSounds.start(); setHud((current) => ({ ...current, boostRemainingMs: 5_000 })); setBoostFlash(true); };
+	const boost = () => { if (rush || !sceneReady || paused || backChoice || remaining || hud.boostRemainingMs > 0 || !sceneRef.current?.boost()) return; retroSounds.boost(); setHud((current) => ({ ...current, boostRemainingMs: 5_000 })); setBoostFlash(true); };
 	const participants: Participant[] = session?.participants ?? [];
 	const raceBackLabel = raceReturnView === "setup" ? "Back to Menu" : raceReturnView === "library" ? "Back to Tracks" : "Back to Editor";
 	const boostFill = `${100 - Math.min(100, hud.boostRemainingMs / 50)}%`;
@@ -254,7 +255,7 @@ function App() {
 		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onSelectTrack={selectTrack} onManageTracks={() => setView("library")} /></div>
 		{view === "library" && <TrackLibraryPanel tracks={library.tracks} selectedTrackId={selectedTrackId} onBack={() => setView("setup")} onNew={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEdit={editTrack} onSelect={selectTrack} onPlay={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track, "library"); } }} onShare={(id) => openShare(trackById(id))} onDelete={removeTrack} onImport={importTrack} />}
 		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("library")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
-		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} fps={hud.fps} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} standings={hud.standings} finished={finished} participants={session.participants} />{rush && <div className="rush-hud" role="status"><strong>RUSH!</strong><i aria-hidden="true" /></div>}{countdown && <div className={countdown === "PREPARING RACE…" ? "race-countdown preparing" : "race-countdown"} role="status" aria-live="assertive"><strong>{countdown}</strong></div>}<div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>{raceBackLabel}</button></div><div className="boost-dock"><button className={rush ? "boost-button rush-locked" : hud.boostRemainingMs === 0 ? "boost-button ready" : "boost-button"} disabled={rush || !sceneReady || paused || Boolean(backChoice) || Boolean(remaining) || hud.boostRemainingMs > 0} onClick={boost} aria-label={rush ? "Boost unavailable during RUSH" : hud.boostRemainingMs === 0 ? "Boost ready" : `Boost charging, ${(hud.boostRemainingMs / 1000).toFixed(1)} seconds remaining`} style={{ "--boost-fill": boostFill } as CSSProperties}><i /><span>{rush ? "LOCKED" : "BOOST"}</span><small>{rush ? "RUSH" : hud.boostRemainingMs === 0 ? "READY" : `${(hud.boostRemainingMs / 1000).toFixed(1)}s`}</small></button></div>{boostFlash && <strong className="boost-flash" role="status">BOOST!</strong>}{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
+		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} fps={hud.fps} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} standings={hud.standings} finished={finished} participants={session.participants} />{rush && <div className="rush-hud" role="status"><strong>RUSH!</strong><i aria-hidden="true" /></div>}{countdown && <div className={countdown === "PREPARING RACE…" ? "race-countdown preparing" : "race-countdown"} role="status" aria-live="assertive"><strong>{countdown}</strong></div>}<div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); if (next) retroSounds.stop(); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>{raceBackLabel}</button></div><div className="boost-dock"><button className={rush ? "boost-button rush-locked" : hud.boostRemainingMs === 0 ? "boost-button ready" : "boost-button"} disabled={rush || !sceneReady || paused || Boolean(backChoice) || Boolean(remaining) || hud.boostRemainingMs > 0} onClick={boost} aria-label={rush ? "Boost unavailable during RUSH" : hud.boostRemainingMs === 0 ? "Boost ready" : `Boost charging, ${(hud.boostRemainingMs / 1000).toFixed(1)} seconds remaining`} style={{ "--boost-fill": boostFill } as CSSProperties}><i /><span>{rush ? "LOCKED" : "BOOST"}</span><small>{rush ? "RUSH" : hud.boostRemainingMs === 0 ? "READY" : `${(hud.boostRemainingMs / 1000).toFixed(1)}s`}</small></button></div>{boostFlash && <strong className="boost-flash" role="status">BOOST!</strong>}{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
 		{view === "results" && <ResultsScreen rankings={reverseRank(finished)} participants={participants} prizePool={session?.prizePool ?? 0} celebrate={celebrate} onReplay={restartAll} onBack={backToMenu} />}
 		{shareTrack && <ShareTrackDialog track={shareTrack} writeText={navigator.clipboard?.writeText.bind(navigator.clipboard)} onClose={() => setShareTrack(undefined)} />}
 		{backNavigation}

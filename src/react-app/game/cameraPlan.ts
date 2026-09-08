@@ -124,7 +124,7 @@ export const writeCameraShot = (target: CameraShot, name: CameraShotName, bounds
 export const getCameraShot = (name: CameraShotName, bounds: TrackBounds, focus?: Vec3): CameraShot =>
   writeCameraShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 }, name, bounds, focus);
 
-const deriveRouteRuns = (samples: readonly TrackSample[]): readonly Readonly<{ start: number; end: number; straight: boolean }>[] => {
+export const deriveRouteRuns = (samples: readonly TrackSample[]): readonly Readonly<{ start: number; end: number; straight: boolean }>[] => {
   if (!samples.length) return [];
   const modular = samples as readonly (TrackSample & { kind?: string })[];
   if (modular.some((sample) => sample.kind !== undefined)) {
@@ -163,20 +163,14 @@ const densestRouteDistance = (traffic: readonly RouteCrowdTarget[]): number | un
 };
 
 export const createRouteCrowdDirector = (samples: readonly TrackSample[]): RouteCrowdDirector => {
-  const runs = deriveRouteRuns(samples); let runIndex = 0; let passed = new Set<string | number>(); let lastDistance = runs[0]?.start ?? 0;
+  const runs = deriveRouteRuns(samples); let lastDistance = runs[0]?.start ?? 0;
   return Object.freeze({
-    update: (traffic, originalCount) => {
-      const run = runs[Math.min(runIndex, Math.max(0, runs.length - 1))] ?? { start: lastDistance, end: lastDistance, straight: true };
-      for (const member of traffic) if (!member.done && !member.eliminated && Number.isFinite(member.distance) && member.distance >= run.end) passed.add(member.id);
-      const unavailable = traffic.filter((member) => (member.done || member.eliminated) && !passed.has(member.id)).length;
-      const required = Math.max(1, Number.isFinite(originalCount) && originalCount > 0 ? originalCount * 0.8 : traffic.length * 0.8);
-      const dense = densestRouteDistance(traffic);
-      if (runIndex < runs.length - 1 && (run.straight ? passed.size + unavailable >= required : dense !== undefined && dense >= run.end)) { runIndex += 1; passed = new Set(); }
-      const current = runs[Math.min(runIndex, Math.max(0, runs.length - 1))] ?? run;
-      lastDistance = dense === undefined ? lastDistance : current.straight ? Math.min(dense, current.end) : dense;
-      return Object.freeze({ distance: lastDistance, runStart: current.start, runEnd: current.end, pace: current.straight ? "slow" : "fast" });
+    update: (traffic) => {
+      lastDistance = densestRouteDistance(traffic) ?? lastDistance;
+      const current = runs.find(run => run.end > lastDistance) ?? runs[runs.length - 1] ?? { start: lastDistance, end: lastDistance, straight: true };
+      return { distance: lastDistance, runStart: current.start, runEnd: current.end, pace: current.straight ? "slow" : "fast" };
     },
-    reset: () => { runIndex = 0; passed = new Set(); lastDistance = runs[0]?.start ?? 0; },
+    reset: () => { lastDistance = runs[0]?.start ?? 0; },
   });
 };
 
@@ -209,24 +203,25 @@ export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, s
   return enforceCameraClearance(target, up, minimumClearance);
 };
 
-export const writeRouteCrowdFollowShot = (target: CameraShot, routeDistance: number, samples: readonly TrackSample[], bounds: TrackBounds, minimumClearance = 5, pace: "slow" | "fast" = "slow", verticalFovDegrees = 60, aspect = 1): CameraShot => {
+export const writeRouteCrowdFollowShot = (target: CameraShot, routeDistance: number, samples: readonly TrackSample[], bounds: TrackBounds, minimumClearance = 5, pace: "slow" | "fast" = "slow", verticalFovDegrees = 60, aspect = 1, close = false): CameraShot => {
   const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
   const frame = frameAtDistance(samples, routeDistance) ?? samples[0];
   if (!frame) return writeCameraShot(target, "overview", safeBounds);
   const up = finiteVector(frame.up) ? frame.up : { x: 0, y: 1, z: 0 };
-  const followDistance = pace === "fast" ? 6 : 10;
-  const lead = pace === "fast" ? 6 : 5;
+  const followDistance = close ? 4 : pace === "fast" ? 6 : 10;
+  const lead = close ? 3 : pace === "fast" ? 6 : 5;
   const fov = Math.min(179, Math.max(1, Number.isFinite(verticalFovDegrees) ? verticalFovDegrees : 60)) * Math.PI / 180;
   const horizontal = 2 * Math.atan(Math.tan(fov / 2) * Math.max(0.1, Number.isFinite(aspect) ? aspect : 1));
-  const fitDistance = frame.width * 0.62 / Math.sin(horizontal / 2);
+  const fitDistance = frame.width * (close ? 0.46 : 0.62) / Math.sin(horizontal / 2);
   const clearance = Math.max(minimumClearance, frame.channelDepth + 1, Math.sqrt(Math.max(0, fitDistance * fitDistance - (followDistance + lead) ** 2)));
   const anchor = frameAtDistance(samples, routeDistance - followDistance) ?? frame;
   target.position.x = anchor.position.x + anchor.up.x * clearance;
   target.position.y = anchor.position.y + anchor.up.y * clearance;
   target.position.z = anchor.position.z + anchor.up.z * clearance;
-  target.lookAt.x = frame.position.x + frame.tangent.x * lead + up.x * 0.45;
-  target.lookAt.y = frame.position.y + frame.tangent.y * lead + up.y * 0.45;
-  target.lookAt.z = frame.position.z + frame.tangent.z * lead + up.z * 0.45;
+  const ahead = frameAtDistance(samples, routeDistance + lead) ?? frame;
+  target.lookAt.x = ahead.position.x + ahead.up.x * 0.45;
+  target.lookAt.y = ahead.position.y + ahead.up.y * 0.45;
+  target.lookAt.z = ahead.position.z + ahead.up.z * 0.45;
   writeClip(target, safeBounds);
   return enforceCameraClearance(target, up, clearance);
 };
@@ -264,3 +259,84 @@ export const writeControlledTrackFollowShot = (target: CameraShot, directed: Cam
 
 export const hasCameraClipChanged = (previous: Pick<CameraShot, "near" | "far">, next: Pick<CameraShot, "near" | "far">): boolean =>
   previous.near !== next.near || previous.far !== next.far;
+
+export type FeatureBroadcastZone = Readonly<{ key: string; kind: "bumper" | "pinwheel"; entryDistance: number; exitDistance: number }>;
+
+export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): FeatureBroadcastZone[] => {
+  type FeatureSample = TrackSample & { kind?: string; cellIndex?: number; localU?: number };
+  const groups = new Map<string, FeatureSample[]>();
+  for (const sample of samples as readonly FeatureSample[]) {
+    if ((sample.kind !== "bumper" && sample.kind !== "pinwheel") || !Number.isInteger(sample.cellIndex) || !Number.isFinite(sample.localU)) continue;
+    const key = `${sample.kind}:${sample.cellIndex}`;
+    const group = groups.get(key); if (group) group.push(sample); else groups.set(key, [sample]);
+  }
+  const zones: FeatureBroadcastZone[] = [];
+  groups.forEach((group, key) => {
+    group.sort((left, right) => left.localU! - right.localU!);
+    const first = group[0]; const last = group[group.length - 1];
+    if (!first || !last || first.localU === last.localU) return;
+    const slope = (last.distance - first.distance) / (last.localU! - first.localU!);
+    if (!Number.isFinite(slope) || slope <= 0) return;
+    const entryDistance = first.distance - first.localU! * slope;
+    const exitDistance = last.distance + (1 - last.localU!) * slope;
+    zones.push({ key, kind: first.kind as "bumper" | "pinwheel", entryDistance, exitDistance });
+  });
+  return zones.sort((left, right) => left.entryDistance - right.entryDistance);
+};
+
+export type CameraTraffic = Readonly<{ id: number; distance: number; sampleIndex: number; done: boolean; eliminated: boolean }>;
+export type CameraAction = Readonly<{ kind: "boost" | "rush"; targetIds: readonly number[]; exitDistance: number }>;
+export type ActionCameraSelection = Readonly<{ mode: "crowd" | "feature" | "boost" | "rush" | "finale"; targetId?: number; zoneKey?: string; framing: "wide" | "close" }>;
+type ActionCameraInput = Readonly<{ traffic: readonly CameraTraffic[]; crowd: RouteCrowdState; originalCount: number; activeMs: number; enabled: boolean; action?: CameraAction }>;
+
+export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[]) => {
+  const completed = new Set<string>();
+  const passed = new Set<number>();
+  let selected: ActionCameraSelection = { mode: "crowd", framing: "wide" };
+  let cohort: readonly number[] = []; let exitDistance = 0; let selectedAt = 0; let finale = false;
+  const clear = () => { selected = { mode: "crowd", framing: "wide" }; cohort = []; passed.clear(); };
+  return {
+    update: (input: ActionCameraInput): ActionCameraSelection => {
+      const { traffic, crowd, activeMs, action } = input;
+      if (!input.enabled) { clear(); return selected; }
+      if (!Number.isFinite(activeMs) || !Number.isFinite(crowd.distance)) return selected;
+      const live = traffic.filter(b => !b.done && !b.eliminated && Number.isFinite(b.distance));
+      if (!live.length) { clear(); return selected; }
+      const rear = live.reduce((a, b) => a.distance <= b.distance ? a : b);
+      if (live.length <= Math.max(3, Math.ceil(input.originalCount * 0.1))) finale = true;
+      if (finale) {
+        const target = selected.mode === "finale" && live.find(b => b.id === selected.targetId);
+        selected = { mode: "finale", targetId: (target || rear).id, framing: "close" }; return selected;
+      }
+      const byId = new Map(traffic.map(b => [b.id, b]));
+      for (const id of cohort) {
+        const b = byId.get(id);
+        if (!b || b.done || b.eliminated || !Number.isFinite(b.distance) || b.distance >= exitDistance) passed.add(id);
+      }
+      const fraction = cohort.length ? passed.size / cohort.length : 0;
+      const zone = zones.find(z => z.key === selected.zoneKey);
+      const occupied = zone && live.some(b => b.distance >= zone.entryDistance && b.distance <= zone.exitDistance);
+      const expired = selected.mode === "feature" ? !occupied || fraction >= 0.8
+        : selected.mode === "boost" || selected.mode === "rush" ? fraction >= (selected.mode === "rush" ? 1 : 0.8) : false;
+      if (expired) clear();
+      if (selected.mode === "feature" && fraction >= 0.5) selected = { ...selected, framing: "wide" };
+      else if (selected.mode === "feature" && zone && crowd.distance >= zone.entryDistance + (zone.exitDistance - zone.entryDistance) * 0.2 && activeMs - selectedAt >= 1_800) selected = { ...selected, framing: "close" };
+      for (const z of zones) if (crowd.distance > z.exitDistance) completed.add(z.key);
+      const candidate = zones.find(z => !completed.has(z.key) && crowd.distance >= z.entryDistance && crowd.distance <= z.exitDistance && live.some(b => b.distance >= z.entryDistance && b.distance <= z.exitDistance));
+      if (candidate && selected.mode !== "feature") {
+        clear(); completed.add(candidate.key); selectedAt = activeMs;
+        cohort = live.filter(b => Math.abs(b.distance - crowd.distance) <= 12).map(b => b.id);
+        exitDistance = candidate.exitDistance;
+        selected = { mode: "feature", zoneKey: candidate.key, framing: "wide" };
+      } else if (action && selected.mode !== "feature" && (selected.mode === "crowd" || action.kind === "rush" && selected.mode === "boost") && Number.isFinite(action.exitDistance)) {
+        const ids = action.targetIds.filter(id => live.some(b => b.id === id && b.distance < action.exitDistance));
+        if (ids.length) {
+          clear(); cohort = ids; exitDistance = action.exitDistance; selectedAt = activeMs;
+          selected = { mode: action.kind, targetId: action.kind === "rush" ? ids[0] : undefined, framing: "close" };
+        }
+      }
+      return selected;
+    },
+    reset: () => { clear(); completed.clear(); finale = false; selectedAt = 0; },
+  };
+};

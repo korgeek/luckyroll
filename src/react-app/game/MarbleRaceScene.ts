@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
-import { alongRouteDistance, cameraLerpAlpha, createRouteCrowdDirector, getBirdViewUp, getTrackBounds, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeRouteCrowdFollowShot, type CameraShot, type CameraShotName } from "./cameraPlan";
+import { alongRouteDistance, cameraLerpAlpha, createRouteCrowdDirector, createActionCameraDirector, deriveFeatureBroadcastZones, deriveRouteRuns, getBirdViewUp, getTrackBounds, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeRouteCrowdFollowShot, writeTrackFollowShot, type CameraShot, type CameraShotName, type CameraAction, type ActionCameraSelection } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
@@ -340,6 +340,20 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   let controls = initialCameraControls; const pointers = new Map<number, { x: number; y: number }>(); const panPointers = new Set<number>(); let pinchDistance: number | undefined; let lastCameraInputAt = last;
   const dummy = new THREE.Object3D();
   const routeCrowd = createRouteCrowdDirector(course.samples);
+  const featureZones = deriveFeatureBroadcastZones(course.samples);
+  const actionDirector = createActionCameraDirector(featureZones);
+  const routeRuns = deriveRouteRuns(course.samples);
+  let pendingAction: CameraAction | undefined;
+  let actionShot: ActionCameraSelection = { mode: "crowd", framing: "wide" };
+  const signalCameraAction = (kind: CameraAction["kind"]) => {
+    const traffic = balls.filter(b => !b.done && !b.eliminated).map(b => ({ id: b.id, distance: alongRouteDistance(b.position, b.sampleIndex, course.samples) }));
+    const rear = traffic.reduce<(typeof traffic)[number] | undefined>((a, b) => !a || b.distance < a.distance ? b : a, undefined);
+    const distance = kind === "rush" ? rear?.distance : crowdDistance;
+    if (distance === undefined) return;
+    const exitDistance = routeRuns.find(run => run.end > distance)?.end;
+    if (exitDistance === undefined) return;
+    pendingAction = { kind, exitDistance, targetIds: kind === "rush" && rear ? [rear.id] : traffic.filter(b => Math.abs(b.distance - distance) <= 12).map(b => b.id) };
+  };
   const raceClock = createSceneRaceClock();
   const raceBoost = createRaceBoost();
   const frameRate = createFrameRateCounter();
@@ -428,7 +442,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       launchPositions,
     );
     balls = marbles.map((marble, index) => ({ id: marble.id, marble, body: bodies[index], done: false, eliminated: false, progress: 0, sampleIndex: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
-    liveBalls.length = 0; rankedCameraBalls.length = 0; routeCrowd.reset(); crowdDistance = course.samples[0]?.distance ?? 0; if (!remainingRestart) rushOriginalCount = marbles.length; rushActive = false; rushPulseSteps = 0; raceClock.reset(); raceBoost.reset(); running = true; timedOut = false; fixedAccumulator = 0; gateOpen = remainingRestart; lastTick = 0; last = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? last : 0;
+    liveBalls.length = 0; rankedCameraBalls.length = 0; routeCrowd.reset(); actionDirector.reset(); pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; crowdDistance = course.samples[0]?.distance ?? 0; if (!remainingRestart) rushOriginalCount = marbles.length; rushActive = false; rushPulseSteps = 0; raceClock.reset(); raceBoost.reset(); running = true; timedOut = false; fixedAccumulator = 0; gateOpen = remainingRestart; lastTick = 0; last = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? last : 0;
     balls.forEach((ball) => { const rotation = ball.body.rotation(); dummy.position.set(ball.position.x, ball.position.y, ball.position.z); dummy.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w); dummy.scale.setScalar(1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); });
     renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
     emit({ type: "prepared" });
@@ -448,12 +462,18 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       activeShot = debug.activeShot();
       writeCameraShot(cameraShot, activeShot, bounds);
     } else {
-      const sample = course.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - crowdDistance) < Math.abs(nearest.distance - crowdDistance) ? candidate : nearest, course.samples[0]);
+      const target = rankedCameraBalls.find(b => b.id === actionShot.targetId);
+      const sample = target ? course.samples[target.sampleIndex] : course.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - crowdDistance) < Math.abs(nearest.distance - crowdDistance) ? candidate : nearest, course.samples[0]);
       if (sample) {
         localUp = sample.up;
         cameraClearance = Math.max(5, sample.channelDepth + 1);
-        activeShot = "profile";
-        writeRouteCrowdFollowShot(cameraShot, crowdDistance, course.samples, bounds, cameraClearance, crowdPace, camera.fov, camera.aspect);
+        if (target) {
+          activeShot = actionShot.mode === "finale" && sample.zone === "finish" ? "finish" : "trailer";
+          writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds, cameraClearance);
+        } else if (rankedCameraBalls.length || !gateOpen) {
+          activeShot = "profile";
+          writeRouteCrowdFollowShot(cameraShot, crowdDistance, course.samples, bounds, cameraClearance, actionShot.mode === "boost" ? "fast" : crowdPace, camera.fov, camera.aspect, actionShot.mode === "feature" && actionShot.framing === "close");
+        }
       } else {
         activeShot = "overview";
         writeCameraShot(cameraShot, activeShot, bounds);
@@ -506,7 +526,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         if (!rushActive && gateOpen) {
           const rushBalls = balls.filter((ball) => !ball.done && !ball.eliminated);
           if (shouldStartRaceRush(rushBalls.length, rushOriginalCount)) {
-            rushActive = true;
+            rushActive = true; signalCameraAction("rush");
             emit({ type: "rush" });
           }
         }
@@ -522,8 +542,11 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       liveBalls.length = 0;
       balls.forEach((ball) => { if (!ball.done) liveBalls.push(ball); });
       refreshCameraRankView(liveBalls, rankedCameraBalls);
-      const crowdState = routeCrowd.update(balls.map((ball) => ({ id: ball.id, distance: alongRouteDistance(ball.position, ball.sampleIndex, course.samples), done: ball.done, eliminated: ball.eliminated })), balls.length);
+      const cameraTraffic = balls.map(ball => ({ id: ball.id, distance: alongRouteDistance(ball.position, ball.sampleIndex, course.samples), sampleIndex: ball.sampleIndex, done: ball.done, eliminated: ball.eliminated }));
+      const crowdState = routeCrowd.update(cameraTraffic, balls.length);
       crowdDistance = crowdState.distance; crowdPace = crowdState.pace;
+      actionShot = actionDirector.update({ traffic: cameraTraffic, crowd: crowdState, originalCount: rushOriginalCount, activeMs: elapsedMs, enabled: !birdView && !reducedMotion && !debug.isPaused() && pointers.size === 0 && now - lastCameraInputAt >= 3_000, action: pendingAction });
+      pendingAction = undefined;
       const leader = rankedCameraBalls[0]; const trailer = rankedCameraBalls[rankedCameraBalls.length - 1];
       const eliminatedCount = balls.reduce((count, ball) => count + Number(ball.eliminated), 0);
       const finishedCount = balls.reduce((count, ball) => count + Number(ball.done && !ball.eliminated), 0);
@@ -560,10 +583,14 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   return {
     start: (marbles, seed) => starts?.requestStart({ marbles, seed }),
     restartRemaining: (marbles) => starts?.requestStart({ marbles, seed: Date.now(), remainingRestart: true }),
-    boost: () => raceBoost.activate({ running, manualPaused, debugPaused: debug.isPaused(), gateOpen, disposed, rushActive }, balls, course.samples),
+    boost: () => {
+      const changed = raceBoost.activate({ running, manualPaused, debugPaused: debug.isPaused(), gateOpen, disposed, rushActive }, balls, course.samples);
+      if (changed) signalCameraAction("boost");
+      return changed;
+    },
     setPaused: (paused) => { manualPaused = paused; },
     setBirdView: (enabled) => { birdView = enabled; if (enabled) controls = initialCameraControls; },
-    reset: () => { starts?.reset(); routeCrowd.reset(); raceClock.reset(); stopRace(); },
+    reset: () => { starts?.reset(); routeCrowd.reset(); actionDirector.reset(); pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; raceClock.reset(); stopRace(); },
     dispose: teardown,
   };
 }

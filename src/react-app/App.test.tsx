@@ -25,7 +25,7 @@ vi.mock("./game/MarbleRaceScene", () => ({
   },
 }));
 
-vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), start: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
+vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), start: vi.fn(), countdown: vi.fn(), boost: vi.fn(), rush: vi.fn(), checkpoint: vi.fn(), dnf: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
 
 import App from "./App";
 import { retroSounds } from "./game/retroSounds";
@@ -46,6 +46,7 @@ describe("default race course and camera controls", () => {
     window.location.hash = "";
 		window.history.replaceState(null, "", window.location.href);
     Object.values(scene).forEach((mock) => mock.mockClear());
+		Object.values(retroSounds).forEach((mock) => vi.mocked(mock).mockClear());
 		scene.initialize.mockResolvedValue(undefined);
   });
   afterEach(cleanup);
@@ -125,6 +126,9 @@ describe("default race course and camera controls", () => {
 		scene.boost.mockReturnValueOnce(true);
 		await user.click(screen.getByRole("button", { name: "Boost ready" }));
 		expect(screen.getByRole("status")).toHaveTextContent("BOOST!");
+		expect(retroSounds.boost).toHaveBeenCalledTimes(1);
+		expect(retroSounds.start).toHaveBeenCalledTimes(1);
+		expect(retroSounds.countdown).toHaveBeenCalledTimes(3);
 		expect(screen.getByRole("button", { name: "Boost charging, 5.0 seconds remaining" })).toBeDisabled();
 		act(() => { emit({ type: "tick", elapsedMs: 10_000, fps: 60, finishedCount: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 0 }); emit({ type: "timeout", remaining: [] }); });
 		expect(screen.getByRole("button", { name: "Boost ready" })).toBeDisabled();
@@ -137,6 +141,7 @@ describe("default race course and camera controls", () => {
 		await waitFor(() => expect(scene.create).toHaveBeenCalled()); await finishCountdown();
 		const emit = scene.create.mock.calls[0][1] as (event: { type: "tick"; elapsedMs: number; fps: number; finishedCount: number; eliminatedCount: number; standings: []; boostRemainingMs: number } | { type: "rush" }) => void;
 		act(() => { emit({ type: "tick", elapsedMs: 5_000, fps: 60, finishedCount: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 0 }); emit({ type: "rush" }); });
+		expect(retroSounds.rush).toHaveBeenCalledTimes(1);
 		const boost = screen.getByRole("button", { name: "Boost unavailable during RUSH" });
 		expect(boost).toBeDisabled();
 		await user.click(boost);
