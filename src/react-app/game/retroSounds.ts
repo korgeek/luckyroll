@@ -8,12 +8,16 @@ import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
+import pinwheelUrl from "../assets/audio/kenney-pinwheel.wav?url";
 import fanUrl from "../assets/audio/kenney-fan.wav?url";
 import rushLoopUrl from "../assets/audio/kenney-rush-loop.wav?url";
 
+export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
+	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
+
 const loops = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
 const lastEffects = new Map<string, number>();
-const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, fan: fanUrl, rushLoop: rushLoopUrl };
+const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl, fan: fanUrl, rushLoop: rushLoopUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -136,13 +140,13 @@ export const retroSounds = {
 		loop("fan", Math.max(0, Math.min(1, fan)) * 0.13);
 		loop("rushLoop", rush ? 0.10 : 0);
 	},
-	obstacle(kind: "bumper" | "boost", proximity = 1) {
+	obstacle(kind: "bumper" | "pinwheel" | "boost", proximity = 1) {
 		if (muted || proximity <= 0.01) return;
 		const ctx = audio();
 		if (!ctx) return;
-		if (ctx.currentTime - (lastEffects.get(kind) ?? -Infinity) < (kind === "bumper" ? 0.09 : 0.22)) return;
+		if (ctx.currentTime - (lastEffects.get(kind) ?? -Infinity) < (kind === "boost" ? 0.22 : 0.09)) return;
 		lastEffects.set(kind, ctx.currentTime);
-		sample(kind, Math.min(1, proximity) * (kind === "bumper" ? 0.36 : 0.22));
+		sample(kind, Math.min(1, proximity) * (kind === "boost" ? 0.22 : 0.5));
 	},
 	countdown() { cue("countdown", [440], 0.18); },
 	boost() { cue("boost", [330, 660, 990]); },

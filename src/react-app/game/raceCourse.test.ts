@@ -55,12 +55,12 @@ describe("race-course adapters", () => {
   });
 });
 
- it("sounds only on real bumper contact onset and rearms after separation", async () => {
+ it.each(["fixed", "kinematicPositionBased"] as const)("sounds only on real %s obstacle contact onset and rearms after separation", async (kind) => {
   await initializeTrackPhysics();
   const rapier = getInitializedTrackPhysicsRapier();
   const world = createTrackPhysicsWorld();
   world.gravity = { x: 0, y: 0, z: 0 };
-  const bumper = world.createCollider(rapier.ColliderDesc.ball(1), world.createRigidBody(rapier.RigidBodyDesc.fixed()));
+  const bumper = world.createCollider(rapier.ColliderDesc.ball(1), world.createRigidBody(rapier.RigidBodyDesc[kind]()));
   const ball = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(1.4, 0, 0));
   world.createCollider(rapier.ColliderDesc.ball(0.5), ball);
   const contacts = new Set<string>();

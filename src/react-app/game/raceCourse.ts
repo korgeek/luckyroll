@@ -38,6 +38,7 @@ export const collectBumperHits = (world: RapierWorld, bumpers: readonly ReturnTy
 export type RaceCourseRun = Readonly<{
   launchPositions: readonly PhysicalLaunchPosition[];
   bumperColliders?: readonly ReturnType<RapierWorld["createCollider"]>[];
+  pinwheelColliders?: readonly ReturnType<RapierWorld["createCollider"]>[];
   pinwheelBodies?: readonly RapierBody[];
   stepBeforeWorld: () => Readonly<{ raceClockStarted: boolean }>;
   stepAfterWorld: (bodies: readonly RapierBody[]) => readonly BoosterEvent[];
@@ -173,6 +174,7 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, deb
       return Object.freeze({
         bumperColliders: currentPhysics.fixedColliders,
         pinwheelBodies: currentPhysics.pinwheelBodies,
+        pinwheelColliders: currentPhysics.pinwheelBodies.flatMap(body => Array.from({ length: body.numColliders() }, (_, index) => body.collider(index))),
         launchPositions: createModularLaunchPositions(count, built, seed),
         stepBeforeWorld: () => {
           if (runDisposed) throw new Error("Race course run has been disposed.");

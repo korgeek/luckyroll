@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(11);
+		expect(fetch).toHaveBeenCalledTimes(12);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -86,4 +86,18 @@ describe("retroSounds lifecycle and event mapping", () => {
   expect(sources[6].stop).toHaveBeenCalled(); expect(sources[7].stop).toHaveBeenCalled();
   retroSounds.setMuted(false); retroSounds.ambience(1, true); expect(sources).toHaveLength(10);
   retroSounds.finish(); expect(sources[8].stop).toHaveBeenCalled(); expect(sources[9].stop).toHaveBeenCalled();
+ });
+
+ it("keeps fan audio local and uses a distinct, throttled pinwheel impact", async () => {
+  const { soundProximity } = await import("./retroSounds");
+  const origin = { x: 0, y: 0, z: 0 };
+  expect(soundProximity(origin, origin, 8)).toBe(1);
+  expect(soundProximity({ x: 4, y: 0, z: 0 }, origin, 8)).toBe(0.5);
+  expect(soundProximity({ x: 8, y: 0, z: 0 }, origin, 8)).toBe(0);
+  expect(soundProximity({ x: 0, y: 0, z: 12 }, origin, 8)).toBe(0);
+  const { sources } = mockAudio();
+  await retroSounds.preload();
+  retroSounds.obstacle("bumper"); retroSounds.obstacle("pinwheel"); retroSounds.obstacle("pinwheel");
+  expect(sources).toHaveLength(2);
+  expect(sources[0].buffer).not.toBe(sources[1].buffer);
  });

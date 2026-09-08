@@ -22,7 +22,8 @@ soft interface and pizzicato samples. Filenames retain their event names.
 | win | Music Jingles / Pizzicato jingles/jingles_PIZZI00.ogg |
 | boost (manual and physical track activation) | Sci-fi / thrusterFire_000.ogg |
 | rush (entry) | Sci-fi / spaceEngineSmall_000.ogg |
-| bumper (actual contact onset) | Impact / impactSoft_medium_000.ogg |
+| bumper (actual contact onset) | Impact / impactMetal_medium_000.ogg |
+| pinwheel (actual blade contact onset) | Impact / impactWood_medium_000.ogg |
 | fan (nearby rotating pinwheels) | Sci-fi / engineCircular_000.ogg |
 | rush-loop (while RUSH remains active) | Sci-fi / spaceEngineLow_000.ogg |
 
@@ -34,7 +35,7 @@ Only the selected clips ship locally; no runtime CDN or new audio library.
 Bumper contact begins are collected from Rapier narrow-phase solver contacts;
 persistent resting contacts do not repeat. Track booster sounds use actual
 BoosterEvent results. Effects fade with distance from the camera's subject
-(32 world-unit radius). Bumper and track boost bursts are limited to 90 / 220 ms,
+(32 world-unit radius for bumper/boost, 12 for blade impacts, and only 8 for fan rotation). Bumper and blade impact gain is 0.5 before distance attenuation. Bumper/blade and track boost bursts are limited to 90 / 220 ms,
 and finish/DNF share a 150 ms cooldown. Fan and rush loops reuse sources with
 smoothed gain. Pause, mute, restart, completion and scene disposal stop loops;
 unmute/resume restores them from current scene state. Muting stops all playback.

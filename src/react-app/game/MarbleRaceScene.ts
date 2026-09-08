@@ -1,4 +1,4 @@
-import { retroSounds } from "./retroSounds";
+import { retroSounds, soundProximity } from "./retroSounds";
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
@@ -403,10 +403,10 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   type SceneStartRequest = { marbles: Marble[]; seed: number; remainingRestart?: boolean };
   const bumperContacts = new Set<string>();
-  const soundProximity = (point: { x: number; y: number; z: number }) => Math.max(0, 1 - Math.hypot(point.x - cameraLook.x, point.y - cameraLook.y, point.z - cameraLook.z) / 32);
+  const pinwheelContacts = new Set<string>();
   const stopRace = () => {
     retroSounds.ambience(0, false);
-    bumperContacts.clear();
+    bumperContacts.clear(); pinwheelContacts.clear();
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
     running = false;
@@ -428,7 +428,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   };
 
   const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
-    bumperContacts.clear();
+    bumperContacts.clear(); pinwheelContacts.clear();
     retroSounds.ambience(0, false);
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
@@ -520,9 +520,10 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         const boosterEvents = raceRun.stepAfterWorld(balls.map((ball) => ball.body));
         for (const event of boosterEvents) {
           const body = balls[event.marbleId - 1]?.body;
-          if (body) retroSounds.obstacle("boost", soundProximity(body.translation()));
+          if (body) retroSounds.obstacle("boost", soundProximity(body.translation(), cameraLook));
         }
-        for (const hit of collectBumperHits(world, raceRun.bumperColliders ?? [], bumperContacts)) retroSounds.obstacle("bumper", soundProximity(hit));
+        for (const hit of collectBumperHits(world, raceRun.bumperColliders ?? [], bumperContacts)) retroSounds.obstacle("bumper", soundProximity(hit, cameraLook));
+        for (const hit of collectBumperHits(world, raceRun.pinwheelColliders ?? [], pinwheelContacts)) retroSounds.obstacle("pinwheel", soundProximity(hit, cameraLook, 12));
         raceClock.consumeAfterWorldStep(pose, now, pausedDuration);
         gateOpen = pose.raceClockStarted;
         raceBoost.step({ running, manualPaused, debugPaused: debug.isPaused(), gateOpen, disposed, rushActive });
@@ -570,7 +571,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
-    const fanVolume = running && !paused ? Math.max(0, ...(raceRun?.pinwheelBodies ?? []).map(body => soundProximity(body.translation()))) : 0;
+    const fanVolume = running && !paused ? Math.max(0, ...(raceRun?.pinwheelBodies ?? []).map(body => soundProximity(body.translation(), cameraLook, 8))) : 0;
     retroSounds.ambience(fanVolume, running && !paused && rushActive);
     if (paused) updateCamera(cameraDelta);
     renderer.render(scene, camera);
