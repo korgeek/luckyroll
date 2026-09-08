@@ -33,6 +33,7 @@ let loading: Promise<void> | undefined;
 type MusicMode = "normal" | "rush" | "results";
 const musicTracks = new Map<MusicMode, HTMLAudioElement>();
 let playingMusic: MusicMode | null = null;
+let musicRequest = 0;
 
 function musicTrack(mode: MusicMode) {
 	if (typeof Audio === "undefined") return undefined;
@@ -128,11 +129,12 @@ export const retroSounds = {
 	music(mode: MusicMode | null) {
 		if (muted) mode = null;
 		if (playingMusic === mode) return;
+		const request = ++musicRequest;
 		if (playingMusic) musicTracks.get(playingMusic)?.pause();
 		playingMusic = mode;
 		if (!mode) return;
 		const track = musicTrack(mode);
-		if (track) void track.play().catch(() => { if (playingMusic === mode) playingMusic = null; });
+		if (track) void track.play().catch(() => { if (musicRequest === request) playingMusic = null; });
 	},
 	resetMusic() {
 		this.music(null);

@@ -134,3 +134,17 @@ it("plays the UI click sample and respects mute", async () => {
  retroSounds.click(); expect(sources).toHaveLength(1);
  retroSounds.setMuted(true); retroSounds.click(); expect(sources).toHaveLength(1);
 });
+
+ it("does not let an interrupted play request erase the restarted music state", async () => {
+  let rejectFirst!: (reason: Error) => void;
+  const pause = vi.fn();
+  const play = vi.fn().mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectFirst = reject; })).mockResolvedValue(undefined);
+  vi.stubGlobal("Audio", class { play = play; pause = pause; });
+  retroSounds.music("normal");
+  retroSounds.resetMusic();
+  retroSounds.music("normal");
+  rejectFirst(new Error("The play request was interrupted by pause"));
+  await Promise.resolve();
+  retroSounds.setMuted(true);
+  expect(pause).toHaveBeenCalledTimes(2);
+ });

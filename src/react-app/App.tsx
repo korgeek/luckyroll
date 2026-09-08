@@ -53,11 +53,10 @@ function App() {
 	const [backChoice, setBackChoice] = useState<BackChoice>();
 	const [leaveGuidance, setLeaveGuidance] = useState("");
 	const [raceReturnView, setRaceReturnView] = useState<"setup" | "library" | "editor">("setup");
-	useEffect(() => { retroSounds.resetMusic(); }, [session]);
+	useEffect(() => () => retroSounds.music(null), []);
 	useEffect(() => {
 		retroSounds.music(muted ? null : view === "results" ? "results" : view === "race" && !paused && !backChoice && !remaining ? (rush ? "rush" : "normal") : null);
-		return () => retroSounds.music(null);
-	}, [view, paused, backChoice, remaining, muted, rush, session]);
+	}, [view, paused, backChoice, remaining, muted, rush]);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const sceneRef = useRef<RaceScene | undefined>(undefined);
 	const backDialogRef = useRef<HTMLDialogElement>(null);
@@ -117,6 +116,7 @@ function App() {
 	const trackById = (id: string | undefined): LocalTrack | undefined => library.tracks.find((track) => track.id === id);
 	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "library" | "editor" = "setup") => {
 		void retroSounds.preload().catch(() => undefined);
+		retroSounds.resetMusic(); retroSounds.music(muted ? null : "normal");
 		const marbles = allocateMarbles(values.participants, 100);
 		setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setRaceReturnView(returnView); countdownActiveRef.current = true; setCountdown("PREPARING RACE…");
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
@@ -174,7 +174,7 @@ function App() {
 	const openShare = (track: TrackDesign | undefined) => { if (track) setShareTrack(track); };
 	const cancelRemainingRestart = () => { remainingRestartFramesRef.current.forEach((frame) => window.cancelAnimationFrame(frame)); remainingRestartFramesRef.current = []; };
 	const showResults = () => { cancelRemainingRestart(); countdownActiveRef.current = false; setCountdown(undefined); setRemaining(undefined); setCelebrate(false); setView("results"); };
-	const restartAll = () => { if (!session) return; void retroSounds.preload().catch(() => undefined); cancelRemainingRestart(); retroSounds.stop(); setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setBirdView(false); setPaused(false); setSceneReady(false); setCelebrate(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setSession({ ...session, seed: Date.now() }); setView("race"); };
+	const restartAll = () => { if (!session) return; void retroSounds.preload().catch(() => undefined); retroSounds.resetMusic(); retroSounds.music(muted ? null : "normal"); cancelRemainingRestart(); retroSounds.stop(); setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setBirdView(false); setPaused(false); setSceneReady(false); setCelebrate(false); countdownActiveRef.current = true; setCountdown("PREPARING RACE…"); setSession({ ...session, seed: Date.now() }); setView("race"); };
 	const restartRemaining = () => {
 		if (!remaining) return;
 		void retroSounds.preload().catch(() => undefined);

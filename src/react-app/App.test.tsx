@@ -439,6 +439,13 @@ describe("default race course and camera controls", () => {
     act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
     expect(await screen.findByRole("button", { name: "Replay same settings" })).toBeInTheDocument();
     expect(retroSounds.music).toHaveBeenLastCalledWith(muted ? null : "results");
+    vi.mocked(retroSounds.music).mockClear();
+    await user.click(screen.getByRole("button", { name: "Replay same settings" }));
+    expect(retroSounds.music).toHaveBeenCalledWith(muted ? null : "normal");
+    if (!muted) expect(retroSounds.music).not.toHaveBeenCalledWith(null);
+    await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
+    act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+
     expect(screen.getByRole("link", { name: "Level finish fanfares" })).toHaveAttribute("href", "https://opengameart.org/content/level-finish-fanfares");
     await user.click(screen.getByRole("button", { name: "Back to Menu" }));
     expect(retroSounds.music).toHaveBeenLastCalledWith(null);
