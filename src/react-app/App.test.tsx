@@ -28,9 +28,20 @@ vi.mock("./game/MarbleRaceScene", () => ({
 vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), start: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
 
 import App from "./App";
+import { retroSounds } from "./game/retroSounds";
+
+const latestSceneEmitter = () => scene.create.mock.calls[scene.create.mock.calls.length - 1]?.[1] as (event: { type: string; [key: string]: unknown }) => void;
+const finishCountdown = async () => {
+	vi.useFakeTimers();
+	act(() => latestSceneEmitter()({ type: "prepared" }));
+	for (let second = 0; second < 3; second += 1) await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+	await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+	vi.useRealTimers();
+};
 
 describe("default race course and camera controls", () => {
   beforeEach(() => {
+		vi.useRealTimers();
     window.localStorage.clear();
     window.location.hash = "";
 		window.history.replaceState(null, "", window.location.href);
@@ -46,6 +57,7 @@ describe("default race course and camera controls", () => {
 
     await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		await finishCountdown();
     expect(scene.create.mock.calls[0][2]).toEqual({ kind: "custom", track: createDefaultTrackDesign("Default Track") });
 
     const birdView = await screen.findByRole("button", { name: "Bird View" });
@@ -71,10 +83,11 @@ describe("default race course and camera controls", () => {
     expect(screen.getByText("OUT 2")).toBeInTheDocument();
 		expect(screen.getByText("60 FPS")).toBeInTheDocument();
 		expect(screen.getAllByText("Player 1 · #1")).toHaveLength(1);
-    act(() => emit({ type: "timeout", remaining: [marble(4)] }));
-    expect(screen.getByText("OUT 2")).toBeInTheDocument();
+		act(() => emit({ type: "timeout", remaining: [marble(4)] }));
+		expect(screen.getByText("OUT 2")).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "RACE REMAINING MARBLES" }));
-		expect(scene.restartRemaining).toHaveBeenCalledWith([marble(4)]);
+		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
+		await waitFor(() => expect(scene.restartRemaining).toHaveBeenCalledWith([marble(4)]));
 		expect(screen.getByText("DONE 3/100")).toBeInTheDocument();
 		expect(screen.getAllByText("FIN")).toHaveLength(3);
 		act(() => emit({ type: "timeout", remaining: [marble(4)] }));
@@ -87,8 +100,15 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+		const preload = vi.mocked(retroSounds.preload);
+		const preloadCallsBeforeStart = preload.mock.calls.length;
 		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
+		expect(scene.create).not.toHaveBeenCalled();
+		expect(preload).toHaveBeenCalledTimes(preloadCallsBeforeStart + 1);
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		expect(preload.mock.invocationCallOrder[preload.mock.invocationCallOrder.length - 1]).toBeLessThan(scene.create.mock.invocationCallOrder[0]);
+		await finishCountdown();
 		const boost = screen.getByRole("button", { name: "Boost charging, 5.0 seconds remaining" });
 		expect(boost).toBeDisabled();
 		const emit = scene.create.mock.calls[0][1] as (event: { type: "tick"; elapsedMs: number; fps: number; finishedCount: number; eliminatedCount: number; standings: []; boostRemainingMs: number } | { type: "timeout"; remaining: [] }) => void;
@@ -110,6 +130,70 @@ describe("default race course and camera controls", () => {
 		expect(screen.getByRole("button", { name: "Boost ready" })).toBeDisabled();
 	});
 
+	it("waits for real scene preparation, then holds 3 2 1 and starts on GO", async () => {
+		const user = userEvent.setup();
+		render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
+		expect(scene.setPaused).toHaveBeenLastCalledWith(true);
+		expect(scene.setPaused.mock.invocationCallOrder[scene.setPaused.mock.invocationCallOrder.length - 1]).toBeLessThan(scene.start.mock.invocationCallOrder[scene.start.mock.invocationCallOrder.length - 1]!);
+		expect(screen.getByRole("button", { name: "Bird View" })).toBeDisabled();
+
+		vi.useFakeTimers();
+		act(() => latestSceneEmitter()({ type: "prepared" }));
+		expect(screen.getByRole("status")).toHaveTextContent("3");
+		await act(async () => { await vi.advanceTimersByTimeAsync(999); }); expect(screen.getByRole("status")).toHaveTextContent("3");
+		await act(async () => { await vi.advanceTimersByTimeAsync(1); }); expect(screen.getByRole("status")).toHaveTextContent("2");
+		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: false } } })));
+		await act(async () => { await vi.advanceTimersByTimeAsync(2_000); }); expect(screen.getByRole("status")).toHaveTextContent("2");
+		fireEvent.click(screen.getByRole("button", { name: "RESUME" }));
+		expect(scene.setPaused).toHaveBeenLastCalledWith(true);
+		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); }); expect(screen.getByRole("status")).toHaveTextContent("1");
+		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); }); expect(screen.getByRole("status")).toHaveTextContent("GO!");
+		expect(scene.setPaused).toHaveBeenLastCalledWith(false);
+		expect(screen.getByRole("button", { name: "Bird View" })).toBeEnabled();
+		await act(async () => { await vi.advanceTimersByTimeAsync(600); }); expect(screen.queryByText("GO!")).not.toBeInTheDocument();
+		vi.useRealTimers();
+	});
+
+	it("clears an active countdown when the app unmounts", async () => {
+		const user = userEvent.setup();
+		const { unmount } = render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		vi.useFakeTimers(); act(() => latestSceneEmitter()({ type: "prepared" }));
+		const pauseCalls = scene.setPaused.mock.calls.length;
+		unmount(); await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+		expect(scene.setPaused).toHaveBeenCalledTimes(pauseCalls);
+		vi.useRealTimers();
+	});
+
+	it("cancels preparation on menu exit and ignores a disposed scene's late ready event", async () => {
+		const user = userEvent.setup();
+		render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		const oldEmitter = latestSceneEmitter();
+		await user.click(screen.getByRole("button", { name: "Back to Menu" }));
+		expect(screen.queryByText("PREPARING RACE…")).not.toBeInTheDocument();
+		act(() => oldEmitter({ type: "prepared" }));
+		expect(screen.queryByText("3")).not.toBeInTheDocument();
+	});
+
+	it("clears preparation and returns to the menu when scene construction fails", async () => {
+		scene.create.mockImplementationOnce(() => { throw new Error("build failed"); });
+		const user = userEvent.setup(); render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		expect(await screen.findByText("build failed")).toBeInTheDocument();
+		expect(screen.queryByText("PREPARING RACE…")).not.toBeInTheDocument();
+		expect(screen.getByRole("region", { name: "Main menu" })).toBeInTheDocument();
+	});
+
 	it("guards browser back once and lets a running race stay, return to the menu, or leave", async () => {
 		const pushState = vi.spyOn(window.history, "pushState");
 		const go = vi.spyOn(window.history, "go").mockImplementation(() => undefined);
@@ -120,6 +204,7 @@ describe("default race course and camera controls", () => {
 
 		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		await finishCountdown();
 		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: true } } })));
 		expect(await screen.findByRole("dialog", { name: "PAUSE MENU" })).toBeInTheDocument();
 		expect(scene.setPaused).toHaveBeenLastCalledWith(true);
@@ -304,6 +389,7 @@ describe("default race course and camera controls", () => {
 		await user.click(screen.getByRole("button", { name: "VIEW CURRENT RESULTS" }));
 		expect(container.querySelector(".result-confetti")).not.toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "Replay same settings" }));
+		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
 		await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
 		expect(scene.create.mock.calls[1][2]).toEqual({ kind: "custom", track });
 		const replayEmit = scene.create.mock.calls[1][1] as (event: { type: "timeout"; remaining: [] }) => void;

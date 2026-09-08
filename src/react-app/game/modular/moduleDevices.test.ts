@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
+import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, resolveModulePreview } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
@@ -15,6 +15,13 @@ const frameAt = (rows: readonly { localU: number; position: { x: number; y: numb
 };
 
 describe("canonical modular devices", () => {
+  it("derives return assist only for a booster immediately before a bumper on the valid route", () => {
+    const built = buildModularTrack(createValidTrackDesign());
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+
+    expect(devices.boosters.map((booster) => [booster.cellIndex, booster.returnAssist])).toEqual([[17, false], [36, true]]);
+  });
+
   it("uses six small round bumpers in a three-two-one pinball pattern", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);

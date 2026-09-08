@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+Execution status: Tasks2–4 implemented and independently reviewed; latest user-requested top-positioned START RACE glow included. See `docs/2026-09-08-release-qa.md` for reconciliation and actual evidence. Final commit/push follows one frozen full-suite run; per-task push checkpoints below are superseded by that user-approved release workflow.
+
 - English game UI; preserve existing bird view, manual controls, reduced motion, pause, replay, and Back menu.
 - Keep 100 marbles and all channel interfaces unchanged.
 - Wheel holds from first entry until 81 distinct marbles pass; races with fewer marbles release when all remaining marbles clear. Exclude DNF from pending traffic.
@@ -23,9 +25,9 @@
 
 ### Task 1: Verified checkpoint
 
-- [ ] Run `npm test -- --run` cleanly, including test-worker event-loop yield between heavy physics checks.
-- [ ] Confirm build, lint, and `git diff --check`; stage only approved README, src/react-app and public/licenses changes.
-- [ ] Commit and push this baseline before feature implementation.
+- [x] Run `npm test -- --run` cleanly, including test-worker event-loop yield between heavy physics checks.
+- [x] Confirm build, lint, and `git diff --check`; stage only approved README, src/react-app and public/licenses changes.
+- [x] Commit baseline as d83d08d (423 passing tests, 2 skipped). User revised release workflow: complete requirements QA before the final push.
 
 ### Task 2: Stronger pinball and return-assist
 
@@ -34,6 +36,7 @@
 **Interface:** Extend `BoosterTrigger` with a derived `returnAssist` flag when the next valid route step is bumper. Keep ordinary trigger API and serialized track schema unchanged.
 
 - [ ] Add failing checks for collider restitution 0.65, default cell 36, and route-derived flag.
+- [ ] Include the user's later higher-mogul request: height1.0, unchanged radius1.8 and smooth footprint. Check actual mesh peak>0.9 and all existing strict surface/port/no-jam tests; do not weaken thresholds.
 - [ ] Add physical checks: backward entry changes forward component to 18 while retaining perpendicular components; 45 fixed-step cooldown; ordinary wrong-way, consumed, lateral bypass and reset behavior remain intact.
 - [ ] Implement return velocity as `v + forward * (18 - dot(v, forward))`, retaining existing speed cap 42 and per-marble/per-cell state.
 - [ ] Run focused device/default tests plus actual 100-marble mixed course validation to 120 seconds.

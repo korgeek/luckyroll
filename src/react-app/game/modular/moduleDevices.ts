@@ -35,6 +35,7 @@ const travelFor = (route: ValidRoute, cellIndex: number): Direction | undefined 
 
 export type BoosterTrigger = Readonly<{
   cellIndex: number;
+  returnAssist: boolean;
   startDistance: number;
   endDistance: number;
   forward: Vec3;
@@ -163,7 +164,7 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
   const boosters: BoosterTrigger[] = [];
   const bumpers: RoundBumper[] = [];
   const pinwheels: PinwheelLayout[] = [];
-  for (const step of route.route) {
+  for (const [routeIndex, step] of route.route.entries()) {
     const cell = track.cells[step.cellIndex];
     const travel = travelFor(route, step.cellIndex);
     if (cell === null || cell === undefined || travel === undefined) continue;
@@ -173,7 +174,8 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
       const firstRow = cellSamples(samples, step.cellIndex)[0] ?? middle;
       const cellStartDistance = firstRow.distance - firstRow.localU * MODULE_SIZE;
       const startDistance = cellStartDistance + MODULE_SIZE * 0.4;
-      boosters.push(Object.freeze({ cellIndex: step.cellIndex, startDistance, endDistance: cellStartDistance + MODULE_SIZE * 0.6, forward: middle.tangent, center: middle.position, side: middle.side, up: middle.up }));
+      const nextCell = track.cells[route.route[routeIndex + 1]?.cellIndex ?? -1];
+      boosters.push(Object.freeze({ cellIndex: step.cellIndex, returnAssist: nextCell?.kind === "bumper", startDistance, endDistance: cellStartDistance + MODULE_SIZE * 0.6, forward: middle.tangent, center: middle.position, side: middle.side, up: middle.up }));
     } else if (cell.kind === "bumper") {
       bumpers.push(...resolveBumpers(step.cellIndex, samples));
     } else if (cell.kind === "pinwheel") {

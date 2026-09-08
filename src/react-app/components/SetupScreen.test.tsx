@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SetupScreen } from "./SetupScreen";
 import { createDefaultTrackDesign } from "../designer/trackDesign";
+import appCss from "../App.css?raw";
 
 describe("SetupScreen", () => {
 	afterEach(cleanup);
@@ -20,6 +21,16 @@ describe("SetupScreen", () => {
 	it("identifies the first screen as the main menu", () => {
 		render(<SetupScreen onStart={vi.fn()} />);
 		expect(screen.getByRole("region", { name: "Main menu" })).toBeInTheDocument();
+	});
+
+	it("puts the animated start invitation before player inputs and honors reduced motion", () => {
+		render(<SetupScreen onStart={vi.fn()} />);
+		const start = screen.getByRole("button", { name: "START RACE · Default Track" });
+		const firstPlayer = screen.getByLabelText("Player 1");
+		expect(start).toHaveClass("setup-start");
+		expect(start.compareDocumentPosition(firstPlayer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(appCss).toMatch(/\.setup-start\{[^}]*animation:/);
+		expect(appCss).toMatch(/@media\(prefers-reduced-motion:reduce\)[\s\S]*\.setup-start\{animation:none\}/);
 	});
 
 	it("does not offer team split controls", () => {

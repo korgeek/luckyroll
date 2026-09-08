@@ -19,7 +19,7 @@ import {
   initializeTrackPhysics,
 } from "../track/trackPhysics";
 import { resolveModuleDevices } from "./moduleDevices";
-import { MARBLE_DIAMETER } from "./modularTypes";
+import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { projectToTrack } from "../track/trackSampler";
 
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
@@ -38,7 +38,7 @@ const multiplyQuaternion = (a: { x: number; y: number; z: number; w: number }, b
 });
 const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), z: 0, w: Math.cos(radians / 2) });
 
-afterEach(yieldEventLoop);
+afterEach(async () => { await yieldEventLoop(); });
 
 describe("modular track physics", () => {
   it("keeps the obstacle-free baseline throughput above 60 marbles in 60 seconds", async () => {
@@ -98,6 +98,7 @@ describe("modular track physics", () => {
       const body = collider.parent();
       expect(body).not.toBeNull();
       expect(collider.shapeType()).toBe(rapier.ShapeType.Cylinder);
+      expect(collider.restitution()).toBeCloseTo(0.65, 6);
       expect(collider.halfHeight()).toBeCloseTo(bumper.height / 2, 6);
       expect(collider.radius()).toBeCloseTo(bumper.radius, 6);
       if (body) expect(dot(rotate(body.rotation(), { x: 0, y: 1, z: 0 }), bumper.up)).toBeCloseTo(1, 6);
@@ -126,8 +127,7 @@ describe("modular track physics", () => {
     body.setLinvel({ x: -normal.x * 8, y: -normal.y * 8, z: -normal.z * 8 }, true);
     for (let step = 0; step < 120 && dot(body.linvel(), normal) <= 0.5; step += 1) world.step();
     const reboundSpeed = dot(body.linvel(), normal);
-    expect(reboundSpeed).toBeGreaterThan(0.5);
-    expect(reboundSpeed).toBeLessThan(4);
+    expect(reboundSpeed).toBeCloseTo(5.2, 4);
     resources.dispose(); world.free();
   });
 
@@ -179,12 +179,14 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
-  it("carries center and both mogul-line probes through the funnel without jamming", async () => {
+  it.each([8, 18, 42] as const)("carries center and both mogul-line probes through the funnel at speed %i", async (speed) => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());
     const resources = createModularPhysics(world, built);
     const entry = built.samples.find((sample) => built.track.cells[sample.cellIndex]?.kind === "funnel" && sample.localU === 0.12)!;
+    const funnelSamples = built.samples.filter((sample) => sample.cellIndex === entry.cellIndex);
+    const exit = funnelSamples[funnelSamples.length - 1]!;
     const rapier = getInitializedTrackPhysicsRapier();
     const bodies = [-0.6, 0, 0.6].map((lateral) => {
       const center = {
@@ -194,19 +196,26 @@ describe("modular track physics", () => {
       };
       const body = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(center.x, center.y, center.z).setCcdEnabled(true));
       world.createCollider(rapier.ColliderDesc.ball(MARBLE_DIAMETER / 2).setFriction(0.05), body);
-      body.setLinvel({ x: entry.tangent.x * 8, y: entry.tangent.y * 8, z: entry.tangent.z * 8 }, true);
+      body.setLinvel({ x: entry.tangent.x * speed, y: entry.tangent.y * speed, z: entry.tangent.z * speed }, true);
       return body;
     });
 
-    for (let step = 0; step < 240; step += 1) world.step();
-
-    for (const body of bodies) {
-      const position = body.translation();
-      const projection = projectToTrack(position, built.samples);
-      expect([position.x, position.y, position.z].every(Number.isFinite)).toBe(true);
-      expect(built.samples[projection.sampleIndex].distance - entry.distance).toBeGreaterThan(8);
-      expect(projection.distanceSquared).toBeLessThan(15 ** 2);
+    const exitSteps: Array<number | undefined> = bodies.map(() => undefined);
+    for (let step = 0; step < 480 && exitSteps.some((exitStep) => exitStep === undefined); step += 1) {
+      world.step();
+      bodies.forEach((body, index) => {
+        if (exitSteps[index] !== undefined) return;
+        const position = body.translation();
+        const projection = projectToTrack(position, built.samples);
+        expect([position.x, position.y, position.z].every(Number.isFinite)).toBe(true);
+        expect(projection.distanceSquared).toBeLessThan(15 ** 2);
+        if (built.samples[projection.sampleIndex].distance >= exit.distance) {
+          exitSteps[index] = step + 1;
+          body.setEnabled(false);
+        }
+      });
     }
+    expect(exitSteps.every((exitStep) => exitStep !== undefined)).toBe(true);
     resources.dispose(); world.free();
   });
 
@@ -391,7 +400,7 @@ describe("modular track physics", () => {
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const resources = createModularPhysics(world, built);
-    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters[0]!;
+    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters.find((candidate) => !candidate.returnAssist)!;
     const [body] = createMarbleBodies(world, [{ ...booster.center, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
     const at = (along: number): { x: number; y: number; z: number } => ({ x: booster.center.x + booster.forward.x * along, y: booster.center.y + booster.forward.y * along, z: booster.center.z + booster.forward.z * along });
     const outside = (booster.endDistance - booster.startDistance) / 2 + 1;
@@ -411,6 +420,71 @@ describe("modular track physics", () => {
     resources.reset(); body.setTranslation(at(-outside), true); resources.stepAfterWorld([body]);
     body.setTranslation(at(outside), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true);
     expect(resources.stepAfterWorld([body])).toHaveLength(1);
+    resources.dispose(); world.free();
+  });
+
+  it("returns backward marbles through the final booster with a 45-step recharge", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters.find((candidate) => candidate.returnAssist)!;
+    const [body] = createMarbleBodies(world, [{ ...booster.center, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
+    const halfLength = (booster.endDistance - booster.startDistance) / 2;
+    const at = (along: number, lateral = 0) => ({
+      x: booster.center.x + booster.forward.x * along + booster.side.x * lateral,
+      y: booster.center.y + booster.forward.y * along + booster.side.y * lateral,
+      z: booster.center.z + booster.forward.z * along + booster.side.z * lateral,
+    });
+    const backward = {
+      x: booster.forward.x * -10 + booster.side.x * 2 + booster.up.x * 3,
+      y: booster.forward.y * -10 + booster.side.y * 2 + booster.up.y * 3,
+      z: booster.forward.z * -10 + booster.side.z * 2 + booster.up.z * 3,
+    };
+    const reverseEntry = () => {
+      body.setTranslation(at(halfLength + 1), true); body.setLinvel({ x: 0, y: 0, z: 0 }, true); resources.stepAfterWorld([body]);
+      body.setTranslation(at(0), true); body.setLinvel(backward, true); return resources.stepAfterWorld([body]);
+    };
+
+    resources.reset();
+    body.setTranslation(at(-halfLength - 1), true); body.setLinvel({ x: booster.forward.x * 10, y: booster.forward.y * 10, z: booster.forward.z * 10 }, true); resources.stepAfterWorld([body]);
+    body.setTranslation(at(0), true);
+    const [forwardEvent] = resources.stepAfterWorld([body]);
+    expect(forwardEvent).toMatchObject({ cellIndex: booster.cellIndex, afterForwardSpeed: 18 });
+    expect(forwardEvent?.beforeForwardSpeed).toBeCloseTo(10, 6);
+    const [firstReturn] = reverseEntry();
+    expect(firstReturn).toMatchObject({ cellIndex: booster.cellIndex, afterForwardSpeed: 18 });
+    expect(firstReturn?.beforeForwardSpeed).toBeCloseTo(-10, 6);
+    expect(dot(body.linvel(), booster.forward)).toBeCloseTo(18, 5);
+    expect(dot(body.linvel(), booster.side)).toBeCloseTo(2, 5);
+    expect(dot(body.linvel(), booster.up)).toBeCloseTo(3, 5);
+    expect(reverseEntry()).toHaveLength(0);
+    expect(dot(body.linvel(), booster.forward)).toBeCloseTo(-10, 6);
+    for (let step = 0; step < 44; step += 1) resources.stepBeforeWorld();
+    expect(reverseEntry()).toHaveLength(0);
+    resources.stepBeforeWorld();
+    expect(reverseEntry()).toHaveLength(1);
+    resources.reset();
+    expect(reverseEntry()).toHaveLength(1);
+    resources.dispose(); world.free();
+  });
+
+  it("does not return-assist a backward crossing outside the booster width", async () => {
+    await initializeTrackPhysics();
+    const world = createTrackPhysicsWorld();
+    const built = buildModularTrack(createValidTrackDesign());
+    const resources = createModularPhysics(world, built);
+    const booster = resolveModuleDevices(built.track, built.route, built.samples).boosters.find((candidate) => candidate.returnAssist)!;
+    const [body] = createMarbleBodies(world, [{ ...booster.center, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
+    const halfLength = (booster.endDistance - booster.startDistance) / 2;
+    const lateral = CHANNEL_WIDTH / 2;
+    const at = (along: number) => ({ x: booster.center.x + booster.forward.x * along + booster.side.x * lateral, y: booster.center.y + booster.forward.y * along + booster.side.y * lateral, z: booster.center.z + booster.forward.z * along + booster.side.z * lateral });
+    const backward = { x: booster.forward.x * -10, y: booster.forward.y * -10, z: booster.forward.z * -10 };
+
+    body.setTranslation(at(halfLength + 1), true); body.setLinvel(backward, true); resources.stepAfterWorld([body]);
+    body.setTranslation(at(0), true); body.setLinvel(backward, true);
+    expect(resources.stepAfterWorld([body])).toHaveLength(0);
+    expect(dot(body.linvel(), booster.forward)).toBeCloseTo(-10, 6);
     resources.dispose(); world.free();
   });
 

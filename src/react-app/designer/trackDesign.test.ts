@@ -10,7 +10,7 @@ describe("createDefaultTrackDesign", () => {
       "start", "straight", "funnel", "straight", "curve", "curve", "straight", "pinwheel", "straight", "curve",
       "curve", "straight", "wave", "straight", "curve", "curve", "straight", "booster", "straight", "curve",
       "curve", "straight", "funnel", "straight", "curve", "curve", "straight", "funnel", "straight", "curve",
-      "straight", undefined, undefined, undefined, undefined, "curve", "straight", "bumper", "straight", "finish",
+      "straight", undefined, undefined, undefined, undefined, "curve", "booster", "bumper", "straight", "finish",
     ]);
     expect(validateTrackDesign(track).ok).toBe(true);
     expect(resolveRoute(track.cells).ok).toBe(true);
@@ -18,6 +18,7 @@ describe("createDefaultTrackDesign", () => {
     expect(portsFor(track.cells[7])).toEqual(["west", "east"]);
     expect(portsFor(track.cells[12])).toEqual(["west", "east"]);
     expect(portsFor(track.cells[17])).toEqual(["west", "east"]);
+    expect(portsFor(track.cells[36])).toEqual(["west", "east"]);
     expect(portsFor(track.cells[37])).toEqual(["west", "east"]);
   });
 

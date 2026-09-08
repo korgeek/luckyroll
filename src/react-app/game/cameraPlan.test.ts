@@ -5,14 +5,19 @@ import { buildModularTrack } from "./modular/modularTrackBuild";
 import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
+  cameraLerpAlpha,
+  createFeatureBroadcastDirector,
   createRaceFocusDirector,
+  deriveFeatureBroadcastZones,
   getBirdViewUp,
   getCameraShot,
   getTrackBounds,
   hasCameraClipChanged,
   selectFocusRank,
+  shouldPresentFeatureBroadcast,
   writeControlledTrackFollowShot,
   writeBirdViewFit,
+  writeFeatureBroadcastShot,
   writeTrackFollowShot,
   type CameraShot,
   type RaceFocusTarget,
@@ -25,8 +30,109 @@ const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * rig
 const target = (id: RaceFocusTarget["id"], progress: number): RaceFocusTarget => ({ id, progress });
 const field = (count: number, offset = 0): RaceFocusTarget[] => Array.from({ length: count }, (_, index) => target(`marble-${offset + index}`, 1 - index / count));
 const mutableShot = (): CameraShot => ({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 });
+const featureSamples = (kind: "bumper" | "pinwheel", cellIndex: number, entryDistance: number, x = entryDistance) => [
+  { index: 0, distance: entryDistance + 2, position: { x: x + 2, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const, kind, cellIndex, localU: 0.1 },
+  { index: 1, distance: entryDistance + 18, position: { x: x + 18, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const, kind, cellIndex, localU: 0.9 },
+] as const;
+const traffic = (distances: readonly number[], eliminated: readonly number[] = []) => distances.map((distance, index) => ({ id: index + 1, distance, eliminated: eliminated.includes(index + 1) }));
 
 describe("track-bound race camera plan", () => {
+	it("keeps a sparse follow anchor continuous across a nearest-sample boundary", () => {
+		const samples = [
+			{ index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const },
+			{ index: 1, distance: 5.84, position: { x: 5.84, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const },
+			{ index: 2, distance: 16, position: { x: 16, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const },
+		];
+		const before = writeTrackFollowShot(mutableShot(), { x: 10.91, y: 0, z: 0 }, samples, 1, canonicalTrackBounds);
+		const after = writeTrackFollowShot(mutableShot(), { x: 10.93, y: 0, z: 0 }, samples, 2, canonicalTrackBounds);
+
+		expect(Math.abs(after.position.x - before.position.x)).toBeLessThan(0.1);
+	});
+
+	it("derives feature entry and exit from actual local route slope", () => {
+		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
+
+		expect(zone).toMatchObject({ key: "bumper:7", kind: "bumper", entryDistance: 10, exitDistance: 30, length: 20, width: 12, height: 12 });
+	});
+
+	it("holds a bumper from first entry until every non-DNF marble clears it", () => {
+		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10)));
+
+		expect(director.update(traffic([9, 9]))).toBeUndefined();
+		expect(director.update(traffic([10, 9]))?.key).toBe("bumper:7");
+		expect(director.update(traffic([31, 9]))?.key).toBe("bumper:7");
+		expect(director.update(traffic([31, 9], [2]))).toBeUndefined();
+		expect(director.update(traffic([10, 9]))).toBeUndefined();
+	});
+
+	it("holds a wheel through 80 unique exits and releases on the 81st", () => {
+		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
+		const first80 = [...Array.from({ length: 80 }, () => 61), ...Array.from({ length: 20 }, () => 50)];
+
+		expect(director.update(traffic(first80))?.key).toBe("pinwheel:8");
+		const recross = [...first80]; recross[0] = 50;
+		expect(director.update(traffic(recross))?.key).toBe("pinwheel:8");
+		expect(director.update(traffic(first80))?.key).toBe("pinwheel:8");
+		const first81 = [...first80]; first81[80] = 61;
+		expect(director.update(traffic(first81))).toBeUndefined();
+	});
+
+	it("releases a smaller wheel after all remaining marbles clear", () => {
+		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
+		expect(director.update(traffic([41, 39]))?.key).toBe("pinwheel:8");
+		expect(director.update(traffic([61, 61]))).toBeUndefined();
+	});
+
+	it("resets one-shot state and treats multiple feature cells independently", () => {
+		const zones = deriveFeatureBroadcastZones([...featureSamples("bumper", 1, 10), ...featureSamples("bumper", 2, 40, 40)]);
+		const director = createFeatureBroadcastDirector(zones);
+		expect(director.update(traffic([11]))?.key).toBe("bumper:1");
+		expect(director.update(traffic([31]))).toBeUndefined();
+		expect(director.update(traffic([41]))?.key).toBe("bumper:2");
+		director.reset();
+		expect(director.update(traffic([11]))?.key).toBe("bumper:1");
+	});
+
+	it.each([320 / 740, 1024 / 768])("fits an entire tall feature module at aspect %s", (aspect) => {
+		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
+		const shot = writeFeatureBroadcastShot(mutableShot(), zone, 60, aspect, 0);
+		const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+		camera.position.set(shot.position.x, shot.position.y, shot.position.z);
+		camera.up.set(zone.up.x, zone.up.y, zone.up.z);
+		camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
+		for (const along of [-zone.length / 2, zone.length / 2]) for (const across of [-zone.width / 2, zone.width / 2]) for (const up of [-zone.height / 2, zone.height / 2]) {
+			const projected = new THREE.Vector3(zone.center.x + zone.tangent.x * along + zone.side.x * across + zone.up.x * up, zone.center.y + zone.tangent.y * along + zone.side.y * across + zone.up.y * up, zone.center.z + zone.tangent.z * along + zone.side.z * across + zone.up.z * up).project(camera);
+			expect(Math.abs(projected.x)).toBeLessThanOrEqual(1); expect(Math.abs(projected.y)).toBeLessThanOrEqual(1);
+		}
+		const view = subtract(shot.position, shot.lookAt);
+		expect(dot(view, zone.up) / Math.hypot(view.x, view.y, view.z)).toBeGreaterThan(0.9);
+	});
+
+	it("keeps a feature inside the far plane while easing from a distant bird view", () => {
+		const aspect = 320 / 740;
+		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
+		const bird = writeBirdViewFit(mutableShot(), { center: zone.center, radius: 120 }, 60, aspect);
+		const shot = writeFeatureBroadcastShot(mutableShot(), zone, 60, aspect, 0, bird.position);
+		const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+		camera.position.set(bird.position.x, bird.position.y, bird.position.z); camera.up.set(zone.up.x, zone.up.y, zone.up.z);
+		camera.lookAt(zone.center.x, zone.center.y, zone.center.z); camera.updateMatrixWorld();
+
+		for (const along of [-zone.length / 2, zone.length / 2]) for (const across of [-zone.width / 2, zone.width / 2]) for (const up of [-zone.height / 2, zone.height / 2]) {
+			const projected = new THREE.Vector3(zone.center.x + zone.tangent.x * along + zone.side.x * across + zone.up.x * up, zone.center.y + zone.tangent.y * along + zone.side.y * across + zone.up.y * up, zone.center.z + zone.tangent.z * along + zone.side.z * across + zone.up.z * up).project(camera);
+			expect(projected.z).toBeLessThanOrEqual(1);
+		}
+	});
+
+	it("suppresses only feature presentation for camera overrides", () => {
+		expect(shouldPresentFeatureBroadcast({ birdView: false, reducedMotion: false, debugPaused: false, recentManualInput: false })).toBe(true);
+		for (const key of ["birdView", "reducedMotion", "debugPaused", "recentManualInput"] as const) expect(shouldPresentFeatureBroadcast({ birdView: false, reducedMotion: false, debugPaused: false, recentManualInput: false, [key]: true })).toBe(false);
+	});
+
+	it("uses frame-rate independent camera easing", () => {
+		const sixtyHz = cameraLerpAlpha(0.042, 1000 / 60);
+		const thirtyHz = cameraLerpAlpha(0.042, 1000 / 30);
+		expect(1 - (1 - sixtyHz) ** 60).toBeCloseTo(1 - (1 - thirtyHz) ** 30, 10);
+	});
 	it.each([["portrait", 320 / 740], ["landscape", 1024 / 768]] as const)("fits every track-bound corner in a %s view", (_name, aspect) => {
 		const center = { x: 4, y: -2, z: 8 };
 		const half = { x: 10, y: 5, z: 24 };

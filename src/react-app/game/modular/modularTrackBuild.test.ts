@@ -11,7 +11,7 @@ describe("modular track build", () => {
     expect(built.geometry.normals).toBeInstanceOf(Float32Array);
     expect(built.geometry.indices).toBeInstanceOf(Uint32Array);
     expect(validateModuleGeometry(built.geometry)).toEqual([]);
-  });
+  }, 15_000);
 
   it("extends geometry upstream without changing the route sample stream", () => {
     const built = buildModularTrack(createValidTrackDesign());

@@ -5,6 +5,7 @@ const seams = vi.hoisted(() => ({
   frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as TrackSample[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
+	featureSamples: false, bodyX: 0,
 }));
 
 vi.mock("three", async () => {
@@ -35,7 +36,7 @@ vi.mock("./raceCourse", async () => {
     createRaceCourse: (selection: { kind: string; track?: { cells: readonly unknown[] } }, options?: unknown) => {
       seams.courseCalls.push({ selection, options });
       if (selection.kind === "custom" && selection.track?.cells[1] === null) throw new Error("invalid route");
-      const samples = [sample(0), sample(1)]; seams.courseSamples = samples;
+		const samples = seams.featureSamples ? [sample(0), { ...sample(1), distance: 12, position: { x: 12, y: 0, z: 0 }, kind: "bumper", cellIndex: 7, localU: 0.1 }, { ...sample(2), distance: 28, position: { x: 28, y: 0, z: 0 }, kind: "bumper", cellIndex: 7, localU: 0.9 }, { ...sample(3), distance: 40, position: { x: 40, y: 0, z: 0 } }] : [sample(0), sample(1)]; seams.courseSamples = samples;
       const runCourse = {
         kind: selection.kind === "custom" ? "custom" as const : "builtin" as const, samples,
         geometry: { positions: new Float32Array(), normals: new Float32Array(), indices: new Uint32Array(), featurePositions: new Float32Array(), featureNormals: new Float32Array(), featureIndices: new Uint32Array(), samples, profileSegments: 0, triangleCount: 0 },
@@ -64,11 +65,11 @@ vi.mock("./track/trackPhysics", () => ({
     const id = seams.worlds.length + 1; const world = { id, freeCount: 0, timestep: 1 / 60, step: () => { seams.worldSteps += 1; seams.order.push(`world:${id}`); }, free: () => { world.freeCount += 1; seams.order.push(`world-free:${id}`); } };
     seams.worlds.push(world); return world;
   },
-  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : position, rotation: () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }), setEnabled: () => undefined })),
+  createMarbleBodies: (_world: unknown, positions: readonly { x: number; y: number; z: number }[]) => positions.map((position) => ({ translation: () => seams.badBody ? { x: Number.NaN, y: 0, z: 0 } : seams.featureSamples ? { x: seams.bodyX, y: 0, z: 0 } : position, rotation: () => ({ x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 }), setEnabled: () => undefined })),
   distanceSquaredToSample: () => 0, distanceSquaredToTrackSegments: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
 }));
 
-vi.mock("./track/trackSampler", () => ({ projectToTrack: (_position: unknown, samples: readonly unknown[]) => { seams.projectedSamples.push(samples as unknown[]); return { sampleIndex: 0, progress: 0, distanceSquared: 0 }; } }));
+vi.mock("./track/trackSampler", () => ({ projectToTrack: (position: { x?: number }, samples: readonly unknown[]) => { seams.projectedSamples.push(samples as unknown[]); return { sampleIndex: seams.featureSamples ? Math.max(0, Math.min(3, Math.round((position.x ?? 0) / 13))) : 0, progress: seams.featureSamples ? (position.x ?? 0) / 40 : 0, distanceSquared: 0 }; } }));
 
 vi.mock("./cameraControls", async () => {
   const actual = await vi.importActual<typeof import("./cameraControls")>("./cameraControls");
@@ -113,7 +114,7 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.bankedCameraSample = false; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.bankedCameraSample = false; seams.featureSamples = false; seams.bodyX = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
@@ -200,6 +201,49 @@ describe("race scene lifecycle boundary", () => {
     expect(recovery?.args[1]).toBeLessThan(1);
     scene.dispose();
   });
+
+	it("reports prepared only after initial marble transforms exist and honors a pre-start hold", async () => {
+		const canvas = prepareCanvas(); const scene = createRaceScene(canvas, (event) => { seams.emitted.push(event); seams.order.push(`emit:${event.type}`); }, { kind: "custom", track: createValidTrackDesign("Prepared") });
+		await settle(); scene.setPaused(true); scene.start([marble(1)], 11); await settle();
+		const preparedIndex = seams.order.indexOf("emit:prepared");
+		const runIndex = seams.order.findIndex((entry) => entry.startsWith("run:"));
+		expect(preparedIndex).toBeGreaterThan(runIndex);
+		const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const rotation = new THREE.Quaternion(); const scale = new THREE.Vector3();
+		seams.marbleMeshes[0]!.getMatrixAt(0, matrix); matrix.decompose(position, rotation, scale);
+		expect(position).toEqual(new THREE.Vector3(0, 1, 0)); expect(scale).toEqual(new THREE.Vector3(1, 1, 1));
+		const now = performance.now(); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
+		expect(seams.worldSteps).toBe(0);
+		scene.dispose();
+	});
+
+	it("starts the race clock after a long preparation hold and deducts only later pauses", async () => {
+		const scene = await startScene();
+		const now = performance.now();
+		scene.setPaused(true); seams.frames.shift()?.(now); seams.frames.shift()?.(now + 3_000);
+		scene.setPaused(false); seams.frames.shift()?.(now + 3_017); seams.frames.shift()?.(now + 4_017);
+		const ticks = () => seams.emitted.filter((event): event is { type: "tick"; elapsedMs: number } => (event as { type: string }).type === "tick");
+		const latestTick = () => ticks()[ticks().length - 1];
+		expect(latestTick()?.elapsedMs).toBeCloseTo(1_000, -1);
+
+		scene.setPaused(true); seams.frames.shift()?.(now + 4_034); seams.frames.shift()?.(now + 5_034);
+		scene.setPaused(false); seams.frames.shift()?.(now + 5_051); seams.frames.shift()?.(now + 6_051);
+		expect(latestTick()?.elapsedMs).toBeCloseTo(2_017, -1);
+		scene.dispose();
+	});
+
+	it("continues feature bookkeeping while recent manual input suppresses its shot", async () => {
+		seams.featureSamples = true; seams.bodyX = 12;
+		const canvas = prepareCanvas(); const scene = createRaceScene(canvas, (event) => seams.emitted.push(event), { kind: "custom", track: createValidTrackDesign("Feature") });
+		await settle(); scene.start([marble(1)], 11); await settle();
+		const camera = cameraPoses[0].camera; const now = performance.now();
+		for (let frame = 0; frame < 120; frame += 1) seams.frames.shift()?.(now + frame * 17);
+		expect(latestPose(camera).lookAt.x).toBeGreaterThan(17);
+		canvasDrag(canvas); seams.bodyX = 31;
+		seams.frames.shift()?.(now + 2_100);
+		for (let frame = 0; frame < 180; frame += 1) seams.frames.shift()?.(now + 5_100 + frame * 17);
+		expect(latestPose(camera).lookAt.x).toBeGreaterThan(27);
+		scene.dispose();
+	});
 
   it("keeps reduced-motion camera input until idle, then snaps to rest", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));

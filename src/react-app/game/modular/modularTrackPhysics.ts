@@ -22,8 +22,10 @@ const TIMESTEP_SECONDS = 1 / 60;
 const TRACK_FRICTION = 0.05;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
-const BUMPER_RESTITUTION = 0.35;
+const BUMPER_RESTITUTION = 0.65;
 const MAX_BOOSTER_SPEED = 42;
+const RETURN_ASSIST_SPEED = 18;
+const RETURN_ASSIST_COOLDOWN_STEPS = 45;
 const CURVE_GUARD_MIN_SPEED = 12;
 const STALL_RECOVERY_SPEED = 8;
 const STALL_RECOVERY_STEPS = 3 / TIMESTEP_SECONDS;
@@ -247,6 +249,8 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   let pusherCenter = devices.start.pusher.center;
   const cellCount = built.track.cells.length;
   let consumed = createBoosterState(100, cellCount);
+  let returnAssistCooldownUntil = new Uint32Array(100 * cellCount);
+  let fixedStep = 0;
   let previousPositions = new WeakMap<RapierBody, Vec3>();
   let recoveryStates = new WeakMap<RapierBody, { anchorDistance: number; stalledSteps: number }>();
   const ensureLive = (): void => { if (disposed) throw new Error("Modular physics resources have been disposed."); };
@@ -271,8 +275,17 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     const low = -halfLength; const high = halfLength;
     return currentAlong > previousAlong + 1e-7 && previousAlong <= high && currentAlong >= low;
   };
+  const reverseCrossing = (previous: Vec3, current: Vec3, booster: ModuleDevices["boosters"][number]): boolean => {
+    const previousOffset = subtract(previous, booster.center); const currentOffset = subtract(current, booster.center);
+    const previousAlong = dot(previousOffset, booster.forward); const currentAlong = dot(currentOffset, booster.forward);
+    const lateralLimit = CHANNEL_WIDTH / 2 - MARBLE_DIAMETER / 2;
+    if (Math.abs(dot(previousOffset, booster.side)) > lateralLimit || Math.abs(dot(currentOffset, booster.side)) > lateralLimit) return false;
+    const high = (booster.endDistance - booster.startDistance) / 2;
+    return currentAlong < previousAlong - 1e-7 && previousAlong >= high && currentAlong <= high;
+  };
   const stepBeforeWorld = (): ModularDevicePose => {
     ensureLive();
+    fixedStep += 1;
     elapsedSeconds += TIMESTEP_SECONDS;
     angles = angles.map((_angle, index) => elapsedSeconds * (devices.pinwheels[index]?.angularSpeed ?? 0));
     gateOpen = forceGateOpen || elapsedSeconds * 1_000 >= devices.start.shuffleMs;
@@ -296,8 +309,16 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
       if (![velocity.x, velocity.y, velocity.z].every(Number.isFinite)) continue;
       if (previous !== undefined) {
         for (const booster of devices.boosters) {
-          if (!crossing(previous, current, booster)) continue;
           const beforeForwardSpeed = dot(velocity, booster.forward);
+          const slot = marbleIndex * cellCount + booster.cellIndex;
+          if (booster.returnAssist && reverseCrossing(previous, current, booster) && beforeForwardSpeed < 0 && fixedStep >= returnAssistCooldownUntil[slot]) {
+            const after = add(velocity, scale(booster.forward, RETURN_ASSIST_SPEED - beforeForwardSpeed));
+            returnAssistCooldownUntil[slot] = fixedStep + RETURN_ASSIST_COOLDOWN_STEPS;
+            velocity = after; body.setLinvel(after, true);
+            events.push(Object.freeze({ marbleId: marbleIndex + 1, cellIndex: booster.cellIndex, beforeForwardSpeed, afterForwardSpeed: RETURN_ASSIST_SPEED }));
+            continue;
+          }
+          if (!crossing(previous, current, booster)) continue;
           const wasConsumed = consumed[marbleIndex * cellCount + booster.cellIndex] !== 0;
           const after = applyBoosterVelocity(velocity, booster.forward, consumed, booster.cellIndex, marbleIndex, cellCount);
           if (after !== velocity) { velocity = after; body.setLinvel(after, true); }
@@ -332,7 +353,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
   };
   const reset = (remainingRestart = false): ModularDevicePose => {
     ensureLive();
-    elapsedSeconds = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; pusherCenter = devices.start.pusher.center; consumed = createBoosterState(100, cellCount); previousPositions = new WeakMap<RapierBody, Vec3>(); recoveryStates = new WeakMap<RapierBody, { anchorDistance: number; stalledSteps: number }>();
+    elapsedSeconds = 0; fixedStep = 0; angles = devices.pinwheels.map(() => 0); forceGateOpen = remainingRestart; gateOpen = forceGateOpen; pusherCenter = devices.start.pusher.center; consumed = createBoosterState(100, cellCount); returnAssistCooldownUntil = new Uint32Array(100 * cellCount); previousPositions = new WeakMap<RapierBody, Vec3>(); recoveryStates = new WeakMap<RapierBody, { anchorDistance: number; stalledSteps: number }>();
     applyDevicePose(false);
     return pose();
   };

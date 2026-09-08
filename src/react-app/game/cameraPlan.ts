@@ -6,6 +6,8 @@ export type CameraShot = { position: { x: number; y: number; z: number }; lookAt
 export type RaceFocusTarget = Readonly<{ id: string | number; progress: number }>;
 export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number) => Target | undefined; reset: () => void }>;
 export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number; panX?: number; panY?: number }>;
+export type FeatureBroadcastZone = Readonly<{ key: string; kind: "bumper" | "pinwheel"; entryDistance: number; exitDistance: number; center: Vec3; tangent: Vec3; side: Vec3; up: Vec3; length: number; width: number; height: number }>;
+export type FeatureTraffic = Readonly<{ id: string | number; distance: number; eliminated: boolean }>;
 
 const fallbackBounds: TrackBounds = Object.freeze({ center: Object.freeze({ x: 0, y: 0, z: 0 }), radius: 1 });
 
@@ -42,6 +44,89 @@ const focusFor = (bounds: TrackBounds, focus?: Vec3): Vec3 =>
 const finiteVector = (value: Vec3 | undefined): value is Vec3 =>
   Number.isFinite(value?.x) && Number.isFinite(value?.y) && Number.isFinite(value?.z);
 
+const normalized = (value: Vec3, fallback: Vec3): Vec3 => {
+  const length = Math.hypot(value.x, value.y, value.z);
+  return length > 1e-9 ? { x: value.x / length, y: value.y / length, z: value.z / length } : fallback;
+};
+
+export const alongRouteDistance = (position: Vec3, sampleIndex: number, samples: readonly Pick<TrackSample, "distance" | "position">[]): number => {
+  const candidates = [[sampleIndex - 1, sampleIndex], [sampleIndex, sampleIndex + 1]];
+  let best = samples[Math.max(0, Math.min(samples.length - 1, sampleIndex))]?.distance ?? 0;
+  let error = Number.POSITIVE_INFINITY;
+  for (const [leftIndex, rightIndex] of candidates) {
+    const left = samples[leftIndex]; const right = samples[rightIndex];
+    if (!left || !right) continue;
+    const x = right.position.x - left.position.x; const y = right.position.y - left.position.y; const z = right.position.z - left.position.z;
+    const lengthSquared = x * x + y * y + z * z; if (!lengthSquared) continue;
+    const t = Math.max(0, Math.min(1, ((position.x - left.position.x) * x + (position.y - left.position.y) * y + (position.z - left.position.z) * z) / lengthSquared));
+    const px = left.position.x + x * t; const py = left.position.y + y * t; const pz = left.position.z + z * t;
+    const nextError = (position.x - px) ** 2 + (position.y - py) ** 2 + (position.z - pz) ** 2;
+    if (nextError < error) { error = nextError; best = left.distance + (right.distance - left.distance) * t; }
+  }
+  return best;
+};
+
+const frameAtDistance = (samples: readonly TrackSample[], distance: number): Pick<TrackSample, "position" | "tangent" | "side" | "up"> | undefined => {
+  const first = samples[0]; const last = samples[samples.length - 1];
+  if (!first || !last) return undefined;
+  if (distance <= first.distance) return first;
+  if (distance >= last.distance) return last;
+  let rightIndex = 1;
+  while (rightIndex < samples.length && samples[rightIndex]!.distance < distance) rightIndex += 1;
+  const left = samples[rightIndex - 1]!; const right = samples[rightIndex]!;
+  const span = right.distance - left.distance;
+  const t = span > 1e-9 ? (distance - left.distance) / span : 0;
+  const mix = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
+  return { position: mix(left.position, right.position), tangent: normalized(mix(left.tangent, right.tangent), left.tangent), side: normalized(mix(left.side, right.side), left.side), up: normalized(mix(left.up, right.up), left.up) };
+};
+
+export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): FeatureBroadcastZone[] => {
+  type FeatureSample = TrackSample & { kind?: string; cellIndex?: number; localU?: number };
+  const groups = new Map<string, FeatureSample[]>();
+  for (const sample of samples as readonly FeatureSample[]) {
+    if ((sample.kind !== "bumper" && sample.kind !== "pinwheel") || !Number.isInteger(sample.cellIndex) || !Number.isFinite(sample.localU)) continue;
+    const key = `${sample.kind}:${sample.cellIndex}`;
+    const group = groups.get(key); if (group) group.push(sample); else groups.set(key, [sample]);
+  }
+  const zones: FeatureBroadcastZone[] = [];
+  groups.forEach((group, key) => {
+    group.sort((left, right) => left.localU! - right.localU!);
+    const first = group[0]; const last = group[group.length - 1];
+    if (!first || !last || first.localU === last.localU) return;
+    const slope = (last.distance - first.distance) / (last.localU! - first.localU!);
+    if (!Number.isFinite(slope) || slope <= 0) return;
+    const entryDistance = first.distance - first.localU! * slope;
+    const exitDistance = last.distance + (1 - last.localU!) * slope;
+    const frame = frameAtDistance(group, (entryDistance + exitDistance) / 2);
+    if (!frame) return;
+    const height = Math.max(1, ...group.map((sample) => sample.channelDepth));
+    const center = { x: frame.position.x + frame.up.x * height / 2, y: frame.position.y + frame.up.y * height / 2, z: frame.position.z + frame.up.z * height / 2 };
+    zones.push(Object.freeze({ key, kind: first.kind as "bumper" | "pinwheel", entryDistance, exitDistance, center: Object.freeze(center), tangent: Object.freeze(frame.tangent), side: Object.freeze(frame.side), up: Object.freeze(frame.up), length: exitDistance - entryDistance, width: Math.max(...group.map((sample) => sample.width)), height }));
+  });
+  return zones.sort((left, right) => left.entryDistance - right.entryDistance);
+};
+
+export const createFeatureBroadcastDirector = (zones: readonly FeatureBroadcastZone[]) => {
+  const completed = new Set<string>(); const passed = new Set<string | number>(); let active: FeatureBroadcastZone | undefined;
+  return Object.freeze({
+    update: (traffic: readonly FeatureTraffic[]): FeatureBroadcastZone | undefined => {
+      if (!active) active = zones.find((zone) => !completed.has(zone.key) && traffic.some((marble) => !marble.eliminated && marble.distance >= zone.entryDistance));
+      if (!active) return undefined;
+      for (const marble of traffic) if (!marble.eliminated && marble.distance > active.exitDistance) passed.add(marble.id);
+      const pending = traffic.some((marble) => !marble.eliminated && marble.distance <= active!.exitDistance);
+      if ((active.kind === "pinwheel" ? passed.size >= 81 || !pending : !pending)) { completed.add(active.key); active = undefined; passed.clear(); }
+      return active;
+    },
+    reset: () => { completed.clear(); passed.clear(); active = undefined; },
+  });
+};
+
+export const shouldPresentFeatureBroadcast = (state: Readonly<{ birdView: boolean; reducedMotion: boolean; debugPaused: boolean; recentManualInput: boolean }>): boolean =>
+  !state.birdView && !state.reducedMotion && !state.debugPaused && !state.recentManualInput;
+
+export const cameraLerpAlpha = (perFrameAlpha: number, deltaMs: number): number =>
+  1 - Math.pow(1 - Math.max(0, Math.min(1, perFrameAlpha)), Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0) / (1000 / 60));
+
 const writeClip = (target: CameraShot, bounds: TrackBounds): void => {
   const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
   target.near = Math.max(0.05, safeBounds.radius * 0.012);
@@ -59,6 +144,21 @@ export const writeBirdViewFit = (target: CameraShot, bounds: TrackBounds, vertic
   target.position.x = safeBounds.center.x; target.position.y = safeBounds.center.y + distance; target.position.z = safeBounds.center.z + 0.001;
   writeClip(target, safeBounds);
   target.far = Math.max(target.far, Math.hypot(target.position.x - safeBounds.center.x, target.position.y - safeBounds.center.y, target.position.z - safeBounds.center.z) + safeBounds.radius * 2);
+  return target;
+};
+
+export const writeFeatureBroadcastShot = (target: CameraShot, zone: FeatureBroadcastZone, verticalFovDegrees: number, aspect: number, elapsedMs: number, currentCameraPosition?: Vec3): CameraShot => {
+  const fov = Math.min(179, Math.max(1, Number.isFinite(verticalFovDegrees) ? verticalFovDegrees : 60));
+  const safeAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  const halfVertical = fov * Math.PI / 360;
+  const halfHorizontal = Math.atan(Math.tan(halfVertical) * safeAspect);
+  const radius = Math.max(1, Math.hypot(zone.length / 2, zone.width / 2, zone.height / 2));
+  const distance = 1.08 * radius / Math.sin(Math.min(halfVertical, halfHorizontal));
+  const glide = Math.sin((Number.isFinite(elapsedMs) ? elapsedMs : 0) / 1800) * 1.2;
+  const view = normalized({ x: zone.side.x * 0.2 + zone.up.x, y: zone.side.y * 0.2 + zone.up.y, z: zone.side.z * 0.2 + zone.up.z }, zone.up);
+  target.lookAt.x = zone.center.x + zone.tangent.x * glide; target.lookAt.y = zone.center.y + zone.tangent.y * glide; target.lookAt.z = zone.center.z + zone.tangent.z * glide;
+  target.position.x = target.lookAt.x + view.x * distance; target.position.y = target.lookAt.y + view.y * distance; target.position.z = target.lookAt.z + view.z * distance;
+  target.near = Math.max(0.05, radius * 0.012); target.far = Math.max(distance + radius * 2 + 20, finiteVector(currentCameraPosition) ? Math.hypot(currentCameraPosition.x - zone.center.x, currentCameraPosition.y - zone.center.y, currentCameraPosition.z - zone.center.z) + radius * 2 : 0);
   return target;
 };
 
@@ -146,16 +246,6 @@ export const createRaceFocusDirector = (): RaceFocusDirector => {
   });
 };
 
-const cameraAnchor = (samples: readonly TrackSample[], sampleIndex: number, behind = 6): TrackSample | undefined => {
-  const focusIndex = Math.max(0, Math.min(samples.length - 1, sampleIndex));
-  const focus = samples[focusIndex] ?? samples[0];
-  if (!focus) return undefined;
-  const targetDistance = focus.distance - behind;
-  let index = focusIndex;
-  while (index > 0 && samples[index]!.distance > targetDistance) index -= 1;
-  return samples[index] ?? focus;
-};
-
 export const enforceCameraClearance = (target: CameraShot, up: Vec3, minimum = 5, reference: Vec3 = target.lookAt): CameraShot => {
   const surface = finiteVector(reference) ? reference : target.lookAt;
   const height = (target.position.x - surface.x) * up.x + (target.position.y - surface.y) * up.y + (target.position.z - surface.z) * up.z;
@@ -169,9 +259,10 @@ export const enforceCameraClearance = (target: CameraShot, up: Vec3, minimum = 5
 export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, samples: readonly TrackSample[], sampleIndex: number, bounds: TrackBounds, minimumClearance = 5): CameraShot => {
   const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
   const focus = finiteVector(marblePosition) ? marblePosition : safeBounds.center;
-  const frame = samples[Math.max(0, Math.min(samples.length - 1, sampleIndex))] ?? samples[0];
+  const routeDistance = alongRouteDistance(focus, sampleIndex, samples);
+  const frame = frameAtDistance(samples, routeDistance) ?? samples[Math.max(0, Math.min(samples.length - 1, sampleIndex))] ?? samples[0];
   const up = finiteVector(frame?.up) ? frame.up : { x: 0, y: 1, z: 0 };
-  const anchor = cameraAnchor(samples, sampleIndex);
+  const anchor = frameAtDistance(samples, routeDistance - 6);
   const anchorPosition = finiteVector(anchor?.position) ? anchor.position : focus;
   const anchorUp = finiteVector(anchor?.up) ? anchor.up : up;
   target.position.x = anchorPosition.x + anchorUp.x * minimumClearance;

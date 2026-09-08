@@ -6,9 +6,11 @@ An instant, offline-friendly neon pinball marble party game. The last marble to 
 
 100 marbles are split as evenly as possible across 2–10 players. The final Top 10 is ranked in reverse finish order, so last wins.
 
-Race sessions use the selected track, which can be changed directly from Setup without opening the track manager. The Default Track's high-walled rectangular start pen randomizes 100 marbles, opens a physical gate, and uses a physical start pusher to guide every row into the first module. Wave, funnel, and mogul modules gently vary the pace before the finish. The directed camera follows the race automatically, while Bird View shows the whole course from above with the start at the top and finish at the bottom.
+Race sessions use the selected track, which can be changed directly from the Main Menu without opening the track manager. The Default Track's high-walled rectangular start pen randomizes 100 marbles, opens a physical gate, and uses a physical start pusher to guide every row into the first module. Its demo route includes rounded moguls, a wheel, waves, boosters, and a final six-post pinball section. The directed camera holds the wheel until 81 unique marbles pass (or all remaining marbles clear), and holds pinball until all live marbles clear, then smoothly returns to following the race. Bird View shows the whole course from above.
 
 Results feature the last finisher, with a brief celebration only when every marble completes the race. Replay runs the same participants, prize, and course with a fresh seed; Back to Menu keeps the entered names and selected track.
+
+Starting or replaying shows PREPARING RACE… until the scene is ready, then a three-second 3 → 2 → 1 → GO! countdown. Marbles and race time remain held until GO; opening the navigation menu also freezes the countdown.
 
 During a race, the compact reverse leaderboard shows the trailing (winning) five marbles on portrait phones and ten elsewhere, with gaps in track units. BOOST raises each active marble's forward speed to 1.5×, capped at 42 track units per second; it starts with a five-second charge, recharges after use, and freezes while paused.
 
@@ -16,7 +18,7 @@ During a race, the compact reverse leaderboard shows the trailing (winning) five
 
 The 5×8 modular editor starts from the valid Default Track. Select a different module and tap an occupied cell to replace it; tap without a new selection to rotate, or hold for replace/clear actions. The Main Menu opens a separate Manage Tracks screen with one card per saved track. Share opens a popup with Copy code; another player can use Import code in Manage Tracks to create an editable draft, then Save to keep it locally. If a selected saved track disappears, the game falls back to Default Track.
 
-The builder, browser-storage, and Base64URL share formats are unchanged; old shared links remain decodable for compatibility. At race time, every low-friction bobsled route descends 7 degrees relative to its direction; curve interiors bank automatically to 24 degrees and return to flat, seamless landings. Boosters guarantee a minimum forward exit speed of 18 track units per second.
+The builder, browser-storage, and Base64URL share formats are unchanged; old shared links remain decodable for compatibility. At race time, every low-friction bobsled route descends 7 degrees relative to its direction; curve interiors bank automatically to 24 degrees and return to flat, seamless landings. Boosters guarantee a minimum forward exit speed of 18 track units per second. A booster immediately before pinball also redirects returning marbles forward after a 750ms per-marble recharge; round posts use 0.65 restitution. Rounded moguls reach one track unit high without changing module ports.
 
 The race engine and physics are loaded before the setup screen is ready. After that Ready point, editing, saving, raw-token importing, and racing use no application API or database. A cold offline reload is not supported; installable PWA caching can be added if that becomes necessary.
 
