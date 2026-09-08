@@ -1,23 +1,41 @@
 # Game sound credits and mapping
 
-Bundled from Kenney (Kenney Vleugels), downloaded 2026-09-08:
+Kenney (Kenney Vleugels) assets, downloaded 2026-09-08. All packs are
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/), including modification,
+redistribution and commercial use. Source pages and original licenses:
 
-- [Digital Audio](https://kenney.nl/assets/digital-audio): [original license](./KENNEY-DIGITAL-LICENSE.txt)
-- [Music Jingles](https://kenney.nl/assets/music-jingles): [original license](./KENNEY-JINGLES-LICENSE.txt)
+- [Impact Sounds](https://kenney.nl/assets/impact-sounds): [license](./KENNEY-IMPACT-LICENSE.txt)
+- [Sci-fi Sounds](https://kenney.nl/assets/sci-fi-sounds): [license](./KENNEY-SCIFI-LICENSE.txt)
+- [Interface Sounds](https://kenney.nl/assets/interface-sounds): [license](./KENNEY-INTERFACE-LICENSE.txt)
+- [Music Jingles](https://kenney.nl/assets/music-jingles): [license](./KENNEY-JINGLES-LICENSE.txt)
 
-Both packs use [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/), allowing modification and redistribution, including commercial games. These are openly licensed sound assets, rather than program source code.
+The former Digital Audio / NES cues have been replaced by Foley, mechanical engine,
+soft interface and pizzicato samples. Filenames retain their event names.
 
-| Game event | Bundled file | Original file | Playback gain |
-| --- | --- | --- | --- |
-| Countdown 3, 2, 1 | kenney-countdown.wav | Digital Audio / Audio/tone1.ogg | 0.18 |
-| GO / race start | kenney-start.wav | Digital Audio / Audio/threeTone1.ogg | 0.30 |
-| Accepted manual BOOST | kenney-boost.wav | Digital Audio / Audio/powerUp1.ogg | 0.22 |
-| RUSH begins | kenney-rush.wav | Digital Audio / Audio/phaserUp1.ogg | 0.30 |
-| Individual marble finishes | kenney-checkpoint.wav | Digital Audio / Audio/highUp.ogg | 0.12 |
-| Marble does not finish (DNF) | kenney-dnf.wav | Digital Audio / Audio/highDown.ogg | 0.12 |
-| Race timeout | kenney-timeout.wav | Digital Audio / Audio/lowDown.ogg | 0.30 |
-| All marbles finish successfully | kenney-win.wav | Music Jingles / Audio/8-Bit jingles/jingles_NES00.ogg | 0.30 |
+| Event / bundled kenney-*.wav | Source pack / original file under Audio/ |
+| --- | --- |
+| countdown | Interface / tick_001.ogg |
+| start | Interface / confirmation_002.ogg |
+| checkpoint | Interface / glass_001.ogg |
+| dnf | Interface / drop_002.ogg |
+| timeout | Interface / error_003.ogg |
+| win | Music Jingles / Pizzicato jingles/jingles_PIZZI00.ogg |
+| boost (manual and physical track activation) | Sci-fi / thrusterFire_000.ogg |
+| rush (entry) | Sci-fi / spaceEngineSmall_000.ogg |
+| bumper (actual contact onset) | Impact / impactSoft_medium_000.ogg |
+| fan (nearby rotating pinwheels) | Sci-fi / engineCircular_000.ogg |
+| rush-loop (while RUSH remains active) | Sci-fi / spaceEngineLow_000.ogg |
 
-Original OGG files were converted to mono, 44.1 kHz, 16-bit PCM WAV with FFmpeg for browser decoding compatibility. No trimming or other edits. Only these eight clips ship with the game (about 600 KB total). Runtime playback uses the existing Web Audio player and bundled local URLs; no CDN or new library is required.
+Converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
+`loudnorm=I=-18:TP=-3:LRA=7`. Boost and rush entry are trimmed to 0.7 and 1.2 seconds,
+with 20 ms attack and 250 ms release. Loop endpoints have a 250 ms linear crossfade.
+Only the selected clips ship locally; no runtime CDN or new audio library.
 
-Finish/DNF cues share a 150 ms cooldown to avoid a burst of hundreds of overlapping sounds. Start, victory and timeout stop previous sounds. Pause, mute and leaving the game stop active playback. Failed asset loads retain synthesized fallback cues and can retry on the next preload.
+Bumper contact begins are collected from Rapier narrow-phase solver contacts;
+persistent resting contacts do not repeat. Track booster sounds use actual
+BoosterEvent results. Effects fade with distance from the camera's subject
+(32 world-unit radius). Bumper and track boost bursts are limited to 90 / 220 ms,
+and finish/DNF share a 150 ms cooldown. Fan and rush loops reuse sources with
+smoothed gain. Pause, mute, restart, completion and scene disposal stop loops;
+unmute/resume restores them from current scene state. Muting stops all playback.
+Failed asset downloads retry on preload; UI cues have soft sine fallbacks.

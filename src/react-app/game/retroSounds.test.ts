@@ -15,7 +15,7 @@ function mockAudio() {
 	const context = {
 		state: "running", currentTime: 0, destination: {}, resume: vi.fn().mockResolvedValue(undefined),
 		decodeAudioData: vi.fn(async (data: ArrayBuffer) => data),
-		createGain: () => ({ connect, gain: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() } }),
+		createGain: () => ({ connect, gain: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), setTargetAtTime: vi.fn() } }),
 		createBufferSource: () => {
 			const source = { start: vi.fn(), stop: vi.fn(), buffer: undefined, connect, addEventListener: vi.fn() };
 			sources.push(source); return source;
@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(8);
+		expect(fetch).toHaveBeenCalledTimes(11);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -66,3 +66,24 @@ describe("retroSounds lifecycle and event mapping", () => {
 		await retroSounds.preload(); retroSounds.boost(); expect(sources).toHaveLength(1);
 	});
 });
+
+ it("reuses loops, resumes after mute, and limits nearby obstacle bursts", async () => {
+  const { context, sources } = mockAudio();
+  await retroSounds.preload();
+  retroSounds.ambience(1, true); retroSounds.ambience(0.5, true);
+  expect(sources).toHaveLength(2);
+  retroSounds.obstacle("bumper", 0); expect(sources).toHaveLength(2);
+  retroSounds.obstacle("bumper"); retroSounds.obstacle("bumper");
+  retroSounds.obstacle("boost"); retroSounds.obstacle("boost");
+  expect(sources).toHaveLength(4);
+  context.currentTime += 0.25;
+  retroSounds.obstacle("bumper"); retroSounds.obstacle("boost");
+  expect(sources).toHaveLength(6);
+  retroSounds.ambience(0, false);
+  expect(sources[0].stop).toHaveBeenCalledOnce(); expect(sources[1].stop).toHaveBeenCalledOnce();
+  retroSounds.ambience(1, true); expect(sources).toHaveLength(8);
+  retroSounds.setMuted(true); retroSounds.ambience(1, true); expect(sources).toHaveLength(8);
+  expect(sources[6].stop).toHaveBeenCalled(); expect(sources[7].stop).toHaveBeenCalled();
+  retroSounds.setMuted(false); retroSounds.ambience(1, true); expect(sources).toHaveLength(10);
+  retroSounds.finish(); expect(sources[8].stop).toHaveBeenCalled(); expect(sources[9].stop).toHaveBeenCalled();
+ });

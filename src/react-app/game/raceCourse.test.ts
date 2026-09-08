@@ -3,8 +3,8 @@ import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import { getTrackBounds } from "./cameraPlan";
 import { createSceneTrackResources } from "./MarbleRaceScene";
 import { projectToTrack } from "./track/trackSampler";
-import { createFixedStepPauseState, createRaceCourse } from "./raceCourse";
-import { createTrackPhysicsWorld, initializeTrackPhysics } from "./track/trackPhysics";
+import { collectBumperHits, createFixedStepPauseState, createRaceCourse } from "./raceCourse";
+import { createTrackPhysicsWorld, initializeTrackPhysics, getInitializedTrackPhysicsRapier } from "./track/trackPhysics";
 
 describe("race-course adapters", () => {
   it("keeps the built-in course as the default", () => {
@@ -54,3 +54,23 @@ describe("race-course adapters", () => {
     world.free();
   });
 });
+
+ it("sounds only on real bumper contact onset and rearms after separation", async () => {
+  await initializeTrackPhysics();
+  const rapier = getInitializedTrackPhysicsRapier();
+  const world = createTrackPhysicsWorld();
+  world.gravity = { x: 0, y: 0, z: 0 };
+  const bumper = world.createCollider(rapier.ColliderDesc.ball(1), world.createRigidBody(rapier.RigidBodyDesc.fixed()));
+  const ball = world.createRigidBody(rapier.RigidBodyDesc.dynamic().setTranslation(1.4, 0, 0));
+  world.createCollider(rapier.ColliderDesc.ball(0.5), ball);
+  const contacts = new Set<string>();
+  world.step();
+  expect(collectBumperHits(world, [bumper], contacts)).toHaveLength(1);
+  expect(collectBumperHits(world, [bumper], contacts)).toHaveLength(0);
+  ball.setTranslation({ x: 10, y: 0, z: 0 }, true); world.step();
+  expect(collectBumperHits(world, [bumper], contacts)).toHaveLength(0);
+  expect(contacts.size).toBe(0);
+  ball.setTranslation({ x: 1.4, y: 0, z: 0 }, true); world.step();
+  expect(collectBumperHits(world, [bumper], contacts)).toHaveLength(1);
+  world.free();
+ });

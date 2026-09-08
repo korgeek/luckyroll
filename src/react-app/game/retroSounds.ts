@@ -7,7 +7,13 @@ import rushUrl from "../assets/audio/kenney-rush.wav?url";
 import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
-const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl };
+import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
+import fanUrl from "../assets/audio/kenney-fan.wav?url";
+import rushLoopUrl from "../assets/audio/kenney-rush-loop.wav?url";
+
+const loops = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
+const lastEffects = new Map<string, number>();
+const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, fan: fanUrl, rushLoop: rushLoopUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -37,7 +43,7 @@ function track<T extends AudioScheduledSourceNode>(source: T) {
 	return source;
 }
 
-function note(frequency: number, when: number, duration: number, type: OscillatorType = "square", volume = 0.055) {
+function note(frequency: number, when: number, duration: number, type: OscillatorType = "sine", volume = 0.055) {
 	const ctx = audio();
 	if (!ctx) return;
 	const oscillator = track(ctx.createOscillator());
@@ -90,6 +96,27 @@ function cue(name: keyof typeof urls, frequencies: number[], volume = 0.22) {
 	if (!sample(name, volume)) frequencies.forEach((frequency, index) => note(frequency, ctx.currentTime + index * 0.075, 0.12, "sine", 0.035));
 }
 
+function loop(name: "fan" | "rushLoop", volume: number) {
+	const existing = loops.get(name);
+	if (muted || volume <= 0.001) {
+		if (existing) { existing.source.stop(); loops.delete(name); }
+		return;
+	}
+	const ctx = audio();
+	const buffer = buffers.get(name);
+	if (!ctx || !buffer) return;
+	if (existing) { existing.gain.gain.setTargetAtTime(volume, ctx.currentTime, 0.15); return; }
+	const source = track(ctx.createBufferSource());
+	const gain = ctx.createGain();
+	gain.gain.value = 0;
+	gain.gain.setTargetAtTime(volume, ctx.currentTime, 0.15);
+	source.buffer = buffer;
+	source.loop = true;
+	source.connect(gain).connect(ctx.destination);
+	loops.set(name, { source, gain });
+	source.start();
+}
+
 export const retroSounds = {
 	preload() {
 		audio();
@@ -100,7 +127,22 @@ export const retroSounds = {
 			try { source.stop(); } catch { /* already ended */ }
 		}
 		active.clear();
+		loops.clear();
+		lastEffects.clear();
 		lastMarbleCue = -Infinity;
+	},
+	// ponytail: one nearby fan bed and one rush bed; add per-device panners if spatial mixing is needed.
+	ambience(fan: number, rush: boolean) {
+		loop("fan", Math.max(0, Math.min(1, fan)) * 0.13);
+		loop("rushLoop", rush ? 0.10 : 0);
+	},
+	obstacle(kind: "bumper" | "boost", proximity = 1) {
+		if (muted || proximity <= 0.01) return;
+		const ctx = audio();
+		if (!ctx) return;
+		if (ctx.currentTime - (lastEffects.get(kind) ?? -Infinity) < (kind === "bumper" ? 0.09 : 0.22)) return;
+		lastEffects.set(kind, ctx.currentTime);
+		sample(kind, Math.min(1, proximity) * (kind === "bumper" ? 0.36 : 0.22));
 	},
 	countdown() { cue("countdown", [440], 0.18); },
 	boost() { cue("boost", [330, 660, 990]); },
@@ -123,7 +165,7 @@ export const retroSounds = {
 		const ctx = audio();
 		if (!ctx) return;
 		const now = ctx.currentTime;
-		[784, 988, 1175, 1568].forEach((frequency, index) => note(frequency, now + index * 0.09, 0.16, "square", 0.045));
+		[784, 988, 1175, 1568].forEach((frequency, index) => note(frequency, now + index * 0.09, 0.16, "sine", 0.045));
 	},
 	timeout() {
 		this.stop();
@@ -132,8 +174,8 @@ export const retroSounds = {
 		const ctx = audio();
 		if (!ctx) return;
 		const now = ctx.currentTime;
-		note(196, now, 0.18, "sawtooth", 0.035);
-		note(147, now + 0.2, 0.32, "sawtooth", 0.035);
+		note(196, now, 0.18, "sine", 0.035);
+		note(147, now + 0.2, 0.32, "sine", 0.035);
 	},
 	setMuted(value: boolean) {
 		muted = value;

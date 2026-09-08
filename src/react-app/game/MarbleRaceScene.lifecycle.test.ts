@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { retroSounds } from "./retroSounds";
 import type { TrackSample } from "./track/trackTypes";
 
 const seams = vi.hoisted(() => ({
   frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as TrackSample[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, badBodyIndex: -1, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
-	featureSamples: false, bodyX: 0, rushVelocityWrites: [] as { x: number; y: number; z: number }[],
+	boosterEvent: false, featureSamples: false, bodyX: 0, rushVelocityWrites: [] as { x: number; y: number; z: number }[],
 }));
 
 vi.mock("three", async () => {
@@ -32,6 +33,7 @@ vi.mock("./raceCourse", async () => {
   const { Group } = await vi.importActual<typeof import("three")>("three");
   const sample = (index: number) => ({ index, distance: index, position: { x: index, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: seams.bankedCameraSample && index === 0 ? { x: 0, y: 0.8, z: 0.6 } : { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: seams.bankedCameraSample && index === 0 ? Math.atan2(0.6, 0.8) : 0, zone: "run" as const });
   return {
+    collectBumperHits: () => [],
     createBuiltInTrackResources: () => { throw new Error("unused test seam"); },
     createRaceCourse: (selection: { kind: string; track?: { cells: readonly unknown[] } }, options?: unknown) => {
       seams.courseCalls.push({ selection, options });
@@ -47,7 +49,7 @@ vi.mock("./raceCourse", async () => {
           return {
             launchPositions: Array.from({ length: count }, () => ({ x: 0, y: 1, z: 0, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true as const })),
             stepBeforeWorld: () => { seams.order.push(`before:${id}`); return { raceClockStarted: true }; },
-            stepAfterWorld: () => { seams.order.push(`after:${id}`); return []; }, reset: (restart: boolean) => { seams.order.push(`reset:${id}:${restart}`); },
+            stepAfterWorld: () => { seams.order.push(`after:${id}`); return seams.boosterEvent ? [{ marbleId: 1, cellIndex: 1, beforeForwardSpeed: 10, afterForwardSpeed: 20 }] : []; }, reset: (restart: boolean) => { seams.order.push(`reset:${id}:${restart}`); },
             dispose: () => { run.disposeCount += 1; seams.order.push(`run-dispose:${id}`); },
           };
         },
@@ -114,9 +116,23 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.featureSamples = false; seams.bodyX = 0; seams.rushVelocityWrites.length = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
+    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.boosterEvent = false; seams.featureSamples = false; seams.bodyX = 0; seams.rushVelocityWrites.length = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+  });
+
+  it("plays the first marble's physical booster event and stops ambience on pause/disposal", async () => {
+    const obstacle = vi.spyOn(retroSounds, "obstacle").mockImplementation(() => undefined);
+    const ambience = vi.spyOn(retroSounds, "ambience").mockImplementation(() => undefined);
+    const scene = await startScene();
+    seams.boosterEvent = true;
+    const now = performance.now(); seams.frames.shift()?.(now + 17);
+    expect(obstacle).toHaveBeenCalledWith("boost", expect.any(Number));
+    scene.setPaused(true); expect(ambience).toHaveBeenLastCalledWith(0, false);
+    const calls = obstacle.mock.calls.length; seams.frames.shift()?.(now + 34);
+    expect(obstacle).toHaveBeenCalledTimes(calls);
+    scene.dispose(); expect(ambience).toHaveBeenLastCalledWith(0, false);
+    obstacle.mockRestore(); ambience.mockRestore();
   });
 
   it("emits a custom build error before creating a renderer", () => {

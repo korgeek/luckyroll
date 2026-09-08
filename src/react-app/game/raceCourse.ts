@@ -17,8 +17,28 @@ type RapierModule = typeof RAPIER_TYPE;
 export type RapierWorld = InstanceType<RapierModule["World"]>;
 export type RapierBody = ReturnType<RapierWorld["createRigidBody"]>;
 
+// Only contact onset makes a sound: resting against a bumper must stay quiet.
+export const collectBumperHits = (world: RapierWorld, bumpers: readonly ReturnType<RapierWorld["createCollider"]>[], previous: Set<string>): Array<{ x: number; y: number; z: number }> => {
+  const current = new Set<string>();
+  const hits: Array<{ x: number; y: number; z: number }> = [];
+  for (const bumper of bumpers) world.contactPairsWith(bumper, (other) => {
+    if (!other.parent()?.isDynamic() || !other.parent()?.isEnabled()) return;
+    world.contactPair(bumper, other, (manifold) => {
+      if (!manifold.numSolverContacts()) return;
+      const key = `${bumper.handle}:${other.handle}`;
+      if (!previous.has(key) && !current.has(key)) hits.push(bumper.translation());
+      current.add(key);
+    });
+  });
+  previous.clear();
+  for (const key of current) previous.add(key);
+  return hits;
+};
+
 export type RaceCourseRun = Readonly<{
   launchPositions: readonly PhysicalLaunchPosition[];
+  bumperColliders?: readonly ReturnType<RapierWorld["createCollider"]>[];
+  pinwheelBodies?: readonly RapierBody[];
   stepBeforeWorld: () => Readonly<{ raceClockStarted: boolean }>;
   stepAfterWorld: (bodies: readonly RapierBody[]) => readonly BoosterEvent[];
   reset: (remainingRestart: boolean) => void;
@@ -86,6 +106,7 @@ const createBuiltInCourse = (debug = false): RaceCourse => {
       let pose = physics.controller.initialPose();
       if (remainingRestart) setDeviceRenderPose(obstacleGroup, physics.reset({ gateOpen: true }));
       return Object.freeze({
+        bumperColliders: physics.pegColliders,
         launchPositions: remainingRestart
           ? launchPositionsFor(createLaunchSlots(count), resources.built.geometry, seed)
           : createBowlLaunchPositions(count, resources.built.obstacleLayout.start, seed),
@@ -150,6 +171,8 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, deb
       let pose = currentPhysics.reset(remainingRestart);
       setModularDevicePose(rendered, pose);
       return Object.freeze({
+        bumperColliders: currentPhysics.fixedColliders,
+        pinwheelBodies: currentPhysics.pinwheelBodies,
         launchPositions: createModularLaunchPositions(count, built, seed),
         stepBeforeWorld: () => {
           if (runDisposed) throw new Error("Race course run has been disposed.");
