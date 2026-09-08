@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { CreditsDialog } from "./CreditsDialog";
 import type { Participant } from "../domain/types";
 import type { LocalTrack } from "../designer/trackDesign";
 
@@ -20,6 +21,7 @@ export function SetupScreen({ onStart, tracks = [], selectedTrackId, onManageTra
 	const [names, setNames] = useState(["Player 1", "Player 2"]);
 	const [prizePool, setPrizePool] = useState("");
 	const [prizeRevision, setPrizeRevision] = useState(0);
+	const [creditsOpen, setCreditsOpen] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const dialog = useRef<HTMLDialogElement>(null); const prizeInput = useRef<HTMLInputElement>(null); const prizeCaret = useRef<number | undefined>(undefined);
 	const pickerButton = useRef<HTMLButtonElement>(null);
@@ -65,5 +67,7 @@ export function SetupScreen({ onStart, tracks = [], selectedTrackId, onManageTra
 		<p className="allocation-note">100 marbles split as evenly as possible.</p>
 		<section className="track-summary" aria-label="Selected track"><div><span>TRACK</span><strong>{selectedTrackName}</strong><small>{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</small></div><div className="track-summary-actions"><button ref={pickerButton} className="secondary-button" onClick={() => setPickerOpen(true)}>Change Track</button><button className="text-button" onClick={onManageTracks}>Manage Tracks</button></div></section>
 		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><button aria-label="Select Default Track" aria-pressed={!selectedTrackId} onClick={() => chooseTrack(undefined)}>Default Track {!selectedTrackId && <span>Selected</span>}</button>{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === selectedTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === selectedTrackId && <span>Selected</span>}</button>)}<button className="text-button" onClick={() => setPickerOpen(false)}>Cancel</button></section></dialog>}
+		<footer className="setup-footer"><button className="text-button" onClick={() => setCreditsOpen(true)}>Credits</button></footer>
+		{creditsOpen && <CreditsDialog onClose={() => setCreditsOpen(false)} />}
 	</section>;
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SetupScreen } from "./SetupScreen";
@@ -7,6 +7,20 @@ import appCss from "../App.css?raw";
 
 describe("SetupScreen", () => {
 	afterEach(cleanup);
+  it("opens public credits and restores menu focus after closing", async () => {
+    const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
+    const opener = screen.getByRole("button", { name: "Credits" });
+    await user.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "Credits" });
+    expect(within(dialog).getByRole("link", { name: "Pure Raceway" })).toHaveAttribute("href", "https://opengameart.org/content/pure-raceway");
+    expect(within(dialog).getByText("Johan Brodd (jobromedia), 2014")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Full software license notices" })).toHaveAttribute("href", "/licenses/OPEN-SOURCE.txt");
+    await user.click(within(dialog).getByRole("button", { name: "Close credits" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(opener).toHaveFocus();
+    await user.click(opener); fireEvent(screen.getByRole("dialog", { name: "Credits" }), new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(opener).toHaveFocus();
+  });
+
 	it("starts the race without legacy team mode fields", async () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);

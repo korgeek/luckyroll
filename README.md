@@ -59,7 +59,7 @@ The scene uses instanced marbles and pegs, shared device materials, bounded poin
 
 ## Sound
 
-The bundled 90s-style start, finish, and timeout effects use [MIT-licensed SoundKit assets](src/react-app/assets/audio/CREDITS.md), with Web Audio synthesis as a fallback. The license notice is included in the built app at [`/licenses/SOUNDKIT-LICENSE.txt`](public/licenses/SOUNDKIT-LICENSE.txt).
+The main-menu Credits dialog lists the bundled music, Kenney effects and open-source software, with creator, source and license links. See [sound mappings](src/react-app/assets/audio/CREDITS.md) and [bundled software license notices](public/licenses/OPEN-SOURCE.txt). Countdown and victory cues are original synthesized sounds.
 
 ## Deployment
 

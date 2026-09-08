@@ -458,7 +458,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       launchPositions,
     );
     balls = marbles.map((marble, index) => ({ id: marble.id, marble, body: bodies[index], done: false, eliminated: false, progress: 0, sampleIndex: 0, position: launchPositions[index], ...renderBindings.get(index)! }));
-    liveBalls.length = 0; rankedCameraBalls.length = 0; routeCrowd.reset(); actionDirector.reset(); rearCameraDistance = undefined; bumperCameraDistance = undefined; pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; crowdDistance = course.samples[0]?.distance ?? 0; if (!remainingRestart) rushOriginalCount = marbles.length; rushActive = false; rushPulseSteps = 0; raceClock.reset(); raceBoost.reset(); running = true; timedOut = false; fixedAccumulator = 0; gateOpen = remainingRestart; lastTick = 0; last = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? last : 0;
+    liveBalls.length = 0; rankedCameraBalls.length = 0; routeCrowd.reset(); actionDirector.reset(); rearCameraDistance = undefined; bumperCameraDistance = undefined; crowdCameraDistance = undefined; pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; crowdDistance = course.samples[0]?.distance ?? 0; if (!remainingRestart) rushOriginalCount = marbles.length; rushActive = false; rushPulseSteps = 0; raceClock.reset(); raceBoost.reset(); running = true; timedOut = false; fixedAccumulator = 0; gateOpen = remainingRestart; lastTick = 0; last = performance.now(); pausedDuration = 0; debugWasPaused = debug.isPaused(); pauseStarted = debugWasPaused ? last : 0;
     balls.forEach((ball) => { const rotation = ball.body.rotation(); dummy.position.set(ball.position.x, ball.position.y, ball.position.z); dummy.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w); dummy.scale.setScalar(1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); });
     renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
     emit({ type: "prepared" });
@@ -467,11 +467,14 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   let bumperCameraDistance: number | undefined;
   let rearCameraDistance: number | undefined;
   let rearCameraHeight = 6;
+  let crowdCameraDistance: number | undefined;
+  let crowdCameraHeight = 12;
   const updateCamera = (cameraDelta: number) => {
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
     let cameraClearance = 5;
     let bumperFeature = false;
     let routeRetreat = false;
+    let routeCrowdShot = false;
     if (birdView) {
       activeShot = "bird"; controls = initialCameraControls;
       localUp = getBirdViewUp(course.samples);
@@ -516,13 +519,32 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
           writeTrackFollowShot(cameraShot, target.position, course.samples, target.sampleIndex, bounds, cameraClearance);
         } else if (rankedCameraBalls.length || !gateOpen) {
           activeShot = "profile";
-          writeRouteCrowdFollowShot(cameraShot, crowdDistance, course.samples, bounds, cameraClearance, actionShot.mode === "boost" ? "fast" : "slow", camera.fov, camera.aspect, actionShot.mode === "feature" && actionShot.framing === "close");
+          routeCrowdShot = true;
+          const close = actionShot.mode === "feature" && actionShot.framing === "close";
+          const pace = actionShot.mode === "boost" ? "fast" : "slow";
+          const behind = close ? 4 : pace === "fast" ? 6 : 10;
+          if (crowdCameraDistance === undefined) {
+            const nearest = course.samples.reduce((a, b) => camera.position.distanceToSquared(a.position) < camera.position.distanceToSquared(b.position) ? a : b);
+            crowdCameraDistance = alongRouteDistance(camera.position, nearest.index, course.samples);
+            crowdCameraHeight = Math.max(5, camera.position.clone().sub(nearest.position).dot(nearest.up));
+          }
+          const destination = Math.max(course.samples[0].distance, crowdDistance - behind);
+          const maxStep = 30 * Math.min(cameraDelta, 100) / 1000;
+          const step = (destination - crowdCameraDistance) * cameraLerpAlpha(0.03, cameraDelta);
+          crowdCameraDistance += Math.max(-maxStep, Math.min(maxStep, step));
+          writeRouteCrowdFollowShot(cameraShot, crowdCameraDistance + behind, course.samples, bounds, cameraClearance, pace, camera.fov, camera.aspect, close);
+          const anchor = frameAtDistance(course.samples, crowdCameraDistance)!;
+          const height = new THREE.Vector3().copy(cameraShot.position).sub(anchor.position).dot(anchor.up);
+          crowdCameraHeight += (height - crowdCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
+          for (const key of ["x", "y", "z"] as const) cameraShot.position[key] = anchor.position[key] + anchor.up[key] * crowdCameraHeight;
+          localUp = anchor.up;
         }
       } else {
         activeShot = "overview";
         writeCameraShot(cameraShot, activeShot, bounds);
       }
     }
+    if (!routeCrowdShot) crowdCameraDistance = undefined;
     if (!routeRetreat) rearCameraDistance = undefined;
     if (!bumperFeature) bumperCameraDistance = undefined;
     if (birdView || bumperFeature || routeRetreat) {
@@ -538,7 +560,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     cameraUpTarget.set(localUp.x, localUp.y, localUp.z);
     const upAlpha = cameraLerpAlpha(0.05, cameraDelta); const positionAlpha = cameraLerpAlpha(0.03, cameraDelta);
     if (birdView || (cameraUpTarget.x === 0 && cameraUpTarget.y === 1 && cameraUpTarget.z === 0)) camera.up.lerp(cameraUpTarget, upAlpha); else camera.up.lerp(cameraUpTarget, upAlpha).normalize();
-    if (routeRetreat) {
+    if (routeRetreat || routeCrowdShot) {
       camera.position.copy(cameraTarget); cameraLook.copy(cameraFocus); camera.up.copy(cameraUpTarget);
     } else {
       camera.position.lerp(cameraTarget, positionAlpha); cameraLook.lerp(cameraFocus, upAlpha);
@@ -666,7 +688,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     },
     setPaused: (paused) => { manualPaused = paused; if (paused) retroSounds.stop(); },
     setBirdView: (enabled) => { birdView = enabled; if (enabled) controls = initialCameraControls; },
-    reset: () => { starts?.reset(); routeCrowd.reset(); actionDirector.reset(); rearCameraDistance = undefined; bumperCameraDistance = undefined; pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; raceClock.reset(); stopRace(); },
+    reset: () => { starts?.reset(); routeCrowd.reset(); actionDirector.reset(); rearCameraDistance = undefined; bumperCameraDistance = undefined; crowdCameraDistance = undefined; pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; raceClock.reset(); stopRace(); },
     dispose: teardown,
   };
 }

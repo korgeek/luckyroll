@@ -163,6 +163,29 @@ describe("race scene lifecycle boundary", () => {
     scene.dispose();
   });
 
+  it("moves the normal camera along a curved channel instead of its chord", async () => {
+    let distance = 10;
+    const director = vi.spyOn(cameraPlan, "createRouteCrowdDirector").mockReturnValue({ update: () => ({ distance, runStart: 0, runEnd: 63, pace: "slow" }), reset: () => undefined });
+    const scene = await startScene();
+    const template = seams.courseSamples![0];
+    const samples = Array.from({ length: 41 }, (_, index) => {
+      const angle = index * Math.PI / 40;
+      return { ...template, index, distance: angle * 20, position: { x: 20 * Math.sin(angle), y: 0, z: 20 * Math.cos(angle) }, tangent: { x: Math.cos(angle), y: 0, z: -Math.sin(angle) }, side: { x: Math.sin(angle), y: 0, z: Math.cos(angle) } };
+    });
+    seams.courseSamples!.splice(0, seams.courseSamples!.length, ...samples);
+    const now = performance.now(); const camera = cameraPoses[0].camera;
+    for (let frame = 1; frame <= 600; frame++) seams.frames.shift()?.(now + frame * 17);
+    distance = 55;
+    for (let frame = 601; frame <= 780; frame++) {
+      seams.frames.shift()?.(now + frame * 17);
+      const position = latestPose(camera).position;
+      const floor = new THREE.Vector3(position.x, 0, position.z);
+      const error = Math.min(...samples.slice(1).map((sample, index) => new THREE.Line3(new THREE.Vector3().copy(samples[index].position), new THREE.Vector3().copy(sample.position)).closestPointToPoint(floor, true, new THREE.Vector3()).distanceTo(floor)));
+      expect(error).toBeLessThan(0.01);
+    }
+    scene.dispose(); director.mockRestore();
+  });
+
   it("does not change camera framing when crowd pace enters and leaves a corner", async () => {
     let pace: "slow" | "fast" = "slow";
     const director = vi.spyOn(cameraPlan, "createRouteCrowdDirector").mockReturnValue({ update: () => ({ distance: 35, runStart: 0, runEnd: 40, pace }), reset: () => undefined });

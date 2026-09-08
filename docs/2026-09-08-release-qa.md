@@ -139,3 +139,11 @@ Final verification: 49 test files passed (487 tests passed, 3 optional tests ski
   corner. Corner entry/exit no longer changes crowd follow distance or smoothing
   speed; camera up is interpolated between route samples. Regression checks cover
   both pace boundaries, finale priority, forward-facing retreat and corner paths.
+
+- Normal crowd-follow camera now also eases along route distance, with separately
+  eased height, instead of interpolating world positions across corner chords.
+  The curved-channel scene regression verifies every transition frame stays over
+  the sampled centerline. Manual orbit/pan and the existing bumper shot remain.
+- Main-menu Credits dialog publishes music/sound creators, source/license links,
+  bundled software notices and direct build/test dependencies. Native modal close,
+  Escape and opener-focus restoration pass; the dialog was checked in Chrome.
