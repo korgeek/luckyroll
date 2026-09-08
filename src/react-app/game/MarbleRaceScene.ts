@@ -1,3 +1,4 @@
+import { createAdaptiveQuality } from "./adaptiveQuality";
 import { retroSounds, soundProximity } from "./retroSounds";
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
@@ -12,7 +13,7 @@ import { createObstaclePhysics, type DevicePose, type ObstaclePhysicsResources }
 import { createObstacleRenderGroup, disposeObstacleRenderGroup, setDeviceRenderPose } from "./track/obstacleRender";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, distanceSquaredToSample, distanceSquaredToTrackSegments, initializeTrackPhysics, insideFinishVolume } from "./track/trackPhysics";
 import { disposeTrackRenderGroup } from "./track/trackRender";
-import { projectToTrack } from "./track/trackSampler";
+import { createTrackProjector, projectToTrack } from "./track/trackSampler";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import { collectBumperHits, createBuiltInTrackResources, createRaceCourse, type RaceCourse, type RaceCourseRun, type RapierBody, type RapierWorld } from "./raceCourse";
 import { applyRaceRushPulse, shouldStartRaceRush } from "./raceRush";
@@ -296,7 +297,10 @@ export const evaluateRaceBody = (
   });
 };
 
-export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void, selection: import("../designer/trackDesign").RaceCourseSelection = { kind: "builtin" }): RaceScene {
+export type FrameProfile = { frameMs: number; physicsMs: number; audioMs: number; trackingMs: number; renderMs: number };
+export type ScenePerformanceOptions = { onProfile?: (frame: FrameProfile) => void; pixelRatioScale?: number };
+
+export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEvent) => void, selection: import("../designer/trackDesign").RaceCourseSelection = { kind: "builtin" }, performanceOptions: ScenePerformanceOptions = {}): RaceScene {
   const debugEnabled = isTrackDebugEnabled(window.location.search);
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   let course: RaceCourse;
@@ -306,10 +310,13 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
     return { start: () => undefined, restartRemaining: () => undefined, boost: () => false, setPaused: () => undefined, setBirdView: () => undefined, reset: () => undefined, dispose: () => undefined };
   }
+  const project = createTrackProjector(course.samples);
   const profile = selectQualityProfile({ width: window.innerWidth, devicePixelRatio: window.devicePixelRatio });
+  const quality = createAdaptiveQuality();
+  let qualityLevel = 0;
   const debug = createDebugCameraState(debugEnabled);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.pixelRatioCap));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.pixelRatioCap) * (performanceOptions.pixelRatioScale ?? 1));
   renderer.shadowMap.enabled = profile.shadows;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
@@ -404,6 +411,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   type SceneStartRequest = { marbles: Marble[]; seed: number; remainingRestart?: boolean };
   const bumperContacts = new Set<string>();
   const pinwheelContacts = new Set<string>();
+  const resetQualityWindow = () => { quality.sample(0, false); };
+  document.addEventListener("visibilitychange", resetQualityWindow);
   const stopRace = () => {
     retroSounds.ambience(false);
     bumperContacts.clear(); pinwheelContacts.clear();
@@ -424,10 +433,12 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (frameId !== undefined) { cancelAnimationFrame(frameId); frameId = undefined; }
     pointers.forEach((_point, pointerId) => { if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId); });
     window.removeEventListener("resize", resize); canvas.removeEventListener("pointerdown", onPointerDown); canvas.removeEventListener("pointermove", onPointerMove); canvas.removeEventListener("pointerup", onPointerUp); canvas.removeEventListener("pointercancel", onPointerUp); canvas.removeEventListener("wheel", onWheel); canvas.removeEventListener("contextmenu", onContextMenu); pointers.clear(); panPointers.clear(); pinchDistance = undefined;
+    document.removeEventListener("visibilitychange", resetQualityWindow);
     renderer.dispose();
   };
 
   const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
+    quality.reset();
     bumperContacts.clear(); pinwheelContacts.clear();
     retroSounds.ambience(false);
     raceRun?.dispose(); raceRun = undefined;
@@ -502,28 +513,41 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     camera.position.lerp(cameraTarget, positionAlpha); cameraLook.lerp(cameraFocus, upAlpha); camera.lookAt(cameraLook);
   };
 
+  const clock = () => performanceOptions.onProfile ? performance.now() : 0;
   const loop = (now: number) => {
     if (disposed) return;
     frameId = requestAnimationFrame(loop);
+    let physicsMs = 0; let audioMs = 0; let trackingMs = 0;
     const fps = frameRate.sample(now); const cameraDelta = Math.max(0, now - last); const delta = Math.min(33, cameraDelta); last = now;
     if (now - lastCameraInputAt >= 3_000) controls = relaxControls(controls, reducedMotion ? 1 : delta / 3_000);
     const paused = manualPaused || debug.isPaused();
+    const nextQuality = quality.sample(cameraDelta, running && gateOpen && !paused && !document.hidden);
+    if (nextQuality !== qualityLevel && performanceOptions.pixelRatioScale === undefined) {
+      qualityLevel = nextQuality;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.pixelRatioCap) * [1, 0.8, 0.65][qualityLevel]);
+      resize();
+    }
     if (running && paused && !debugWasPaused) pauseStarted = now;
     if (running && !paused && debugWasPaused) pausedDuration += now - pauseStarted;
     debugWasPaused = paused;
     if (running && world && raceRun && renderMeshes.length && !paused) {
       fixedAccumulator += delta;
       while (fixedAccumulator >= 1000 / 60) {
+        const physicsStarted = clock();
         const pose = raceRun.stepBeforeWorld();
         world.timestep = 1 / 60;
         world.step();
         const boosterEvents = raceRun.stepAfterWorld(balls.map((ball) => ball.body));
+        physicsMs += clock() - physicsStarted;
+        const audioStarted = clock();
         for (const event of boosterEvents) {
           const body = balls[event.marbleId - 1]?.body;
           if (body) retroSounds.obstacle("boost", soundProximity(body.translation(), cameraLook));
         }
         for (const hit of collectBumperHits(world, raceRun.bumperColliders ?? [], bumperContacts)) retroSounds.obstacle("bumper", soundProximity(hit, cameraLook));
         for (const hit of collectBumperHits(world, raceRun.pinwheelColliders ?? [], pinwheelContacts)) retroSounds.obstacle("pinwheel", soundProximity(hit, cameraLook, 12));
+        audioMs += clock() - audioStarted;
+        const adjudicationStarted = clock();
         raceClock.consumeAfterWorldStep(pose, now, pausedDuration);
         gateOpen = pose.raceClockStarted;
         raceBoost.step({ running, manualPaused, debugPaused: debug.isPaused(), gateOpen, disposed, rushActive });
@@ -531,7 +555,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
           if (ball.done) return;
           const position = ball.body.translation();
           if (![position.x, position.y, position.z].every(Number.isFinite)) { ball.done = true; ball.eliminated = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "non-finite" }); return; }
-          const raceState = evaluateRaceBody(ball.body, course.samples);
+          const raceState = evaluateRaceBody(ball.body, course.samples, project);
           if (!Number.isFinite(raceState.projection.progress) || (distanceSquaredToSample(position, course.samples[raceState.projection.sampleIndex]) > 15 ** 2 && distanceSquaredToTrackSegments(position, course.samples) > 15 ** 2)) { ball.done = true; ball.eliminated = true; ball.body.setEnabled(false); emit({ type: "dnf", marble: ball.marble, reason: "escape" }); return; }
           ball.progress = raceState.projection.progress; ball.sampleIndex = raceState.projection.sampleIndex; ball.position = raceState.position;
           if (raceState.finished) { ball.done = true; ball.body.setEnabled(false); emit({ type: "finish", marble: ball.marble }); }
@@ -546,6 +570,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         if (rushActive) {
           if (++rushPulseSteps >= 60) { rushPulseSteps = 0; applyRaceRushPulse(balls, course.samples); }
         }
+        physicsMs += clock() - adjudicationStarted;
         fixedAccumulator -= 1000 / 60;
         if (!balls.some((ball) => !ball.done)) break;
       }
@@ -554,6 +579,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
       liveBalls.length = 0;
       balls.forEach((ball) => { if (!ball.done) liveBalls.push(ball); });
+      const trackingStarted = clock();
       refreshCameraRankView(liveBalls, rankedCameraBalls);
       const cameraTraffic = balls.map(ball => ({ id: ball.id, distance: alongRouteDistance(ball.position, ball.sampleIndex, course.samples), sampleIndex: ball.sampleIndex, done: ball.done, eliminated: ball.eliminated }));
       const crowdState = routeCrowd.update(cameraTraffic, balls.length);
@@ -568,12 +594,15 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         lastTick = now;
         emit({ type: "tick", elapsedMs, fps, finishedCount, eliminatedCount, remaining: liveBalls.map((ball) => ball.marble), standings: createLiveStandings(balls, course.samples), boostRemainingMs: raceBoost.remainingMs(), leader: leader?.marble, trailer: trailer?.marble });
       }
+      trackingMs += clock() - trackingStarted;
       if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
     retroSounds.ambience(running && !paused && rushActive);
     if (paused) updateCamera(cameraDelta);
+    const renderStarted = clock();
     renderer.render(scene, camera);
+    if (running && !paused && !document.hidden) performanceOptions.onProfile?.({ frameMs: cameraDelta, physicsMs, audioMs, trackingMs, renderMs: clock() - renderStarted });
     if (trackDebug) trackDebug.update({
       fps, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       active: balls.filter((ball) => !ball.done).length, finished: balls.filter((ball) => ball.done).length, shot: activeShot,

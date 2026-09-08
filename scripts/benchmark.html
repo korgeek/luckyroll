@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Lucky Roll performance comparison</title><style>body{margin:0;background:#050713;color:white;font:12px monospace}canvas{width:100vw;height:80vh}pre{position:absolute;top:0;pointer-events:none;background:#000b;max-height:45vh;overflow:hidden}</style></head><body><button id="start">Run benchmark</button><canvas></canvas><pre id="output">Preparing…</pre><script type="module">
+import {createRaceScene} from '/src/react-app/game/MarbleRaceScene.ts';
+import {createDefaultTrackDesign} from '/src/react-app/designer/trackDesign.ts';
+const runs=[50,100,200,300].map(count=>({count,name:'base',options:{}})).concat([
+{count:300,name:'resolution75',options:{pixelRatioScale:.75}}
+]);
+let activeScene; document.addEventListener("visibilitychange",()=>activeScene?.setPaused(document.hidden));
+const results=[]; const output=document.querySelector('#output');
+function next(){
+ const run=runs.shift(); if(!run){output.textContent=JSON.stringify({done:true,results},null,2);return;}
+ const frames=[];let elapsed=0;let ending=false;
+ const scene=createRaceScene(document.querySelector('canvas'), event=>{
+ if(event.type==='error') output.textContent=event.message;
+ },{kind:'custom',track:createDefaultTrackDesign()}, {...run.options,pixelRatioScale:run.options.pixelRatioScale??1,onProfile:frame=>{
+ if(ending || frame.frameMs>250)return;
+ elapsed+=frame.frameMs;if(elapsed>3000)frames.push(frame);
+ output.textContent=JSON.stringify({run:run.name,count:run.count,seconds:elapsed/1000,results},null,2);
+ if(elapsed<15000)return;ending=true;
+ const mean=key=>frames.reduce((sum,row)=>sum+row[key],0)/frames.length;
+ const p95=key=>frames.map(row=>row[key]).sort((a,b)=>a-b)[Math.floor(frames.length*.95)];
+ results.push({count:run.count,name:run.name,fps:1000/mean('frameMs'),frameP95:p95('frameMs'),physics:mean('physicsMs'),audio:mean('audioMs'),tracking:mean('trackingMs'),renderSubmit:mean('renderMs')});
+ setTimeout(()=>{scene.dispose();next();},0);
+ }});
+ activeScene=scene;
+ scene.start(Array.from({length:run.count},(_,i)=>({id:i+1,ownerId:String(i%8),symbol:'●',color:['#ff4f8f','#58e7ff','#ffcf58','#a883ff'][i%4]})),23);
+}
+document.querySelector("#start").onclick = event => { event.target.disabled = true; next(); };
+</script></body></html>

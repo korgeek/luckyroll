@@ -196,3 +196,36 @@ export const projectToTrack = (
     distanceSquared,
   };
 };
+
+// Immutable track samples: skip blocks whose bounds cannot contain a nearer sample.
+// This preserves exhaustive-search distance arithmetic and first-index tie breaking.
+export const createTrackProjector = (samples: readonly TrackSample[]): ((position: Vec3) => ReturnType<typeof projectToTrack>) => {
+  const blocks: Array<{ start: number; end: number; minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }> = [];
+  for (let start = 0; start < samples.length; start += 32) {
+    const end = Math.min(start + 32, samples.length);
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = start; i < end; i++) {
+      const p = samples[i].position;
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); minZ = Math.min(minZ, p.z);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); maxZ = Math.max(maxZ, p.z);
+    }
+    blocks.push({ start, end, minX, minY, minZ, maxX, maxY, maxZ });
+  }
+  return position => {
+    if (!samples.length) throw new Error("Cannot project to an empty track sample list.");
+    let sampleIndex = 0; let distanceSquared = Infinity;
+    for (const block of blocks) {
+      const dx = Math.max(block.minX - position.x, 0, position.x - block.maxX);
+      const dy = Math.max(block.minY - position.y, 0, position.y - block.maxY);
+      const dz = Math.max(block.minZ - position.z, 0, position.z - block.maxZ);
+      if (dx ** 2 + dy ** 2 + dz ** 2 > distanceSquared) continue;
+      for (let index = block.start; index < block.end; index++) {
+        const p = samples[index].position;
+        const candidate = (position.x - p.x) ** 2 + (position.y - p.y) ** 2 + (position.z - p.z) ** 2;
+        if (candidate < distanceSquared) { sampleIndex = index; distanceSquared = candidate; }
+      }
+    }
+    return { sampleIndex, progress: sampleIndex / (samples.length - 1), distanceSquared };
+  };
+};

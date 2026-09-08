@@ -3,7 +3,7 @@ import { retroSounds } from "./retroSounds";
 import type { TrackSample } from "./track/trackTypes";
 
 const seams = vi.hoisted(() => ({
-  frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
+  pixelRatios: [] as number[], frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as TrackSample[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, badBodyIndex: -1, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
 	boosterEvent: false, featureSamples: false, bodyX: 0, rushVelocityWrites: [] as { x: number; y: number; z: number }[],
@@ -14,7 +14,7 @@ vi.mock("three", async () => {
   class TestRenderer {
     shadowMap = { enabled: false }; outputColorSpace = actual.SRGBColorSpace; toneMapping = actual.NoToneMapping;
     info = { render: { calls: 0, triangles: 0 } };
-    setPixelRatio(): void {} setSize(): void {} render(): void {}
+    setPixelRatio(value: number): void { seams.pixelRatios.push(value); } setSize(): void {} render(): void {}
     dispose(): void { seams.rendererDisposals += 1; seams.order.push("renderer-dispose"); }
   }
   class TestInstancedMesh extends actual.InstancedMesh {
@@ -71,7 +71,10 @@ vi.mock("./track/trackPhysics", () => ({
   distanceSquaredToSample: () => 0, distanceSquaredToTrackSegments: () => 0, insideFinishVolume: () => false, createTrackCollider: () => undefined,
 }));
 
-vi.mock("./track/trackSampler", () => ({ projectToTrack: (position: { x?: number }, samples: readonly unknown[]) => { seams.projectedSamples.push(samples as unknown[]); return { sampleIndex: seams.featureSamples ? Math.max(0, Math.min(3, Math.round((position.x ?? 0) / 13))) : 0, progress: seams.featureSamples ? (position.x ?? 0) / 40 : 0, distanceSquared: 0 }; } }));
+vi.mock("./track/trackSampler", () => {
+  const projectToTrack = (position: { x?: number }, samples: readonly unknown[]) => { seams.projectedSamples.push(samples as unknown[]); return { sampleIndex: seams.featureSamples ? Math.max(0, Math.min(3, Math.round((position.x ?? 0) / 13))) : 0, progress: seams.featureSamples ? (position.x ?? 0) / 40 : 0, distanceSquared: 0 }; };
+  return { projectToTrack, createTrackProjector: (samples: readonly unknown[]) => (position: { x?: number }) => projectToTrack(position, samples) };
+});
 
 vi.mock("./cameraControls", async () => {
   const actual = await vi.importActual<typeof import("./cameraControls")>("./cameraControls");
@@ -116,7 +119,7 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
-    seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.boosterEvent = false; seams.featureSamples = false; seams.bodyX = 0; seams.rushVelocityWrites.length = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
+    seams.pixelRatios.length = 0; seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.boosterEvent = false; seams.featureSamples = false; seams.bodyX = 0; seams.rushVelocityWrites.length = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
@@ -133,6 +136,21 @@ describe("race scene lifecycle boundary", () => {
     expect(obstacle).toHaveBeenCalledTimes(calls);
     scene.dispose(); expect(ambience).toHaveBeenLastCalledWith(false);
     obstacle.mockRestore(); ambience.mockRestore();
+  });
+
+  it("lowers render resolution on sustained slow frames without altering physics steps", async () => {
+    const scene = await startScene();
+    const now = performance.now();
+    for (let frame = 1; frame <= 220; frame++) seams.frames.shift()?.(now + frame * 33);
+    const base = seams.pixelRatios[0];
+    expect(seams.pixelRatios).toEqual([base, base * 0.8, base * 0.65]);
+    expect(seams.worlds[0].timestep).toBe(1 / 60);
+    const before = seams.worldSteps;
+    scene.setPaused(true);
+    for (let frame = 221; frame <= 320; frame++) seams.frames.shift()?.(now + frame * 33);
+    expect(seams.worldSteps).toBe(before);
+    expect(seams.pixelRatios).toHaveLength(3);
+    scene.dispose();
   });
 
   it("emits a custom build error before creating a renderer", () => {

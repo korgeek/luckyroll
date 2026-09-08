@@ -11,7 +11,7 @@ import {
   initializeTrackPhysics,
   speed,
 } from "../track/trackPhysics";
-import { projectToTrack } from "../track/trackSampler";
+import { createTrackProjector, projectToTrack } from "../track/trackSampler";
 import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
@@ -188,6 +188,7 @@ const setPose = (body: RapierBody, position: Vec3, rotation: Quaternion, next: b
 const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): ModularPhysicsResources => {
   const rapier = getInitializedTrackPhysicsRapier();
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
+  const project = createTrackProjector(built.samples);
   const ownedBodies: RapierBody[] = [];
   const fixedColliders: RapierCollider[] = [];
   const trackBody = world.createRigidBody(rapier.RigidBodyDesc.fixed());
@@ -338,7 +339,7 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
         }
       }
 
-      const sample = built.samples[projectToTrack(current, built.samples).sampleIndex];
+      const sample = built.samples[project(current).sampleIndex];
       const slot = marbleIndex * cellCount + sample.cellIndex;
       const forwardSpeed = dot(velocity, sample.tangent);
       const innerContact = Math.sign(dot(sample.centerlineCurvature, sample.side)) * dot(subtract(current, sample.position), sample.side)

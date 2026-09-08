@@ -74,3 +74,24 @@ First full integration run identified a no-device test fixture missing the new c
 Frozen-code production build and full `src/react-app` ESLint PASS. Existing Vite large-chunk advisory remains. A development HMR dependency-array warning appeared while live code changed; a fresh page load plus full countdown/start had zero console errors. QA viewport override reset and functioning temporary QA tabs closed.
 
 Default-map follow-up: the final route is booster → booster → bumper → finish, and bumper rows widen 1 → 2 → 3 in travel order. Device, render, design, route and physics checks: 78 passed, 1 optional 300-marble soak skipped. The 100-marble default seed-23 race completed within 120 seconds with no escapes, stalls or booster-cap violations. Lint and production build/dry-run passed.
+
+## Adaptive rendering and CPU profiling follow-up
+
+The in-app browser ran seed 23 with 50/100/200/300 marbles at the normal fixed physics step. Each measurement discarded the first 3 seconds and averaged the following 12 seconds. `scripts/benchmark.html` is a Vite-only manual benchmark page (not a production entry point); its Run benchmark button repeats the four counts and a 75% resolution comparison. It pauses when hidden and reports CPU timing plus delivered frame intervals.
+
+| Marbles | Before: physics/devices + adjudication CPU ms/frame | After indexed projection | FPS before/after |
+| --- | ---: | ---: | --- |
+| 50 | 3.92 | 1.72 | ~60 / ~60 |
+| 100 | 5.18 | 2.21 | ~60 / ~60 |
+| 200 | 7.92 | 4.28 | ~60 / ~60 |
+| 300 | 10.79 | 5.29 | ~60 / ~60 |
+
+These are short local-browser observations, not controlled hardware benchmarks or measurements of an entire race. Background regression tests overlapped part of the after run. Render timing measures CPU submission, not GPU execution. Vsync capped the observed FPS; this demonstrates reduced CPU work, not a higher FPS guarantee on every device. Bumper/blade sound detection cost about 0.014 ms/frame in the 300-marble baseline; the initial crowded segment does not represent maximum simultaneous obstacle contacts later in the race.
+
+The repeated nearest-track scan was reduced with immutable 32-sample bounding boxes. A box is skipped only when its nearest possible distance exceeds the best actual sample distance. Exhaustive arithmetic and first-index tie-breaking remain identical; 1,200 positions around the actual default track plus duplicate-point/empty-input cases compare directly with the original exhaustive projector. Physics timestep, velocities, collision handling, finish checks and ranking rules are unchanged.
+
+Automatic rendering fallback now uses relative pixel ratios 1.0 → 0.8 → 0.65 (64% and 42.25% of the original pixel count). After a 1-second warmup, 500 ms measurement windows require <45 FPS for at least 2 seconds before reducing one step, or >=57 FPS for at least 10 seconds before recovering one step. Every transition starts a fresh window. Pauses, visibility changes, non-finite intervals and >250 ms loading gaps clear pressure. A new race restores the initial tier. This is a rendering fallback for slower devices; it does not claim to solve a physics bottleneck by lowering resolution.
+
+No shadow tier was added: the existing scene has no shadow-casting marbles/lights. Experimental surface-map removal and 100 ms camera-target refresh showed no FPS gain at 300 marbles; camera CPU time changed only from about 0.14 to 0.06 ms/frame. Those experimental branches were removed. Camera motion and target calculations remain per-frame; ranking-display cadence remains 100 ms. Controller hysteresis, exclusions and actual scene pixel-ratio changes have automated checks.
+
+Final verification: 49 test files passed (487 tests passed, 3 optional tests skipped), including the 100-marble default completion check; final TypeScript/Vite/Worker dry-run and ESLint passed. No production deployment verification was performed in this follow-up.
