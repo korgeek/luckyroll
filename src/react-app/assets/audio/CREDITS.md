@@ -43,7 +43,7 @@ Kenney (Kenney Vleugels) assets, downloaded 2026-09-08, released under
 
 | Event / bundled kenney-*.wav | Source pack / original file under Audio/ |
 | --- | --- |
-| checkpoint | Interface / glass_001.ogg |
+| finish-line crossing (kenney-checkpoint.ogg) | Interface / confirmation_002.ogg (user-provided, copied unchanged) |
 | dnf | Interface / drop_002.ogg |
 | timeout | Interface / error_003.ogg |
 | bumper (kenney-bumper.ogg) | Impact / impactMining_003.ogg (user-provided, copied unchanged) |

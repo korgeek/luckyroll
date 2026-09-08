@@ -10,7 +10,7 @@ import timeoutUrl from "../assets/audio/kenney-timeout.wav?url";
 import countdownUrl from "../assets/audio/race-countdown.wav?url";
 import boostUrl from "../assets/audio/race-boost.wav?url";
 import rushUrl from "../assets/audio/kenney-hurry-up.ogg?url";
-import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
+import checkpointUrl from "../assets/audio/kenney-checkpoint.ogg?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.ogg?url";
