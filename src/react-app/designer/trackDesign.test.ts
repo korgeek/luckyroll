@@ -10,7 +10,7 @@ describe("createDefaultTrackDesign", () => {
       "start", "straight", "funnel", "straight", "curve", "curve", "straight", "pinwheel", "straight", "curve",
       "curve", "straight", "wave", "straight", "curve", "curve", "straight", "booster", "straight", "curve",
       "curve", "straight", "funnel", "straight", "curve", "curve", "straight", "funnel", "straight", "curve",
-      "straight", undefined, undefined, undefined, undefined, "curve", "booster", "bumper", "straight", "finish",
+      "straight", undefined, undefined, undefined, undefined, "curve", "booster", "booster", "bumper", "finish",
     ]);
     expect(validateTrackDesign(track).ok).toBe(true);
     expect(resolveRoute(track.cells).ok).toBe(true);

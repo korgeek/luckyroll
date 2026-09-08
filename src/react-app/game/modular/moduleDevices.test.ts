@@ -19,22 +19,22 @@ describe("canonical modular devices", () => {
     const built = buildModularTrack(createValidTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
 
-    expect(devices.boosters.map((booster) => [booster.cellIndex, booster.returnAssist])).toEqual([[17, false], [36, true]]);
+    expect(devices.boosters.map((booster) => [booster.cellIndex, booster.returnAssist])).toEqual([[17, false], [36, false], [37, true]]);
   });
 
-  it("uses six small round bumpers in a three-two-one pinball pattern", () => {
+  it("uses six small round bumpers in a one-two-three pinball pattern", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
     const cellIndex = devices.bumpers[0]!.cellIndex;
     const bumpers = devices.bumpers.filter((bumper) => bumper.cellIndex === cellIndex);
 
     expect(bumpers.map((bumper) => bumper.shape)).toEqual(Array.from({ length: 6 }, () => "round"));
-    expect(bumpers.map((bumper) => bumper.localU)).toEqual([0.25, 0.25, 0.25, 0.5, 0.5, 0.75]);
+    expect(bumpers.map((bumper) => bumper.localU)).toEqual([0.25, 0.5, 0.5, 0.75, 0.75, 0.75]);
     const laterals = bumpers.map((bumper) => {
       const frame = frameAt(built.samples.filter((sample) => sample.cellIndex === cellIndex), bumper.localU);
       return dot({ x: bumper.center.x - frame.position.x, y: bumper.center.y - frame.position.y, z: bumper.center.z - frame.position.z }, frame.side);
     });
-    laterals.forEach((lateral, index) => expect(lateral).toBeCloseTo([-2.4, 0, 2.4, -1.2, 1.2, 0][index], 8));
+    laterals.forEach((lateral, index) => expect(lateral).toBeCloseTo([0, -1.2, 1.2, -2.4, 0, 2.4][index], 8));
     expect(bumpers[5]).toMatchObject({ radius: 0.75 * MARBLE_DIAMETER, height: 1.4 * MARBLE_DIAMETER });
   });
 

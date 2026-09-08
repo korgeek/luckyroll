@@ -10,7 +10,7 @@ import {
 
 const BUMPER_HEIGHT = 1.4 * MARBLE_DIAMETER;
 const ROUND_BUMPER_RADIUS = 0.75 * MARBLE_DIAMETER;
-const BUMPER_PLACEMENTS = [[0.25, -2.4], [0.25, 0], [0.25, 2.4], [0.5, -1.2], [0.5, 1.2], [0.75, 0]] as const;
+const BUMPER_PLACEMENTS = [[0.25, 0], [0.5, -1.2], [0.5, 1.2], [0.75, -2.4], [0.75, 0], [0.75, 2.4]] as const;
 const PINWHEEL_RADIUS = 4;
 const PINWHEEL_ARM_THICKNESS = 0.5 * MARBLE_DIAMETER;
 const PINWHEEL_ANGULAR_SPEED = 5;

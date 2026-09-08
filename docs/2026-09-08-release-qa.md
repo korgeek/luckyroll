@@ -24,8 +24,8 @@
 | Gentler inner curves, central forward guide | Inner inset compensation, contact assist and chevrons | Preserved; curve speed probes exist |
 | Slightly narrower wave/funnel | Wave10.8, funnel8.8, unchanged12 ports | Implemented |
 | Round staggered moguls; later request for higher moguls | Four smooth hills now height1.0/radius1.8; same ports/footprint | PASS: exact mesh0.9948233, strict chord unchanged, all3 lanes fully exit at8/18/42 within8s |
-| Six small circular pinball posts3→2→1 | R0.51/H0.952, same-row gap1.38 (~2 marble diameters); native cylinder parity tests | Implemented |
-| Default demo, earlier wheel, last pinball | Cells2=funnel,7=wheel,12=wave,17/36=booster,37=pinball | Route and default tests PASS |
+| Six small circular pinball posts1→2→3 | R0.51/H0.952, same-row gap1.38 (~2 marble diameters); native cylinder parity tests | Implemented |
+| Default demo, earlier wheel, last pinball | Cells2=funnel,7=wheel,12=wave,17/36/37=booster,38=pinball,39=finish | Route and default tests PASS |
 | Finish dressing and strong fullscreen confetti | Collider-free arch/checker; Astra300-piece center burst, reduced motion and complete-only gating | Portrait fullscreen burst visually verified PASS |
 | Git-hosted MIT audio instead of Kenney | Three SoundKit M4A files; attribution/public license; mute/preload/fallback tests | Assets and tests PASS; actual audible playback not verified |
 | GA4 G-P9JP6JXRQ9, no white initial flash | index inline dark background and Google tag | Previously deployed; analytics ingestion cannot be inferred from code |
@@ -72,3 +72,5 @@ Task4 review found deferred audio unlock could miss browser user activation. Exi
 First full integration run identified a no-device test fixture missing the new cell36 booster, and a build+geometry-validation check taking5.6s against the default5s timeout. Fixture corrected and only that test budget set to15s; assertions unchanged. A new START-button RED test was also picked up while the latest requested UI was being implemented. All three failures have focused GREEN checks; final full run uses frozen code.
 
 Frozen-code production build and full `src/react-app` ESLint PASS. Existing Vite large-chunk advisory remains. A development HMR dependency-array warning appeared while live code changed; a fresh page load plus full countdown/start had zero console errors. QA viewport override reset and functioning temporary QA tabs closed.
+
+Default-map follow-up: the final route is booster → booster → bumper → finish, and bumper rows widen 1 → 2 → 3 in travel order. Device, render, design, route and physics checks: 78 passed, 1 optional 300-marble soak skipped. The 100-marble default seed-23 race completed within 120 seconds with no escapes, stalls or booster-cap violations. Lint and production build/dry-run passed.

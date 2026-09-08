@@ -125,7 +125,7 @@ describe("modular track rendering", () => {
 
   it("does not allocate device meshes for a track with no devices and disposes once", () => {
     const cells = [...createValidTrackDesign().cells] as TrackCell[];
-    for (const cellIndex of [2, 7, 12, 17, 22, 27, 36, 37]) cells[cellIndex] = { kind: "straight", rotation: 0 };
+    for (const cellIndex of [2, 7, 12, 17, 22, 27, 36, 37, 38]) cells[cellIndex] = { kind: "straight", rotation: 0 };
     const zeroDevice = createModularTrackRender(buildModularTrack({ ...createValidTrackDesign(), cells }));
     expect(zeroDevice.group.getObjectByName("bumper-shafts")).toBeUndefined();
     expect(zeroDevice.group.getObjectByName("pinwheel-arms")).toBeUndefined();

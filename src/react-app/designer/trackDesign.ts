@@ -38,7 +38,7 @@ export const createDefaultTrackDesign = (name = "New Track"): TrackDesign => Obj
     { kind: "curve", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "funnel", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "curve", rotation: 2 },
     { kind: "curve", rotation: 1 }, { kind: "straight", rotation: 0 }, { kind: "funnel", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "curve", rotation: 3 },
     { kind: "straight", rotation: 1 }, null, null, null, null,
-    { kind: "curve", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "bumper", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "finish", rotation: 0 },
+    { kind: "curve", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "bumper", rotation: 0 }, { kind: "finish", rotation: 0 },
   ]),
 });
 
