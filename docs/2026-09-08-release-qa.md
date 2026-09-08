@@ -147,3 +147,7 @@ Final verification: 49 test files passed (487 tests passed, 3 optional tests ski
 - Main-menu Credits dialog publishes music/sound creators, source/license links,
   bundled software notices and direct build/test dependencies. Native modal close,
   Escape and opener-focus restoration pass; the dialog was checked in Chrome.
+
+- Results transition waits until all marbles are resolved, then holds the finish
+  view for two seconds. The timer is cancelled when leaving/replacing the race;
+  remaining racers, the 1999/2000 ms boundary and menu-exit cancellation are tested.

@@ -176,7 +176,9 @@ describe("default race course and camera controls", () => {
 		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(2));
 		expect(scene.start.mock.calls[1][0]).toHaveLength(100);
 		const emit = latestSceneEmitter();
+    vi.useFakeTimers();
 		act(() => { for (let id = 1; id <= 100; id += 1) emit({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); }); vi.useRealTimers();
 		await user.click(await screen.findByRole("button", { name: "Replay same settings" }));
 		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(3));
 		expect(scene.start.mock.calls[2][0]).toHaveLength(100);
@@ -416,19 +418,38 @@ describe("default race course and camera controls", () => {
 		setItem.mockRestore();
 	});
 
-	it("celebrates only a completed race with a finisher", async () => {
+	it("waits for the last marble, then holds the race for exactly two seconds", async () => {
 		const user = userEvent.setup();
 		const { container } = render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
 		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		const emit = scene.create.mock.calls[0][1] as (event: { type: "finish"; marble: { id: number; ownerId: string; color: string; symbol: string } }) => void;
-		act(() => {
-			for (let id = 1; id <= 100; id += 1) emit({ type: "finish", marble: { id, ownerId: id === 100 ? "player-2" : "player-1", color: "#fff", symbol: "◆" } });
-		});
+		vi.useFakeTimers();
+		act(() => { for (let id = 1; id < 100; id++) emit({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+		await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+		expect(screen.queryByRole("button", { name: "Replay same settings" })).not.toBeInTheDocument();
+		act(() => emit({ type: "finish", marble: { id: 100, ownerId: "player-2", color: "#fff", symbol: "◆" } }));
+		await act(async () => { await vi.advanceTimersByTimeAsync(1_999); });
+		expect(container.querySelector("canvas")).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Replay same settings" })).not.toBeInTheDocument();
+		await act(async () => { await vi.advanceTimersByTimeAsync(1); }); vi.useRealTimers();
 		expect(await screen.findByRole("button", { name: "Replay same settings" })).toBeInTheDocument();
 		expect(container.querySelector(".result-confetti")).toBeInTheDocument();
 	});
+
+  it("cancels the delayed result transition when returning to the menu", async () => {
+    const user = userEvent.setup(); render(<App />);
+    await screen.findByRole("region", { name: "Main menu" });
+    await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    await waitFor(() => expect(scene.create).toHaveBeenCalled());
+    vi.useFakeTimers();
+    act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+    fireEvent.click(screen.getByRole("button", { name: "Back to Menu" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); }); vi.useRealTimers();
+    expect(screen.getByRole("region", { name: "Main menu" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Replay same settings" })).not.toBeInTheDocument();
+  });
 
   it.each([false, true])("plays results BGM only when the race is not muted (%s)", async (muted) => {
     const user = userEvent.setup(); render(<App />);
@@ -436,7 +457,9 @@ describe("default race course and camera controls", () => {
     await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalled());
     if (muted) await user.click(screen.getByRole("button", { name: "Mute" }));
+    vi.useFakeTimers();
     act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); }); vi.useRealTimers();
     expect(await screen.findByRole("button", { name: "Replay same settings" })).toBeInTheDocument();
     expect(retroSounds.music).toHaveBeenLastCalledWith(muted ? null : "results");
     vi.mocked(retroSounds.music).mockClear();
@@ -444,7 +467,9 @@ describe("default race course and camera controls", () => {
     expect(retroSounds.music).toHaveBeenCalledWith(muted ? null : "normal");
     if (!muted) expect(retroSounds.music).not.toHaveBeenCalledWith(null);
     await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));
+    vi.useFakeTimers();
     act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); }); vi.useRealTimers();
 
     expect(screen.getByRole("link", { name: "Level finish fanfares" })).toHaveAttribute("href", "https://opengameart.org/content/level-finish-fanfares");
     await user.click(screen.getByRole("button", { name: "Back to Menu" }));

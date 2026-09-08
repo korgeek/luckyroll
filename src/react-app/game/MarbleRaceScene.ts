@@ -645,7 +645,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       const leader = rankedCameraBalls[0]; const trailer = rankedCameraBalls[rankedCameraBalls.length - 1];
       const eliminatedCount = balls.reduce((count, ball) => count + Number(ball.eliminated), 0);
       const finishedCount = balls.reduce((count, ball) => count + Number(ball.done && !ball.eliminated), 0);
-      updateCamera(cameraDelta);
+      if (liveBalls.length) updateCamera(cameraDelta);
       if (shouldEmitSceneTick(now, lastTick, elapsedMs, liveBalls.length)) {
         lastTick = now;
         emit({ type: "tick", elapsedMs, fps, finishedCount, eliminatedCount, remaining: liveBalls.map((ball) => ball.marble), standings: createLiveStandings(balls, course.samples), boostRemainingMs: raceBoost.remainingMs(), leader: leader?.marble, trailer: trailer?.marble });

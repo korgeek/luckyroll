@@ -125,7 +125,7 @@ function App() {
 
 	useEffect(() => {
 		if (view !== "race" || !session || !canvasRef.current) return;
-		let active = true; let firstFrame: number | undefined; let secondFrame: number | undefined; let scene: RaceScene | undefined; let completed = 0; let finishers = 0;
+		let active = true; let firstFrame: number | undefined; let secondFrame: number | undefined; let scene: RaceScene | undefined; let completed = 0; let finishers = 0; let resultsTimer: number | undefined;
 		const fail = (error: unknown) => { if (active) { countdownActiveRef.current = false; setCountdown(undefined); setSceneReady(false); setMessage(error instanceof Error ? error.message : "Race could not start."); setView(raceReturnView); } };
 		void import("./game/MarbleRaceScene").then(({ createRaceScene }) => {
 			firstFrame = window.requestAnimationFrame(() => { secondFrame = window.requestAnimationFrame(() => {
@@ -142,14 +142,18 @@ function App() {
 					completed += 1;
 					if (event.type === "finish") { retroSounds.checkpoint(); finishers += 1; setFinished((current) => [...current, event.marble]); }
 					else { retroSounds.dnf(); setMessage(`Marble #${event.marble.id} did not finish (${event.reason}).`); }
-					if (completed === session.marbles.length) { const complete = finishers === session.marbles.length; retroSounds.stop(); setCelebrate(complete); setView("results"); }
+					if (completed === session.marbles.length) {
+						const complete = finishers === session.marbles.length;
+						setSceneReady(false);
+						resultsTimer = window.setTimeout(() => { if (active) { retroSounds.stop(); setCelebrate(complete); setView("results"); } }, 2_000);
+					}
 				}
 			}, session.course);
 			sceneRef.current = scene; scene.setPaused(true); scene.start(session.marbles, session.seed);
 			} catch (error) { fail(error); }
 			}); });
 		}).catch(fail);
-		return () => { active = false; if (firstFrame !== undefined) window.cancelAnimationFrame(firstFrame); if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame); scene?.dispose(); sceneRef.current = undefined; };
+		return () => { active = false; if (resultsTimer !== undefined) window.clearTimeout(resultsTimer); if (firstFrame !== undefined) window.cancelAnimationFrame(firstFrame); if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame); scene?.dispose(); sceneRef.current = undefined; };
 	}, [raceReturnView, session, view]);
 
 	const importTrack = (input: string): string | undefined => {
