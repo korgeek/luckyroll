@@ -554,6 +554,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         }
         for (const hit of collectBumperHits(world, raceRun.bumperColliders ?? [], bumperContacts)) retroSounds.obstacle("bumper", soundProximity(hit, cameraLook));
         for (const hit of collectBumperHits(world, raceRun.pinwheelColliders ?? [], pinwheelContacts)) retroSounds.obstacle("pinwheel", soundProximity(hit, cameraLook, 12));
+        for (const hit of raceRun.collectMogulHits?.() ?? []) retroSounds.obstacle("mogul", soundProximity(hit, cameraLook, 12));
         audioMs += clock() - audioStarted;
         const adjudicationStarted = clock();
         raceClock.consumeAfterWorldStep(pose, now, pausedDuration);

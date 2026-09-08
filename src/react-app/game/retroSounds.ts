@@ -1,3 +1,4 @@
+import mogulUrl from "../assets/audio/kenney-mogul.ogg?url";
 import readyUrl from "../assets/audio/kenney-ready.ogg?url";
 import normalMusicUrl from "../assets/audio/pure-raceway-160.ogg?url";
 import rushMusicUrl from "../assets/audio/pure-raceway-175.ogg?url";
@@ -17,7 +18,7 @@ export const soundProximity = (point: { x: number; y: number; z: number }, liste
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
 
 const lastEffects = new Map<string, number>();
-const urls = { ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
+const urls = { mogul: mogulUrl, ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -142,7 +143,7 @@ export const retroSounds = {
 		lastEffects.clear();
 		lastMarbleCue = -Infinity;
 	},
-	obstacle(kind: "bumper" | "pinwheel" | "boost", proximity = 1) {
+	obstacle(kind: "bumper" | "pinwheel" | "mogul" | "boost", proximity = 1) {
 		if (muted || proximity <= 0.01) return;
 		const ctx = audio();
 		if (!ctx) return;

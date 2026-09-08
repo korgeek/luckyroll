@@ -1,3 +1,5 @@
+import { funnelMogulHeight } from "./modular/moduleGeometry";
+import { MODULE_SIZE, ROUTE_GRADE } from "./modular/modularTypes";
 import * as THREE from "three";
 import type RAPIER_TYPE from "@dimforge/rapier3d-compat";
 import type { RaceCourseSelection } from "../designer/trackDesign";
@@ -18,16 +20,19 @@ export type RapierWorld = InstanceType<RapierModule["World"]>;
 export type RapierBody = ReturnType<RapierWorld["createRigidBody"]>;
 
 // Only contact onset makes a sound: resting against a bumper must stay quiet.
-export const collectBumperHits = (world: RapierWorld, bumpers: readonly ReturnType<RapierWorld["createCollider"]>[], previous: Set<string>): Array<{ x: number; y: number; z: number }> => {
+export const collectBumperHits = (world: RapierWorld, bumpers: readonly ReturnType<RapierWorld["createCollider"]>[], previous: Set<string>, accepts?: (point: { x: number; y: number; z: number }) => boolean): Array<{ x: number; y: number; z: number }> => {
   const current = new Set<string>();
   const hits: Array<{ x: number; y: number; z: number }> = [];
   for (const bumper of bumpers) world.contactPairsWith(bumper, (other) => {
     if (!other.parent()?.isDynamic() || !other.parent()?.isEnabled()) return;
     world.contactPair(bumper, other, (manifold) => {
-      if (!manifold.numSolverContacts()) return;
-      const key = `${bumper.handle}:${other.handle}`;
-      if (!previous.has(key) && !current.has(key)) hits.push(bumper.translation());
-      current.add(key);
+      for (let index = 0; index < manifold.numSolverContacts(); index++) {
+        const point = manifold.solverContactPoint(index);
+        if (accepts && !accepts(point)) continue;
+        const key = `${bumper.handle}:${other.handle}`;
+        if (!previous.has(key) && !current.has(key)) hits.push(accepts ? point : bumper.translation());
+        current.add(key);
+      }
     });
   });
   previous.clear();
@@ -37,6 +42,7 @@ export const collectBumperHits = (world: RapierWorld, bumpers: readonly ReturnTy
 
 export type RaceCourseRun = Readonly<{
   launchPositions: readonly PhysicalLaunchPosition[];
+  collectMogulHits?: () => Array<{ x: number; y: number; z: number }>;
   bumperColliders?: readonly ReturnType<RapierWorld["createCollider"]>[];
   pinwheelColliders?: readonly ReturnType<RapierWorld["createCollider"]>[];
   stepBeforeWorld: () => Readonly<{ raceClockStarted: boolean }>;
@@ -146,6 +152,14 @@ const createBuiltInCourse = (debug = false): RaceCourse => {
 const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, debug = false): RaceCourse => {
   const built: BuiltModularTrack = buildModularTrack(track.track);
   const rendered: ModularRenderResources = createModularTrackRender(built, { debug });
+  const funnelFrames = built.samples.filter((sample, index) => sample.kind === "funnel" && built.samples[index - 1]?.cellIndex !== sample.cellIndex);
+  const onMogul = (point: { x: number; y: number; z: number }) => funnelFrames.some(frame => {
+    const delta = { x: point.x - frame.position.x, y: point.y - frame.position.y, z: point.z - frame.position.z };
+    const dot = (axis: typeof delta) => delta.x * axis.x + delta.y * axis.y + delta.z * axis.z;
+    const localU = frame.localU + dot(frame.tangent) * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
+    const height = funnelMogulHeight(localU, dot(frame.side));
+    return height > 0.01 && Math.abs(dot(frame.up) - height) < 0.1;
+  });
   let activeWorld: RapierWorld | undefined;
   let physics: ModularPhysicsResources | undefined;
   let disposed = false;
@@ -167,10 +181,12 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, deb
     createRun: (world, count, seed, remainingRestart): RaceCourseRun => {
       attach(world);
       const currentPhysics = physics!;
+      const mogulContacts = new Set<string>();
       let runDisposed = false;
       let pose = currentPhysics.reset(remainingRestart);
       setModularDevicePose(rendered, pose);
       return Object.freeze({
+        collectMogulHits: () => collectBumperHits(world, [currentPhysics.trackCollider], mogulContacts, onMogul),
         bumperColliders: currentPhysics.fixedColliders,
         pinwheelColliders: currentPhysics.pinwheelBodies.flatMap(body => Array.from({ length: body.numColliders() }, (_, index) => body.collider(index))),
         launchPositions: createModularLaunchPositions(count, built, seed),
@@ -182,6 +198,7 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, deb
         stepAfterWorld: (bodies) => { setModularDevicePose(rendered, pose); return currentPhysics.stepAfterWorld(bodies); },
         reset: (restart) => {
           if (runDisposed) throw new Error("Race course run has been disposed.");
+          mogulContacts.clear();
           pose = currentPhysics.reset(restart);
           setModularDevicePose(rendered, pose);
         },

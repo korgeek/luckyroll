@@ -74,3 +74,30 @@ describe("race-course adapters", () => {
   expect(collectBumperHits(world, [bumper], contacts)).toHaveLength(1);
   world.free();
  });
+
+it("sounds on actual mogul contact, not flat floor or hovering, and rearms after separation", async () => {
+  await initializeTrackPhysics();
+  const rapier = getInitializedTrackPhysicsRapier();
+  const { funnelMogulHeight } = await import("./modular/moduleGeometry");
+  const course = createRaceCourse({ kind: "custom", track: createValidTrackDesign("Mogul sound") });
+  const world = createTrackPhysicsWorld(); world.gravity = { x: 0, y: 0, z: 0 };
+  const run = course.createRun(world, 1, 11, true);
+  const frames = (course.samples as readonly import("./modular/modulePath").ModulePathSample[]).filter(s => s.kind === "funnel");
+  const peak = frames.reduce((a, b) => Math.abs(a.localU - .22) < Math.abs(b.localU - .22) ? a : b);
+  const flat = frames.reduce((a, b) => Math.abs(a.localU - .5) < Math.abs(b.localU - .5) ? a : b);
+  const point = (frame: typeof peak, side: number, lift: number) => {
+    const height = funnelMogulHeight(frame.localU, side) + lift;
+    return { x: frame.position.x + frame.side.x * side + frame.up.x * height, y: frame.position.y + frame.side.y * side + frame.up.y * height, z: frame.position.z + frame.side.z * side + frame.up.z * height };
+  };
+  const ball = world.createRigidBody(rapier.RigidBodyDesc.dynamic());
+  world.createCollider(rapier.ColliderDesc.ball(.5), ball);
+  const move = (position: { x: number; y: number; z: number }) => { ball.setTranslation(position, true); ball.setLinvel({ x: 0, y: 0, z: 0 }, true); world.step(); return run.collectMogulHits!(); };
+  try {
+    expect(move(point(flat, 0, .45))).toHaveLength(0);
+    expect(move(point(peak, -.6, 4))).toHaveLength(0);
+    expect(move(point(peak, -.6, .45))).toHaveLength(1);
+    expect(run.collectMogulHits!()).toHaveLength(0);
+    expect(move(point(peak, -.6, 4))).toHaveLength(0);
+    expect(move(point(peak, -.6, .45))).toHaveLength(1);
+  } finally { run.dispose(); course.dispose(); world.free(); }
+});

@@ -48,6 +48,7 @@ Kenney (Kenney Vleugels) assets, downloaded 2026-09-08, released under
 | timeout | Interface / error_003.ogg |
 | bumper (kenney-bumper.ogg) | Impact / impactMining_003.ogg (user-provided, copied unchanged) |
 | pinwheel (kenney-pinwheel.ogg) | Impact / impactSoft_heavy_002.ogg (user-provided, copied unchanged) |
+| mogul (kenney-mogul.ogg) | Impact / impactBell_heavy_002.ogg (user-provided, copied unchanged) |
 
 Other Kenney effects were converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
 `loudnorm=I=-18:TP=-3:LRA=7`. All assets ship locally, without a runtime CDN or audio library.
@@ -57,3 +58,8 @@ Bumper and blade impacts play on contact onset, with camera-distance attenuation
 attenuation. Impact/track-boost bursts are limited to 90/220 ms; checkpoint/DNF
 share a 150 ms cooldown. Muting and pausing stop playback. Failed asset downloads
 retry on preload; event cues retain synthesized tone fallbacks.
+
+Mogul sounds use actual track solver contact points on the raised funnel surface,
+classified with the same height function as the mesh. Flat-floor contacts and
+marbles passing above the moguls are silent. A marble sounds once on contact onset,
+rearming after separation; mogul gain is 0.22, range 12 world units, cooldown 90 ms.

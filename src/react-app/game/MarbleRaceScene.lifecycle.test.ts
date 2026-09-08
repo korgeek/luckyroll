@@ -270,7 +270,11 @@ describe("race scene lifecycle boundary", () => {
 	it("enters RUSH once at the original-field half threshold without doubling fixed steps or changing marble size", async () => {
 		const scene = createRaceScene(document.createElement("canvas"), (event) => seams.emitted.push(event), { kind: "custom", track: createValidTrackDesign("Rush physical") });
 		await settle(); scene.start(Array.from({ length: 4 }, (_, index) => marble(index + 1)), 11); await settle(); const now = performance.now();
-		seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17); scene.restartRemaining([marble(1), marble(2)]); await settle(); seams.frames.shift()?.(now + 34);
+		seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
+		// Restart must use the same clock as the simulated animation frames.
+		const restartClock = vi.spyOn(performance, "now").mockReturnValue(now + 17);
+		try { scene.restartRemaining([marble(1), marble(2)]); await settle(); } finally { restartClock.mockRestore(); }
+		seams.frames.shift()?.(now + 34);
 		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(1);
 		const matrix = new THREE.Matrix4(); const position = new THREE.Vector3(); const rotation = new THREE.Quaternion(); const scale = new THREE.Vector3();
 		seams.marbleMeshes[seams.marbleMeshes.length - 1]!.getMatrixAt(0, matrix); matrix.decompose(position, rotation, scale);
@@ -283,7 +287,11 @@ describe("race scene lifecycle boundary", () => {
 	it("waits one active second between RUSH pulses and does not catch up while paused", async () => {
 		const scene = createRaceScene(document.createElement("canvas"), (event) => seams.emitted.push(event), { kind: "custom", track: createValidTrackDesign("Rush cadence") });
 		await settle(); scene.start(Array.from({ length: 4 }, (_, index) => marble(index + 1)), 11); await settle(); const now = performance.now();
-		seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17); scene.restartRemaining([marble(1), marble(2)]); await settle(); seams.frames.shift()?.(now + 34);
+		seams.frames.shift()?.(now); seams.frames.shift()?.(now + 17);
+		// Restart must use the same clock as the simulated animation frames.
+		const restartClock = vi.spyOn(performance, "now").mockReturnValue(now + 17);
+		try { scene.restartRemaining([marble(1), marble(2)]); await settle(); } finally { restartClock.mockRestore(); }
+		seams.frames.shift()?.(now + 34);
 		expect(seams.emitted.filter((event) => (event as { type: string }).type === "rush")).toHaveLength(1);
 		scene.setPaused(true); seams.frames.shift()?.(now + 10_034); scene.setPaused(false); seams.frames.shift()?.(now + 10_051);
 		expect(seams.rushVelocityWrites).toEqual([]);
