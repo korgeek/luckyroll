@@ -54,6 +54,7 @@ export type RaceCourseRun = Readonly<{
 export type RaceCourse = Readonly<{
   kind: "builtin" | "custom";
   samples: readonly TrackSample[];
+  cameraSamples?: readonly TrackSample[];
   geometry: TrackGeometry;
   renderGroup: THREE.Group;
   attach: (world: RapierWorld) => unknown;
@@ -175,6 +176,11 @@ const createCustomCourse = (track: RaceCourseSelection & { kind: "custom" }, deb
   return {
     kind: "custom",
     samples: built.samples,
+    cameraSamples: [
+      { ...built.samples[0], position: rendered.devices.start.frame.position, distance: -rendered.devices.start.length, channelDepth: rendered.devices.start.wallHeight, width: rendered.devices.start.width },
+      { ...built.samples[0], position: { x: built.samples[0].position.x - built.samples[0].tangent.x * 0.01, y: built.samples[0].position.y - built.samples[0].tangent.y * 0.01, z: built.samples[0].position.z - built.samples[0].tangent.z * 0.01 }, distance: -0.01, channelDepth: rendered.devices.start.wallHeight },
+      ...built.samples,
+    ].map((sample, index) => ({ ...sample, index })),
     geometry: built.geometry,
     renderGroup: rendered.group,
     attach,

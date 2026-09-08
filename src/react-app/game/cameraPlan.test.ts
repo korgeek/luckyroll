@@ -7,6 +7,8 @@ import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
   cameraLerpAlpha,
+  constrainChannelCameraShot,
+  frameAtDistance,
   createRouteCrowdDirector,
   createActionCameraDirector,
   deriveFeatureBroadcastZones,
@@ -30,6 +32,27 @@ const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * rig
 const mutableShot = (): CameraShot => ({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 });
 
 describe("track-bound race camera plan", () => {
+  it("keeps camera position inside every channel and pitch between 35 and 50 degrees", () => {
+    const samples = buildModularTrack(createValidTrackDesign()).samples;
+    for (const frame of samples.filter((_, index) => index % 12 === 0)) for (const height of [-30, 6, 80]) for (const across of [-100, 0, 100]) {
+      const shot = mutableShot();
+      for (const key of ["x", "y", "z"] as const) {
+        shot.position[key] = frame.position[key] + frame.up[key] * height + frame.side[key] * across;
+        shot.lookAt[key] = frame.position[key] + frame.tangent[key] * 12;
+      }
+      constrainChannelCameraShot(shot, frame);
+      const offset = subtract(shot.position, frame.position);
+      expect(Math.abs(dot(offset, frame.side))).toBeLessThanOrEqual(frame.width * 0.12 + 1e-8);
+      expect(dot(offset, frame.up)).toBeGreaterThan(0);
+      expect(dot(offset, frame.up)).toBeLessThan(frame.channelDepth);
+      expect(dot(offset, frame.tangent)).toBeCloseTo(0, 6);
+      const direction = subtract(shot.lookAt, shot.position); const down = -dot(direction, frame.up);
+      const pitch = Math.atan2(down, Math.sqrt(Math.max(0, dot(direction, direction) - down * down))) * 180 / Math.PI;
+      expect(pitch).toBeGreaterThanOrEqual(35 - 1e-8); expect(pitch).toBeLessThanOrEqual(50 + 1e-8);
+      expect(shot.near).toBe(0.1);
+    }
+  });
+
 	it("keeps a sparse follow anchor continuous across a nearest-sample boundary", () => {
 		const samples = [
 			{ index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const },
@@ -343,6 +366,7 @@ describe("action camera", () => {
     for (const along of [0, 10, 20]) for (const lateral of [-6, 0, 6]) for (const bounce of [0, 4]) {
       const marble = new THREE.Vector3().copy(frame.position).addScaledVector(new THREE.Vector3().copy(frame.tangent), along).addScaledVector(new THREE.Vector3().copy(frame.side), lateral).addScaledVector(new THREE.Vector3().copy(frame.up), bounce);
       const shot = writeBumperTrackShot(mutableShot(), zone, samples, getTrackBounds(samples), undefined, marble);
+      constrainChannelCameraShot(shot, frameAtDistance(samples, zone.entryDistance - 3)!);
       const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
       camera.position.copy(shot.position); camera.up.copy(frame.up); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
       const relative = subtract(shot.position, frame.position);

@@ -89,7 +89,7 @@ vi.mock("./cameraControls", async () => {
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import type { Marble } from "../domain/types";
 import * as cameraPlan from "./cameraPlan";
-import { getTrackBounds, writeRouteCrowdFollowShot } from "./cameraPlan";
+
 import { createMarbleRollTexture, createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
@@ -123,6 +123,21 @@ describe("race scene lifecycle boundary", () => {
     seams.pixelRatios.length = 0; seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.boosterEvent = false; seams.featureSamples = false; seams.bodyX = 0; seams.rushVelocityWrites.length = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+  });
+
+  it("starts and replays from inside the starting channel, before the first frame", async () => {
+    const scene = await startScene(); const camera = cameraPoses[0].camera;
+    const check = () => {
+      const frame = seams.courseSamples![0]; const pose = latestPose(camera);
+      expect(pose.position.x).toBeCloseTo(frame.position.x, 5);
+      expect(pose.position.z).toBeCloseTo(frame.position.z, 5);
+      expect(pose.position.y).toBeGreaterThan(frame.position.y);
+      expect(pose.position.y - frame.position.y).toBeLessThan(frame.channelDepth);
+      const direction = pose.lookAt.clone().sub(pose.position);
+      const pitch = Math.atan2(-direction.y, Math.hypot(direction.x, direction.z)) * 180 / Math.PI;
+      expect(pitch).toBeGreaterThanOrEqual(35); expect(pitch).toBeLessThanOrEqual(50);
+    };
+    check(); scene.start([marble(1)], 12); await settle(); check(); scene.dispose();
   });
 
   it("keeps zoom and clearance steady across straight and curve sections", async () => {
@@ -262,11 +277,12 @@ describe("race scene lifecycle boundary", () => {
     expect(camera.up.x).toBeCloseTo(0, 3);
     expect(camera.up.y).toBeCloseTo(1, 3);
     expect(camera.up.z).toBe(0);
-    const samples = seams.courseSamples!;
-    const expected = writeRouteCrowdFollowShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 }, 0, samples, getTrackBounds(samples), 5, "slow", 60, camera.aspect);
-    const settled = latestPose(camera);
-    expect(settled.position.distanceTo(new THREE.Vector3(expected.position.x, expected.position.y, expected.position.z))).toBeLessThan(0.1);
-    expect(settled.lookAt.distanceTo(new THREE.Vector3(expected.lookAt.x, expected.lookAt.y, expected.lookAt.z))).toBeLessThan(0.1);
+    const frame = seams.courseSamples![0]; const settled = latestPose(camera);
+    expect(settled.position.y).toBeLessThan(frame.channelDepth);
+    expect(settled.position.x).toBeCloseTo(frame.position.x, 2);
+    const direction = settled.lookAt.clone().sub(settled.position);
+    const pitch = Math.atan2(-direction.y, Math.hypot(direction.x, direction.z)) * 180 / Math.PI;
+    expect(pitch).toBeGreaterThanOrEqual(35 - 0.01); expect(pitch).toBeLessThanOrEqual(50 + 0.01);
     scene.dispose();
   });
 
@@ -410,17 +426,17 @@ describe("race scene lifecycle boundary", () => {
     const now = performance.now();
     for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
     const camera = cameraPoses[0].camera;
-    expect(latestPose(camera).lookAt.x).toBeCloseTo(20, 2);
-    expect(latestPose(camera).position.x).toBeCloseTo(6.6, 1);
-    expect(latestPose(camera).position.y).toBeCloseTo(6, 1);
+    expect(latestPose(camera).lookAt.x).toBeCloseTo(13, 2);
+    expect(latestPose(camera).position.x).toBeCloseTo(7, 1);
+    expect(latestPose(camera).position.y).toBeCloseTo(3.2, 1);
     const before = latestPose(camera).position.x;
     seams.bodyX = 24;
     seams.frames.shift()?.(now + 501 * 17);
     expect(Math.abs(latestPose(camera).position.x - before)).toBeLessThan(0.1);
     for (let frame = 502; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
-    expect(latestPose(camera).lookAt.x).toBeCloseTo(21.45, 2);
-    expect(latestPose(camera).position.x).toBeCloseTo(7.18, 1);
-    expect(latestPose(camera).position.y).toBeCloseTo(6, 1);
+    expect(latestPose(camera).lookAt.x).toBeCloseTo(13, 2);
+    expect(latestPose(camera).position.x).toBeCloseTo(7, 1);
+    expect(latestPose(camera).position.y).toBeCloseTo(3.2, 1);
     seams.bodyX = 35;
     for (let frame = 701; frame <= 900; frame++) seams.frames.shift()?.(now + frame * 17);
     expect(latestPose(camera).lookAt.x).toBeGreaterThan(30);
@@ -433,13 +449,13 @@ describe("race scene lifecycle boundary", () => {
 		await settle(); scene.start([marble(1)], 11); await settle();
 		const camera = cameraPoses[0].camera; const now = performance.now();
 		for (let frame = 0; frame < 120; frame += 1) seams.frames.shift()?.(now + frame * 17);
-		expect(latestPose(camera).lookAt.x).toBeGreaterThan(16.9);
+		expect(latestPose(camera).lookAt.x).toBeGreaterThan(7);
 		expect(Math.abs(camera.up.x)).toBeLessThan(0.01);
 		expect(camera.up.y).toBeGreaterThan(0.99);
 		canvasDrag(canvas); seams.bodyX = 31;
 		seams.frames.shift()?.(now + 2_100);
 		for (let frame = 0; frame < 180; frame += 1) seams.frames.shift()?.(now + 5_100 + frame * 17);
-		expect(latestPose(camera).lookAt.x).toBeGreaterThan(27);
+		expect(latestPose(camera).lookAt.x).toBeGreaterThan(26);
 		expect(Math.abs(camera.up.x)).toBeLessThan(0.01);
 		expect(camera.up.y).toBeGreaterThan(0.99);
 		scene.dispose();

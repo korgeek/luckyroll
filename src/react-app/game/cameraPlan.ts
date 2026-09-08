@@ -284,6 +284,22 @@ export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): Fe
   return zones.sort((left, right) => left.entryDistance - right.entryDistance);
 };
 
+export const constrainChannelCameraShot = (target: CameraShot, frame: NonNullable<ReturnType<typeof frameAtDistance>>): CameraShot => {
+  const offset = { x: target.position.x - frame.position.x, y: target.position.y - frame.position.y, z: target.position.z - frame.position.z };
+  const side = Math.max(-frame.width * 0.12, Math.min(frame.width * 0.12, dot(offset, frame.side)));
+  const height = Math.max(Math.min(4.8, frame.channelDepth * 0.5), Math.min(8, frame.channelDepth * 0.8, dot(offset, frame.up)));
+  for (const key of ["x", "y", "z"] as const) target.position[key] = frame.position[key] + frame.side[key] * side + frame.up[key] * height;
+  const direction = { x: target.lookAt.x - target.position.x, y: target.lookAt.y - target.position.y, z: target.lookAt.z - target.position.z };
+  const vertical = dot(direction, frame.up);
+  const horizontal = { x: direction.x - frame.up.x * vertical, y: direction.y - frame.up.y * vertical, z: direction.z - frame.up.z * vertical };
+  const length = Math.hypot(horizontal.x, horizontal.y, horizontal.z);
+  const forward = normalized(horizontal, frame.tangent);
+  const pitch = Math.max(35, Math.min(50, Math.atan2(-vertical, length) * 180 / Math.PI)) * Math.PI / 180;
+  for (const key of ["x", "y", "z"] as const) target.lookAt[key] = target.position[key] + forward[key] * 6 - frame.up[key] * 6 * Math.tan(pitch);
+  target.near = 0.1;
+  return target;
+};
+
 export const writeRouteRearFollowShot = (target: CameraShot, cameraDistance: number, samples: readonly TrackSample[], bounds: TrackBounds, clearance = 6): CameraShot => {
   const frame = frameAtDistance(samples, cameraDistance);
   if (!frame) return writeCameraShot(target, "overview", bounds);

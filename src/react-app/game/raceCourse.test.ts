@@ -23,6 +23,13 @@ describe("race-course adapters", () => {
   it("builds a custom course from validated shared cells", () => {
     const course = createRaceCourse({ kind: "custom", track: createValidTrackDesign("Course") });
     expect(course.kind).toBe("custom");
+    const start = course.cameraSamples![0]; const first = course.samples[0];
+    expect(course.cameraSamples).toHaveLength(course.samples.length + 2);
+    expect(start.distance).toBeLessThan(first.distance);
+    expect(start.channelDepth).toBe(6);
+    const along = (start.position.x - first.position.x) * first.tangent.x + (start.position.y - first.position.y) * first.tangent.y + (start.position.z - first.position.z) * first.tangent.z;
+    expect(along).toBeCloseTo(start.distance, 5);
+    expect(course.cameraSamples![2].position).toEqual(first.position);
     expect(course.renderGroup.getObjectByName("modular-channel")).toBeDefined();
     const middle = Math.floor(course.samples.length / 2);
     expect(projectToTrack(course.samples[middle].position, course.samples).sampleIndex).toBe(middle);

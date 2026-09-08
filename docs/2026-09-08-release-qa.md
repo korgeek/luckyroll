@@ -151,3 +151,12 @@ Final verification: 49 test files passed (487 tests passed, 3 optional tests ski
 - Results transition waits until all marbles are resolved, then holds the finish
   view for two seconds. The timer is cancelled when leaving/replacing the race;
   remaining racers, the 1999/2000 ms boundary and menu-exit cancellation are tested.
+
+- Channel camera follow-up: new races reset directly into the physical launch
+  enclosure, whose camera-only samples extend behind the race path without changing
+  physics/progress samples. Normal follow height is 4.8; final channel-frame bounds
+  constrain lateral position, height below the walls and downward pitch to 35–50
+  degrees relative to the local track plane, including manual input and action shots.
+  Reduced-motion starts in the channel; explicit Bird View/debug remain overview tools.
+  Chrome launch capture shows the waiting marbles. Tests cover initial/replay poses,
+  channel bounds under extreme offsets and bumper visibility at portrait/landscape.
