@@ -1,15 +1,15 @@
-import startUrl from "../assets/audio/kenney-start.wav?url";
+import startUrl from "../assets/audio/nox-start.wav?url";
 import winUrl from "../assets/audio/kenney-win.wav?url";
 import timeoutUrl from "../assets/audio/kenney-timeout.wav?url";
 import countdownUrl from "../assets/audio/kenney-countdown.wav?url";
-import boostUrl from "../assets/audio/kenney-boost.wav?url";
-import rushUrl from "../assets/audio/kenney-rush.wav?url";
+import boostUrl from "../assets/audio/nox-boost.wav?url";
+import rushUrl from "../assets/audio/nox-rush.wav?url";
 import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
 import pinwheelUrl from "../assets/audio/kenney-pinwheel.wav?url";
-import rushLoopUrl from "../assets/audio/kenney-rush-loop.wav?url";
+import rushLoopUrl from "../assets/audio/nox-rush-loop.wav?url";
 
 export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
