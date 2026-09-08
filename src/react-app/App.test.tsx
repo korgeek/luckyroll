@@ -25,7 +25,7 @@ vi.mock("./game/MarbleRaceScene", () => ({
   },
 }));
 
-vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), ready: vi.fn(), music: vi.fn(), resetMusic: vi.fn(), start: vi.fn(), countdown: vi.fn(), boost: vi.fn(), rush: vi.fn(), checkpoint: vi.fn(), dnf: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
+vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), ready: vi.fn(), click: vi.fn(), music: vi.fn(), resetMusic: vi.fn(), start: vi.fn(), countdown: vi.fn(), boost: vi.fn(), rush: vi.fn(), checkpoint: vi.fn(), dnf: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
 
 import App from "./App";
 import { retroSounds } from "./game/retroSounds";
@@ -50,6 +50,18 @@ describe("default race course and camera controls", () => {
 		scene.initialize.mockResolvedValue(undefined);
   });
   afterEach(cleanup);
+
+	it("plays one UI click for pointer and keyboard buttons, not text inputs", async () => {
+		const user = userEvent.setup(); render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByLabelText("Player 1"));
+		expect(retroSounds.click).not.toHaveBeenCalled();
+		const shuffle = screen.getByRole("button", { name: "Shuffle" });
+		await user.click(shuffle);
+		expect(retroSounds.click).toHaveBeenCalledTimes(1);
+		shuffle.focus(); await user.keyboard("{Enter}");
+		expect(retroSounds.click).toHaveBeenCalledTimes(2);
+	});
 
 	it("starts on the editor-built Default Track and toggles a fixed bird view", async () => {
     const user = userEvent.setup();

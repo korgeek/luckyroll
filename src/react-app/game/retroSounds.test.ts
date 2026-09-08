@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(13);
+		expect(fetch).toHaveBeenCalledTimes(14);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -121,4 +121,10 @@ it("uses a separate Power up voice for the button and keeps the track booster ef
  retroSounds.boost(); retroSounds.obstacle("boost");
  expect(sources).toHaveLength(2);
  expect(sources[0].buffer).not.toBe(sources[1].buffer);
+});
+
+it("plays the UI click sample and respects mute", async () => {
+ const { sources } = mockAudio(); await retroSounds.preload();
+ retroSounds.click(); expect(sources).toHaveLength(1);
+ retroSounds.setMuted(true); retroSounds.click(); expect(sources).toHaveLength(1);
 });

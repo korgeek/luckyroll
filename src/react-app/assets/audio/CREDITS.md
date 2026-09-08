@@ -68,3 +68,8 @@ Manual BOOST uses the user-provided Kenney Voiceover Pack `Female/power_up.ogg`,
 copied unchanged as `kenney-power-up.ogg` (CC0), at voice gain 0.8.
 Physical track boosters retain `race-boost.wav`; the voice only plays when the
 manual boost is successfully activated, following the existing cooldown/RUSH gates.
+
+Default UI button clicks use the user-provided Kenney Interface Sounds
+`Audio/bong_001.ogg`, copied unchanged as `kenney-ui-click.ogg` (CC0), gain 0.22.
+The shared app click handler covers pointer and keyboard activation, skips disabled
+buttons and the BOOST button's dedicated Power up voice, and respects mute.

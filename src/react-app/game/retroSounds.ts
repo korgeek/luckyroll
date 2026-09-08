@@ -1,3 +1,4 @@
+import clickUrl from "../assets/audio/kenney-ui-click.ogg?url";
 import powerUpUrl from "../assets/audio/kenney-power-up.ogg?url";
 import mogulUrl from "../assets/audio/kenney-mogul.ogg?url";
 import readyUrl from "../assets/audio/kenney-ready.ogg?url";
@@ -19,7 +20,7 @@ export const soundProximity = (point: { x: number; y: number; z: number }, liste
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
 
 const lastEffects = new Map<string, number>();
-const urls = { powerUp: powerUpUrl, mogul: mogulUrl, ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
+const urls = { click: clickUrl, powerUp: powerUpUrl, mogul: mogulUrl, ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -152,6 +153,7 @@ export const retroSounds = {
 		lastEffects.set(kind, ctx.currentTime);
 		sample(kind, Math.min(1, proximity) * (kind === "bumper" ? 0.5 : 0.22));
 	},
+	click() { cue("click", [660], 0.22); },
 	ready() { cue("ready", [440], 0.8); },
 	countdown() { cue("countdown", [660], 0.18); },
 	boost() { cue("powerUp", [330, 660, 990], 0.8); },

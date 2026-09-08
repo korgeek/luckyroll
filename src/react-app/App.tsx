@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent, useEffect, useRef, useState } from "react";
 import { RaceHud } from "./components/RaceHud";
 import { ResultsScreen } from "./components/ResultsScreen";
 import { SetupScreen, type SetupValues } from "./components/SetupScreen";
@@ -253,11 +253,14 @@ function App() {
 	const boostFill = `${100 - Math.min(100, hud.boostRemainingMs / 50)}%`;
 	const backTitle = view === "setup" ? "QUIT GAME?" : view === "race" ? "PAUSE MENU" : "GAME MENU";
 	const continueLabel = view === "race" ? "RESUME" : "CONTINUE";
+	const playUiClick = (event: MouseEvent<HTMLElement>) => {
+		if (event.target instanceof Element && event.target.closest('button:not(:disabled):not([aria-disabled="true"]):not(.boost-button)')) retroSounds.click();
+	};
 	const backNavigation = backChoice && <dialog ref={backDialogRef} className="dialog-backdrop back-choice-dialog" aria-labelledby="back-choice-title" onCancel={(event) => { event.preventDefault(); dismissBackChoice(); }} onClick={(event) => { if (event.target === event.currentTarget) dismissBackChoice(); }}><section className="timeout-dialog"><h2 id="back-choice-title">{backTitle}</h2><div className="dialog-actions">{view === "setup" ? <><button className="secondary-button" onClick={leaveGame}>QUIT</button><button className="text-button" onClick={dismissBackChoice}>CANCEL</button></> : <><button className="primary-button" onClick={dismissBackChoice}>{continueLabel}</button><button className="secondary-button" onClick={chooseMainMenu}>MAIN MENU</button><button className="text-button" onClick={leaveGame}>QUIT GAME</button></>}</div></section></dialog>;
 	const leaveNotice = leaveGuidance && <div className="app-message leave-guidance" role="status">{leaveGuidance}<button onClick={() => setLeaveGuidance("")}>Dismiss</button></div>;
 
-	if (!runtimeReady) return <main className="app-shell"><section className="setup-card" role="status"><p className="eyebrow">LUCKY ROLL</p><h1>Loading race engine…</h1>{message && <p>{message}</p>}</section>{backNavigation}{leaveNotice}</main>;
-	return <main className="app-shell">
+	if (!runtimeReady) return <main className="app-shell" onClick={playUiClick}><section className="setup-card" role="status"><p className="eyebrow">LUCKY ROLL</p><h1>Loading race engine…</h1>{message && <p>{message}</p>}</section>{backNavigation}{leaveNotice}</main>;
+	return <main className="app-shell" onClick={playUiClick}>
 		{message && <div className="app-message" role="status">{message}{libraryError && <button onClick={() => { try { const next = resetTrackLibrary(window.localStorage); setLibrary(next); setLibraryError(false); setMessage("Saved track storage reset."); } catch (error) { setMessage(error instanceof Error ? error.message : "Saved track storage could not be reset."); } }}>Reset saved tracks</button>}</div>}
 		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onSelectTrack={selectTrack} onManageTracks={() => setView("library")} /></div>
 		{view === "library" && <TrackLibraryPanel tracks={library.tracks} selectedTrackId={selectedTrackId} onBack={() => setView("setup")} onNew={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEdit={editTrack} onSelect={selectTrack} onPlay={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track, "library"); } }} onShare={(id) => openShare(trackById(id))} onDelete={removeTrack} onImport={importTrack} />}
