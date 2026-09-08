@@ -20,7 +20,7 @@ type Session = SetupValues & { marbles: Marble[]; seed: number; course: RaceCour
 type Hud = { elapsedMs: number; fps: number; eliminatedCount: number; standings: readonly LiveStanding[]; boostRemainingMs: number };
 type View = "setup" | "library" | "editor" | "race" | "results";
 type BackChoice = { wasPaused: boolean; canLeave: boolean };
-type Countdown = "PREPARING RACE…" | "3" | "2" | "1" | "GO!";
+type Countdown = "PREPARING RACE…" | "READY" | "3" | "2" | "1" | "GO!";
 const EMPTY_LIBRARY: TrackLibrary = { version: 1, tracks: [] };
 const SELECTED_TRACK_KEY = "luckyroll.selectedTrack";
 const NAVIGATION_STATE_KEY = "luckyRollNavigation";
@@ -53,6 +53,11 @@ function App() {
 	const [backChoice, setBackChoice] = useState<BackChoice>();
 	const [leaveGuidance, setLeaveGuidance] = useState("");
 	const [raceReturnView, setRaceReturnView] = useState<"setup" | "library" | "editor">("setup");
+	useEffect(() => { retroSounds.resetMusic(); }, [session]);
+	useEffect(() => {
+		retroSounds.music(view === "race" && !paused && !backChoice && !remaining && !muted ? (rush ? "rush" : "normal") : null);
+		return () => retroSounds.music(null);
+	}, [view, paused, backChoice, remaining, muted, rush, session]);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const sceneRef = useRef<RaceScene | undefined>(undefined);
 	const backDialogRef = useRef<HTMLDialogElement>(null);
@@ -93,11 +98,13 @@ function App() {
 		return () => window.clearTimeout(timeout);
 	}, [boostFlash]);
 	useEffect(() => {
-		if (countdown !== "3" && countdown !== "2" && countdown !== "1" && countdown !== "GO!") return;
+		if (countdown !== "READY" && countdown !== "3" && countdown !== "2" && countdown !== "1" && countdown !== "GO!") return;
 		if (backChoice) return;
-		if (countdown !== "GO!") retroSounds.countdown();
+		if (countdown === "READY") retroSounds.ready();
+		else if (countdown !== "GO!") retroSounds.countdown();
 		const timeout = window.setTimeout(() => {
-			if (countdown === "3") setCountdown("2");
+			if (countdown === "READY") setCountdown("3");
+			else if (countdown === "3") setCountdown("2");
 			else if (countdown === "2") setCountdown("1");
 			else if (countdown === "1") {
 				countdownActiveRef.current = false; setCountdown("GO!"); setSceneReady(true);
@@ -126,7 +133,7 @@ function App() {
 			try {
 			scene = createRaceScene(canvasRef.current, (event) => {
 				if (!active) return;
-				if (event.type === "prepared" && countdownActiveRef.current) setCountdown("3");
+				if (event.type === "prepared" && countdownActiveRef.current) setCountdown("READY");
 				if (event.type === "rush") { retroSounds.rush(); setRush(true); }
 				if (event.type === "tick") setHud({ elapsedMs: event.elapsedMs, fps: event.fps, eliminatedCount: event.eliminatedCount, standings: event.standings, boostRemainingMs: event.boostRemainingMs });
 				if (event.type === "timeout") { retroSounds.timeout(); setRemaining(event.remaining); }

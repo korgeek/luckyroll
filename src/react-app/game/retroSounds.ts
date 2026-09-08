@@ -1,9 +1,12 @@
-import startUrl from "../assets/audio/race-start.wav?url";
+import readyUrl from "../assets/audio/kenney-ready.ogg?url";
+import normalMusicUrl from "../assets/audio/pure-raceway-160.ogg?url";
+import rushMusicUrl from "../assets/audio/pure-raceway-175.ogg?url";
+import startUrl from "../assets/audio/kenney-go.ogg?url";
 import winUrl from "../assets/audio/race-fanfare.wav?url";
 import timeoutUrl from "../assets/audio/kenney-timeout.wav?url";
 import countdownUrl from "../assets/audio/race-countdown.wav?url";
 import boostUrl from "../assets/audio/race-boost.wav?url";
-import rushUrl from "../assets/audio/race-rush.wav?url";
+import rushUrl from "../assets/audio/kenney-hurry-up.ogg?url";
 import checkpointUrl from "../assets/audio/kenney-checkpoint.wav?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
@@ -14,7 +17,7 @@ export const soundProximity = (point: { x: number; y: number; z: number }, liste
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
 
 const lastEffects = new Map<string, number>();
-const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
+const urls = { ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -22,6 +25,21 @@ let muted = false;
 const buffers = new Map<string, AudioBuffer>();
 const active = new Set<AudioScheduledSourceNode>();
 let loading: Promise<void> | undefined;
+
+type MusicMode = "normal" | "rush";
+const musicTracks = new Map<MusicMode, HTMLAudioElement>();
+let playingMusic: MusicMode | null = null;
+
+function musicTrack(mode: MusicMode) {
+	if (typeof Audio === "undefined") return undefined;
+	let track = musicTracks.get(mode);
+	if (!track) {
+		track = new Audio(mode === "normal" ? normalMusicUrl : rushMusicUrl);
+		track.loop = true; track.volume = 0.16; track.preload = "auto";
+		musicTracks.set(mode, track);
+	}
+	return track;
+}
 
 function audio() {
 	if (context) {
@@ -100,7 +118,21 @@ function cue(name: keyof typeof urls, frequencies: number[], volume = 0.22) {
 export const retroSounds = {
 	preload() {
 		audio();
+		musicTrack("normal"); musicTrack("rush");
 		return loading ??= Promise.all(Object.entries(urls).map(([name, url]) => load(name, url))).then(() => { loading = undefined; });
+	},
+	music(mode: MusicMode | null) {
+		if (muted) mode = null;
+		if (playingMusic === mode) return;
+		if (playingMusic) musicTracks.get(playingMusic)?.pause();
+		playingMusic = mode;
+		if (!mode) return;
+		const track = musicTrack(mode);
+		if (track) void track.play().catch(() => { if (playingMusic === mode) playingMusic = null; });
+	},
+	resetMusic() {
+		this.music(null);
+		for (const track of musicTracks.values()) track.currentTime = 0;
 	},
 	stop() {
 		for (const source of active) {
@@ -118,14 +150,15 @@ export const retroSounds = {
 		lastEffects.set(kind, ctx.currentTime);
 		sample(kind, Math.min(1, proximity) * (kind === "bumper" ? 0.5 : 0.22));
 	},
+	ready() { cue("ready", [440], 0.8); },
 	countdown() { cue("countdown", [660], 0.18); },
 	boost() { cue("boost", [330, 660, 990]); },
-	rush() { cue("rush", [523, 784, 1047], 0.3); },
+	rush() { cue("rush", [523, 784, 1047], 0.8); },
 	checkpoint() { cue("checkpoint", [880], 0.12); },
 	dnf() { cue("dnf", [220, 165], 0.12); },
 	start() {
 		this.stop();
-		if (sample("start")) return;
+		if (sample("start", 0.8)) return;
 		if (muted) return;
 		const ctx = audio();
 		if (!ctx) return;
@@ -153,6 +186,6 @@ export const retroSounds = {
 	},
 	setMuted(value: boolean) {
 		muted = value;
-		if (value) this.stop();
+		if (value) { this.stop(); this.music(null); }
 	},
 };

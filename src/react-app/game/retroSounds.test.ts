@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(10);
+		expect(fetch).toHaveBeenCalledTimes(11);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -93,3 +93,23 @@ describe("retroSounds lifecycle and event mapping", () => {
   expect(sources).toHaveLength(2);
   expect(sources[0].buffer).not.toBe(sources[1].buffer);
  });
+
+it("loops 160 then switches to 175, preserves paused time and resets for a new race", async () => {
+ const tracks: Array<{ src: string; currentTime: number; play: ReturnType<typeof vi.fn>; pause: ReturnType<typeof vi.fn>; loop: boolean }> = [];
+ vi.stubGlobal("Audio", class {
+  currentTime = 0; loop = false; play = vi.fn().mockResolvedValue(undefined); pause = vi.fn();
+  constructor(public src: string) { tracks.push(this); }
+ });
+ retroSounds.music("normal"); retroSounds.music("normal");
+ expect(tracks[0].src).toContain("pure-raceway-160");
+ expect(tracks[0].loop).toBe(true); expect(tracks[0].play).toHaveBeenCalledOnce();
+ tracks[0].currentTime = 12; retroSounds.music(null); retroSounds.music("normal");
+ expect(tracks[0].currentTime).toBe(12);
+ retroSounds.music("rush");
+ expect(tracks[0].pause).toHaveBeenCalled(); expect(tracks[1].src).toContain("pure-raceway-175");
+ expect(tracks[1].play).toHaveBeenCalledOnce();
+ retroSounds.setMuted(true); expect(tracks[1].pause).toHaveBeenCalled();
+ retroSounds.setMuted(false); retroSounds.music("rush");
+ expect(tracks[1].play).toHaveBeenCalledTimes(2);
+ retroSounds.resetMusic(); expect(tracks.every(track => track.currentTime === 0)).toBe(true);
+});

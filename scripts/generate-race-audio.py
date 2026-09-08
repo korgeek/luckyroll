@@ -31,7 +31,6 @@ def tone(frequency, duration, brass=False):
 
 
 write('race-countdown.wav', tone(660, .18))
-write('race-start.wav', tone(1320, .65))
 # Original C-major brass-style fanfare; staggered notes resolve into a held chord.
 fanfare = [0.] * (RATE * 3)
 for start, duration, notes in [(0, .2, [60, 64, 67]), (.24, .2, [60, 64, 67]), (.48, .35, [62, 67, 71]), (.88, .32, [64, 67, 72]), (1.25, 1.6, [60, 64, 67, 72])]:
@@ -40,7 +39,7 @@ for start, duration, notes in [(0, .2, [60, 64, 67]), (.24, .2, [60, 64, 67]), (
             fanfare[round(start * RATE) + i] += value / len(notes)
 write('race-fanfare.wav', fanfare)
 # Filtered noise swells and falls in pitch: a passing gust, with no engine loop.
-for name, duration, bandwidth in [('race-rush.wav', 1.3, 6500), ('race-boost.wav', .55, 6500), ('race-pinwheel.wav', .16, 1800)]:
+for name, duration, bandwidth in [('race-boost.wav', .55, 6500), ('race-pinwheel.wav', .16, 1800)]:
     rng = random.Random(7)
     low = 0.
     gust = []

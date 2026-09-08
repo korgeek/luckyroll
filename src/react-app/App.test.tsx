@@ -25,7 +25,7 @@ vi.mock("./game/MarbleRaceScene", () => ({
   },
 }));
 
-vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), start: vi.fn(), countdown: vi.fn(), boost: vi.fn(), rush: vi.fn(), checkpoint: vi.fn(), dnf: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
+vi.mock("./game/retroSounds", () => ({ retroSounds: { preload: vi.fn().mockResolvedValue(undefined), ready: vi.fn(), music: vi.fn(), resetMusic: vi.fn(), start: vi.fn(), countdown: vi.fn(), boost: vi.fn(), rush: vi.fn(), checkpoint: vi.fn(), dnf: vi.fn(), finish: vi.fn(), timeout: vi.fn(), stop: vi.fn(), setMuted: vi.fn() } }));
 
 import App from "./App";
 import { retroSounds } from "./game/retroSounds";
@@ -34,7 +34,7 @@ const latestSceneEmitter = () => scene.create.mock.calls[scene.create.mock.calls
 const finishCountdown = async () => {
 	vi.useFakeTimers();
 	act(() => latestSceneEmitter()({ type: "prepared" }));
-	for (let second = 0; second < 3; second += 1) await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+	for (let second = 0; second < 4; second += 1) await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 	await act(async () => { await vi.advanceTimersByTimeAsync(600); });
 	vi.useRealTimers();
 };
@@ -144,6 +144,7 @@ describe("default race course and camera controls", () => {
 		expect(retroSounds.rush).toHaveBeenCalledTimes(1);
 		const boost = screen.getByRole("button", { name: "Boost unavailable during RUSH" });
 		expect(boost).toBeDisabled();
+		expect(retroSounds.music).toHaveBeenLastCalledWith("rush");
 		await user.click(boost);
 		expect(scene.boost).not.toHaveBeenCalled();
 	});
@@ -182,6 +183,10 @@ describe("default race course and camera controls", () => {
 
 		vi.useFakeTimers();
 		act(() => latestSceneEmitter()({ type: "prepared" }));
+		expect(screen.getByRole("status")).toHaveTextContent("READY");
+		expect(retroSounds.ready).toHaveBeenCalledOnce();
+		expect(retroSounds.music).toHaveBeenLastCalledWith("normal");
+		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 		expect(screen.getByRole("status")).toHaveTextContent("3");
 		await act(async () => { await vi.advanceTimersByTimeAsync(999); }); expect(screen.getByRole("status")).toHaveTextContent("3");
 		await act(async () => { await vi.advanceTimersByTimeAsync(1); }); expect(screen.getByRole("status")).toHaveTextContent("2");
@@ -191,6 +196,7 @@ describe("default race course and camera controls", () => {
 		expect(scene.setPaused).toHaveBeenLastCalledWith(true);
 		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); }); expect(screen.getByRole("status")).toHaveTextContent("1");
 		await act(async () => { await vi.advanceTimersByTimeAsync(1_000); }); expect(screen.getByRole("status")).toHaveTextContent("GO!");
+		expect(retroSounds.start).toHaveBeenCalledOnce();
 		expect(scene.setPaused).toHaveBeenLastCalledWith(false);
 		expect(screen.getByRole("button", { name: "Bird View" })).toBeEnabled();
 		await act(async () => { await vi.advanceTimersByTimeAsync(600); }); expect(screen.queryByText("GO!")).not.toBeInTheDocument();

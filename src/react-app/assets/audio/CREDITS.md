@@ -1,5 +1,21 @@
 # Game sound credits and mapping
 
+## Music and race announcements
+
+- **Pure Raceway — MintoDog**, [source](https://opengameart.org/content/pure-raceway),
+  CC0, downloaded 2026-09-08. Original OGG files are bundled without editing:
+  `pure_raceway_bpm160_0.ogg` → `pure-raceway-160.ogg` and
+  `pure_raceway_climax_bpm175_0.ogg` → `pure-raceway-175.ogg`.
+- **Kenney Voiceover Pack**, [source](https://kenney.nl/assets/voiceover-pack), CC0.
+  User-provided `Female/ready.ogg`, `Female/go.ogg`, `Female/hurry_up.ogg` are copied
+  unchanged as `kenney-ready.ogg`, `kenney-go.ogg`, `kenney-hurry-up.ogg`.
+
+160 BPM music loops from race preparation, with Ready → three countdown beeps →
+Go. RUSH plays Hurry up once and switches to the separate 175 BPM Climax track.
+Music volume is 0.16 and voice gain is 0.8. Native HTML audio streams the music;
+short effects use Web Audio. Pause/mute/back chooser preserve music position;
+results stop it, and a new race resets both tracks. Menu screens have no BGM.
+
 ## Original race cues
 
 Generated locally with Python's standard library by
@@ -11,14 +27,12 @@ The generator checks finite samples, non-silence and quiet endpoints.
 | Event / bundled file | Sound |
 | --- | --- |
 | countdown / race-countdown.wav | 180 ms, 660 Hz beep on each of 3, 2, 1 |
-| start / race-start.wav | 650 ms, 1320 Hz GO signal |
 | win / race-fanfare.wav | 3-second original C-major brass-style fanfare |
 | boost / race-boost.wav | 550 ms filtered-noise passing gust |
-| rush / race-rush.wav | 1.3-second filtered-noise swell, played once on entry |
 | pinwheel / race-pinwheel.wav | 160 ms soft, narrow-band air flap on blade contact; gain 0.22 |
 
 NOX vehicle recordings and the continuous RUSH engine loop were removed at user
-request. RUSH has no repeating ambience; unmuting does not replay its entry cue.
+request. RUSH now uses music rather than engine ambience; unmuting does not replay its voice cue.
 
 ## Kenney effects
 
