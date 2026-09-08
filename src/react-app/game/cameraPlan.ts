@@ -67,7 +67,7 @@ export const alongRouteDistance = (position: Vec3, sampleIndex: number, samples:
   return best;
 };
 
-const frameAtDistance = (samples: readonly TrackSample[], distance: number): Pick<TrackSample, "position" | "tangent" | "side" | "up" | "channelDepth" | "width"> | undefined => {
+export const frameAtDistance = (samples: readonly TrackSample[], distance: number): Pick<TrackSample, "position" | "tangent" | "side" | "up" | "channelDepth" | "width"> | undefined => {
   const first = samples[0]; const last = samples[samples.length - 1];
   if (!first || !last) return undefined;
   if (distance <= first.distance) return first;
@@ -284,6 +284,17 @@ export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): Fe
   return zones.sort((left, right) => left.entryDistance - right.entryDistance);
 };
 
+export const writeRouteRearFollowShot = (target: CameraShot, cameraDistance: number, samples: readonly TrackSample[], bounds: TrackBounds, clearance = 6): CameraShot => {
+  const frame = frameAtDistance(samples, cameraDistance);
+  if (!frame) return writeCameraShot(target, "overview", bounds);
+  for (const key of ["x", "y", "z"] as const) {
+    target.position[key] = frame.position[key] + frame.up[key] * clearance;
+    target.lookAt[key] = frame.position[key] + frame.tangent[key] * 6 + frame.up[key] * 0.8;
+  }
+  writeClip(target, bounds);
+  return target;
+};
+
 export const writeBumperTrackShot = (target: CameraShot, zone: FeatureBroadcastZone, samples: readonly TrackSample[], bounds: TrackBounds, cameraDistance = zone.entryDistance - 3, marble?: Vec3): CameraShot => {
   const anchor = frameAtDistance(samples, cameraDistance);
   const focus = frameAtDistance(samples, zone.entryDistance + (zone.exitDistance - zone.entryDistance) * 0.55);
@@ -327,7 +338,7 @@ export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[
       const live = traffic.filter(b => !b.done && !b.eliminated && Number.isFinite(b.distance));
       if (!live.length) { clear(); return selected; }
       const rear = live.reduce((a, b) => a.distance < b.distance || a.distance === b.distance && a.id < b.id ? a : b);
-      if (live.length <= 10) {
+      if (live.length <= input.originalCount * 0.2) {
         selected = { mode: "finale", targetId: rear.id, framing: "close" }; return selected;
       }
       const byId = new Map(traffic.map(b => [b.id, b]));

@@ -123,7 +123,7 @@ Final verification: 49 test files passed (487 tests passed, 3 optional tests ski
   gently follow one marble, retaining it until it leaves and smoothing target
   handoffs. Bounded movement keeps all six posts and bounce height visible in
   portrait/landscape projection checks. It holds through gaps until every live
-  marble passes, yielding first to last-place follow at ten or fewer marbles.
+  marble passes, yielding first to last-place follow at 20% or fewer of the original marbles.
   Pinwheel framing keeps its existing behavior.
 
 - Final friction 0.06 exposed a pre-existing finish-volume bug: a fixed radius-4
@@ -132,3 +132,10 @@ Final verification: 49 test files passed (487 tests passed, 3 optional tests ski
   checks, scene finish checks, legacy finish seeds, and the 100-marble mixed race
   all pass; the final mixed race has no losses by 120 simulated seconds.
 - Production build and ESLint pass. Git-triggered Cloudflare deployment is used.
+
+- Camera follow-up: finale now uses the original starting count (20/100, 40/200).
+  The camera retreats along sampled track distance, with bounded travel speed and
+  forward-facing gaze, instead of interpolating directly across the inside of a
+  corner. Corner entry/exit no longer changes crowd follow distance or smoothing
+  speed; camera up is interpolated between route samples. Regression checks cover
+  both pace boundaries, finale priority, forward-facing retreat and corner paths.

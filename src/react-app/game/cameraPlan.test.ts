@@ -16,6 +16,7 @@ import {
   hasCameraClipChanged,
   writeControlledTrackFollowShot,
   writeBumperTrackShot,
+  writeRouteRearFollowShot,
   writeBirdViewFit,
   writeRouteCrowdFollowShot,
   writeTrackFollowShot,
@@ -243,6 +244,22 @@ describe("action camera", () => {
   const zones = deriveFeatureBroadcastZones(buildModularTrack(createValidTrackDesign()).samples);
   const traffic = (distance: number, count = 20) => Array.from({ length: count }, (_, id) => ({ id, distance, sampleIndex: 0, done: false, eliminated: false }));
   const input = (distance: number, count = 20) => ({ traffic: traffic(distance, count), crowd: { distance, runStart: 0, runEnd: 100, pace: "slow" as const }, originalCount: 20, activeMs: 0, enabled: true });
+  it.each([20, 50, 100, 200])("uses the original %s starters for the finale threshold", originalCount => {
+    const director = createActionCameraDirector([]);
+    expect(director.update({ ...input(0, originalCount / 5 + 1), originalCount }).mode).toBe("crowd");
+    expect(director.update({ ...input(0, originalCount / 5), originalCount }).mode).toBe("finale");
+  });
+  it("keeps the camera on the route and facing forward while retreating through corners", () => {
+    const samples = buildModularTrack(createValidTrackDesign()).samples;
+    const bounds = getTrackBounds(samples);
+    for (const sample of [...samples].reverse()) {
+      const shot = writeRouteRearFollowShot(mutableShot(), sample.distance, samples, bounds, 6);
+      const offset = subtract(shot.position, sample.position);
+      expect(dot(offset, sample.side)).toBeCloseTo(0, 5);
+      expect(dot(offset, sample.up)).toBeCloseTo(6, 5);
+      expect(dot(subtract(shot.lookAt, shot.position), sample.tangent)).toBeGreaterThan(5.9);
+    }
+  });
   it("never changes shots from elapsed time alone", () => {
     const director = createActionCameraDirector([]);
     expect(director.update(input(0)).mode).toBe("crowd");
@@ -264,13 +281,13 @@ describe("action camera", () => {
     expect(director.update(state).mode).toBe("crowd");
     director.reset(); expect(director.update(state).mode).toBe("feature");
   });
-  it("follows the current last marble at ten remaining and replaces a DNF target", () => {
+  it("follows the current last marble at twenty percent remaining and replaces a DNF target", () => {
     const director = createActionCameraDirector([]);
-    expect(director.update(input(0, 11)).mode).toBe("crowd");
-    const state = input(0, 10);
+    expect(director.update(input(0, 5)).mode).toBe("crowd");
+    const state = input(0, 4);
     const first = director.update(state); expect(first.mode).toBe("finale");
-    const swapped = director.update({ ...state, traffic: state.traffic.map(b => ({ ...b, distance: b.id === 5 ? -1 : 0 })) });
-    expect(swapped.targetId).toBe(5);
+    const swapped = director.update({ ...state, traffic: state.traffic.map(b => ({ ...b, distance: b.id === 3 ? -1 : 0 })) });
+    expect(swapped.targetId).toBe(3);
     const next = director.update({ ...state, traffic: state.traffic.map(b => b.id === first.targetId ? { ...b, done: true, eliminated: true } : b) });
     expect(next.targetId).not.toBe(first.targetId);
     director.reset(); expect(director.update(input(0))).toEqual({ mode: "crowd", framing: "wide" });
@@ -289,7 +306,7 @@ describe("action camera", () => {
     expect(director.update({ ...state, traffic: state.traffic.slice(0, 3), activeMs: 4002 }).mode).toBe("finale");
     expect(JSON.stringify(state)).toBe(original);
   });
-  it("holds a wide bumper shot for every live marble, including gaps and returns, but yields at ten", () => {
+  it("holds a wide bumper shot for every live marble, including gaps and returns, but yields at twenty percent", () => {
     const zone = zones.find(zone => zone.kind === "bumper")!;
     const director = createActionCameraDirector(zones);
     const wheel = zones.find(zone => zone.kind === "pinwheel")!;
@@ -303,7 +320,7 @@ describe("action camera", () => {
     director.update({ ...late, enabled: false });
     const returning = gap.map((ball, index) => index === 0 ? { ...ball, distance: zone.entryDistance + 2 } : ball);
     expect(director.update({ ...late, traffic: returning })).toMatchObject({ mode: "feature", framing: "wide" });
-    expect(director.update({ ...late, traffic: returning.slice(10) })).toMatchObject({ mode: "finale", targetId: 19 });
+    expect(director.update({ ...late, traffic: returning.slice(16) })).toMatchObject({ mode: "finale", targetId: 19 });
     director.reset(); director.update({ ...state, traffic: entering });
     expect(director.update(input(zone.exitDistance + 1)).mode).toBe("crowd");
   });
@@ -317,7 +334,7 @@ describe("action camera", () => {
     const traffic = state.traffic.map(b => b.id === first ? { ...b, distance: zone.exitDistance + 1 } : b);
     const next = director.update({ ...state, traffic }).targetId;
     expect(next).toBeDefined(); expect(next).not.toBe(first);
-    expect(director.update({ ...state, traffic: traffic.slice(0, 10) }).mode).toBe("finale");
+    expect(director.update({ ...state, traffic: traffic.slice(0, 4) }).mode).toBe("finale");
   });
   it.each([360 / 800, 1024 / 768])("views every bumper from inside the preceding channel at aspect %s", aspect => {
     const built = buildModularTrack(createValidTrackDesign()); const samples = built.samples;

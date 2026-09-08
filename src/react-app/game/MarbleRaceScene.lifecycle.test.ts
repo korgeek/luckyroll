@@ -88,7 +88,8 @@ vi.mock("./cameraControls", async () => {
 
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
 import type { Marble } from "../domain/types";
-import { getTrackBounds, writeTrackFollowShot } from "./cameraPlan";
+import * as cameraPlan from "./cameraPlan";
+import { getTrackBounds, writeRouteCrowdFollowShot } from "./cameraPlan";
 import { createMarbleRollTexture, createRaceScene } from "./MarbleRaceScene";
 
 const marble = (id: number): Marble => ({ id, ownerId: `owner-${id}`, color: "#fff", symbol: "●" });
@@ -127,18 +128,58 @@ describe("race scene lifecycle boundary", () => {
   it("keeps zoom and clearance steady across straight and curve sections", async () => {
     const scene = await startScene();
     const now = performance.now();
-    for (let frame = 1; frame <= 240; frame++) seams.frames.shift()?.(now + frame * 17);
+    for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
     const straight = cameraPoses[cameraPoses.length - 1]!;
     seams.courseSamples!.forEach(sample => Object.assign(sample, { kind: "curve" }));
-    for (let frame = 241; frame <= 480; frame++) seams.frames.shift()?.(now + frame * 17);
+    for (let frame = 501; frame <= 800; frame++) seams.frames.shift()?.(now + frame * 17);
     const curve = cameraPoses[cameraPoses.length - 1]!;
     expect(curve.camera.zoom).toBe(1);
     expect(curve.position.y).toBeCloseTo(straight.position.y, 2);
     expect(curve.position.y - curve.lookAt.y).toBeGreaterThanOrEqual(4.99);
     scene.setBirdView(true);
-    for (let frame = 481; frame <= 600; frame++) seams.frames.shift()?.(now + frame * 17);
+    for (let frame = 801; frame <= 1000; frame++) seams.frames.shift()?.(now + frame * 17);
     expect(curve.camera.zoom).toBeCloseTo(1, 2);
     scene.dispose();
+  });
+
+  it("retreats toward the last marble facing forward when twenty percent remain", async () => {
+    seams.featureSamples = true; seams.bodyX = 35;
+    const scene = createRaceScene(prepareCanvas(), () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    await settle(); scene.start(Array.from({ length: 100 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now();
+    for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
+    const camera = cameraPoses[0].camera; let previous = latestPose(camera).position.x;
+    seams.bodyX = 12; scene.restartRemaining(Array.from({ length: 20 }, (_, index) => marble(index + 1))); await settle();
+    for (let frame = 501; frame <= 800; frame++) {
+      seams.frames.shift()?.(now + frame * 17);
+      const pose = latestPose(camera);
+      expect(pose.position.x).toBeLessThanOrEqual(previous + 0.001);
+      expect(previous - pose.position.x).toBeLessThanOrEqual(3.01);
+      expect(pose.position.z).toBeCloseTo(0, 5);
+      expect(pose.lookAt.x - pose.position.x).toBeGreaterThan(5.9);
+      previous = pose.position.x;
+    }
+    expect(previous).toBeCloseTo(6, 2);
+    scene.dispose();
+  });
+
+  it("does not change camera framing when crowd pace enters and leaves a corner", async () => {
+    let pace: "slow" | "fast" = "slow";
+    const director = vi.spyOn(cameraPlan, "createRouteCrowdDirector").mockReturnValue({ update: () => ({ distance: 35, runStart: 0, runEnd: 40, pace }), reset: () => undefined });
+    seams.featureSamples = true; seams.bodyX = 35;
+    const scene = createRaceScene(prepareCanvas(), () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    await settle(); scene.start(Array.from({ length: 100 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now();
+    for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
+    const camera = cameraPoses[0].camera; const straight = latestPose(camera);
+    pace = "fast";
+    for (let frame = 501; frame <= 800; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(latestPose(camera).position.distanceTo(straight.position)).toBeLessThan(0.01);
+    expect(latestPose(camera).lookAt.distanceTo(straight.lookAt)).toBeLessThan(0.01);
+    pace = "slow";
+    for (let frame = 801; frame <= 1100; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(latestPose(camera).position.distanceTo(straight.position)).toBeLessThan(0.01);
+    scene.dispose(); director.mockRestore();
   });
 
   it("plays the first marble's physical booster event and stops audio on pause", async () => {
@@ -199,7 +240,7 @@ describe("race scene lifecycle boundary", () => {
     expect(camera.up.y).toBeCloseTo(1, 3);
     expect(camera.up.z).toBe(0);
     const samples = seams.courseSamples!;
-    const expected = writeTrackFollowShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 }, { x: 0, y: 1, z: 0 }, samples, 0, getTrackBounds(samples), 5);
+    const expected = writeRouteCrowdFollowShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 }, 0, samples, getTrackBounds(samples), 5, "slow", 60, camera.aspect);
     const settled = latestPose(camera);
     expect(settled.position.distanceTo(new THREE.Vector3(expected.position.x, expected.position.y, expected.position.z))).toBeLessThan(0.1);
     expect(settled.lookAt.distanceTo(new THREE.Vector3(expected.lookAt.x, expected.lookAt.y, expected.lookAt.z))).toBeLessThan(0.1);
