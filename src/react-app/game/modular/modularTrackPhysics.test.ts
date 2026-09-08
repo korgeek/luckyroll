@@ -87,7 +87,7 @@ describe("modular track physics", () => {
 
   it.runIf(process.env.RUN_MODULAR_300_VALIDATION === "1")("finishes a 300-marble mixed-device race without losses by 120 seconds with half-field weighted RUSH", async () => {
     const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 300, durationSeconds: 120, rush: true });
-    const lastSim = result.finishTimesMs.at(-1) ?? Number.NaN;
+    const lastSim = result.finishTimesMs[result.finishTimesMs.length - 1] ?? Number.NaN;
     const summary = JSON.stringify({
       lastSim, rushPulseCount: result.rushPulseCount, escapes: result.escapes, stalls: result.stalls, nonFinite: result.nonFinite,
       boosterCapViolations: result.boosterCapViolations, missingIds: Array.from({ length: 300 }, (_, index) => index + 1).filter((id) => !result.finishOrder.includes(id)),

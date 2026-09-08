@@ -1,6 +1,6 @@
 import { alongRouteDistance } from "./cameraPlan";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
-type RushBall = Readonly<{ id: number; done: boolean; eliminated: boolean; position: Vec3; sampleIndex: number; body: Readonly<{ linvel: () => Vec3; setLinvel: (velocity: Vec3, wakeUp?: boolean) => void }> }>;
+type RushBall = Readonly<{ id: number; done: boolean; eliminated: boolean; position: Vec3; sampleIndex: number; body: Readonly<{ linvel: () => Vec3; setLinvel: (velocity: Vec3, wakeUp: boolean) => void }> }>;
 
 export const shouldStartRaceRush = (liveCount: number, originalCount: number): boolean =>
   Number.isInteger(originalCount) && originalCount > 0 && liveCount > 0 && liveCount <= originalCount * 0.5;

@@ -81,9 +81,9 @@ describe("continuous-track scene seams", () => {
 		const middle = boostBall({ x: 10, y: 3, z: -5 });
 		const front = boostBall({ x: 10, y: 4, z: -6 });
 		applyRaceRushPulse([
-			{ ...back.ball, id: 1, eliminated: false, progress: 1, position: { x: 1, y: 0, z: 0 } },
-			{ ...middle.ball, id: 2, eliminated: false, progress: 5, position: { x: 5, y: 0, z: 0 } },
-			{ ...front.ball, id: 3, eliminated: false, progress: 9, position: { x: 9, y: 0, z: 0 } },
+			{ ...back.ball, id: 1, eliminated: false, position: { x: 1, y: 0, z: 0 } },
+			{ ...middle.ball, id: 2, eliminated: false, position: { x: 5, y: 0, z: 0 } },
+			{ ...front.ball, id: 3, eliminated: false, position: { x: 9, y: 0, z: 0 } },
 		], [{ distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 } }, { distance: 10, position: { x: 10, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 } }]);
 
 		expect(back.velocity()).toEqual({ x: 13, y: 2, z: -4 });

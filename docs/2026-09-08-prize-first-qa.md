@@ -1,0 +1,10 @@
+# Prize-first results and build verification correction
+
+- Approved layout: with a positive prize pool, show total prize and existing per-player winnings before TOP 10 and the marble winner. Preserve zero-prize layout and existing payout calculation/order. Partial results label the split as current, not final.
+- TDD: prize layout regressions observed failing before implementation, then ResultsScreen 4/4 passed. Root integration verification: ResultsScreen, App and race domain 25/25 passed.
+- Browser: actual 100-marble race with 1,000,000 prize reached results; total appeared before Player 1/2 payouts of 500,000 each, then TOP 10. At 360×800, total top=70px and ranking heading top=283px; no horizontal overflow. QA tab closed and temporary viewport reset.
+- `npm run build` exposed earlier RUSH type errors despite the prior successful `npm run check`: root tsconfig has an empty files list and project references, so plain `tsc` did not check the referenced application project. Previous records of a successful command are accurate but were insufficient evidence of application type safety.
+- Correct `check` to `tsc -b`. Align the RUSH body method type with Rapier's required wakeUp argument, remove obsolete excess fixture properties, and replace test Array.at with ES2020-compatible indexing. These corrections do not change gameplay physics. Cloudflare's prior failure cause is not established without its logs, but these errors independently blocked the actual production build locally.
+- Review identified long prize totals overflowing narrow cards; added min-width and anywhere wrapping to the enlarged amount. Payout calculations remain untouched.
+- Final verification: `npm run build` and corrected `npm run check` pass with referenced-project TypeScript checks, Vite and Wrangler dry-run; lint passes. Related results/App/domain tests pass 25/25; post-fix Scene/RUSH/results tests pass 40/40. Only pre-existing Rapier initialization, large bundle and proxy warnings remain. No native physics soak was rerun for these presentation/type-only edits.
+- Commit/push and Git-triggered deployment follow this verified pre-release record.

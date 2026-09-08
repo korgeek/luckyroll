@@ -14,6 +14,7 @@ describe("ResultsScreen", () => {
 		const marble = screen.getByRole("img", { name: "Jin's ◆ marble" });
 		expect(marble).toHaveStyle({ background: "rgb(255, 255, 255)" });
 		expect(marble.compareDocumentPosition(screen.getByRole("heading", { name: "Jin" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(container.querySelector(".prize-board")).not.toBeInTheDocument();
 		expect(particles.length).toBeGreaterThanOrEqual(250);
 		const spreadX = particles.map((particle) => Number.parseFloat(particle.style.getPropertyValue("--burst-x")));
 		const spreadY = particles.map((particle) => Number.parseFloat(particle.style.getPropertyValue("--burst-y")));
@@ -36,5 +37,24 @@ describe("ResultsScreen", () => {
 		const { container } = render(<ResultsScreen rankings={[{ id: 7, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 1 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={0} celebrate={false} onReplay={vi.fn()} onBack={vi.fn()} />);
 		expect(container.querySelector(".result-confetti")).not.toBeInTheDocument();
 		expect(screen.getByText("LATEST FINISHER · PARTIAL RESULTS")).toBeInTheDocument();
+	});
+
+	it("places total prize and player winnings before the Top 10 ranking", () => {
+		const rankings = [
+			{ id: 7, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 10 },
+			{ id: 8, ownerId: "lee", color: "#0ff", symbol: "●", rank: 2, finishOrder: 9 },
+		];
+		const { container } = render(<ResultsScreen rankings={rankings} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }, { id: "lee", name: "Lee", color: "#0ff", symbol: "●" }]} prizePool={1_000} celebrate onReplay={vi.fn()} onBack={vi.fn()} />);
+		const total = screen.getByText("TOTAL PRIZE"); const winnings = screen.getByRole("heading", { name: "PLAYER WINNINGS" }); const topTen = screen.getByRole("heading", { name: "TOP 10" });
+		expect(total.compareDocumentPosition(winnings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(winnings.compareDocumentPosition(topTen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(screen.getByText("1,000").closest(".prize-total")).toBeInTheDocument();
+		expect(container.querySelector(".prize-summary")).toHaveTextContent("Jin500Lee200");
+	});
+
+	it("labels prize information as current for partial results", () => {
+		render(<ResultsScreen rankings={[{ id: 7, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 1 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={1_000} celebrate={false} onReplay={vi.fn()} onBack={vi.fn()} />);
+		expect(screen.getByRole("heading", { name: "CURRENT PRIZE SPLIT" })).toBeInTheDocument();
+		expect(screen.queryByRole("heading", { name: "PLAYER WINNINGS" })).not.toBeInTheDocument();
 	});
 });
