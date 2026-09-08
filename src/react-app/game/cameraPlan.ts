@@ -3,12 +3,10 @@ import type { TrackSample, Vec3 } from "./track/trackTypes";
 export type CameraShotName = "overview" | "bird" | "side" | "profile" | "leader" | "trailer" | "finish";
 export type TrackBounds = Readonly<{ center: Vec3; radius: number }>;
 export type CameraShot = { position: { x: number; y: number; z: number }; lookAt: { x: number; y: number; z: number }; near: number; far: number };
-export type RaceFocusTarget = Readonly<{ id: string | number; progress: number }>;
-export type RaceFocusDirector = Readonly<{ select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number) => Target | undefined; reset: () => void }>;
+export type RouteCrowdTarget = Readonly<{ id: string | number; distance: number; done?: boolean; eliminated?: boolean }>;
+export type RouteCrowdState = Readonly<{ distance: number; runStart: number; runEnd: number; pace: "slow" | "fast" }>;
+export type RouteCrowdDirector = Readonly<{ update: (traffic: readonly RouteCrowdTarget[], originalCount: number) => RouteCrowdState; reset: () => void }>;
 export type CameraControlOffsets = Readonly<{ yaw: number; pitch: number; zoom: number; panX?: number; panY?: number }>;
-export type FeatureBroadcastZone = Readonly<{ key: string; kind: "bumper" | "pinwheel"; entryDistance: number; exitDistance: number; center: Vec3; tangent: Vec3; side: Vec3; up: Vec3; length: number; width: number; height: number }>;
-export type FeatureTraffic = Readonly<{ id: string | number; distance: number; eliminated: boolean }>;
-export type FeatureBroadcastState = Readonly<{ phase: "establishing" | "approach" | "close" | "returning-top"; passFraction: number; activationElapsedMs: number }>;
 
 const fallbackBounds: TrackBounds = Object.freeze({ center: Object.freeze({ x: 0, y: 0, z: 0 }), radius: 1 });
 
@@ -51,13 +49,6 @@ const normalized = (value: Vec3, fallback: Vec3): Vec3 => {
 };
 
 const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * right.y + left.z * right.z;
-const cross = (left: Vec3, right: Vec3): Vec3 => ({ x: left.y * right.z - left.z * right.y, y: left.z * right.x - left.x * right.z, z: left.x * right.y - left.y * right.x });
-
-// Camera screen orientation follows the route; collision and control clearance still use zone.up.
-export const getFeatureDisplayUp = (zone: Pick<FeatureBroadcastZone, "tangent" | "side" | "up">, aspect = 1): Vec3 =>
-  aspect < 1
-    ? normalized({ x: -zone.tangent.x, y: -zone.tangent.y, z: -zone.tangent.z }, { x: 0, y: 0, z: -1 })
-    : normalized(zone.side, zone.up);
 
 export const alongRouteDistance = (position: Vec3, sampleIndex: number, samples: readonly Pick<TrackSample, "distance" | "position">[]): number => {
   const candidates = [[sampleIndex - 1, sampleIndex], [sampleIndex, sampleIndex + 1]];
@@ -76,7 +67,7 @@ export const alongRouteDistance = (position: Vec3, sampleIndex: number, samples:
   return best;
 };
 
-const frameAtDistance = (samples: readonly TrackSample[], distance: number): Pick<TrackSample, "position" | "tangent" | "side" | "up"> | undefined => {
+const frameAtDistance = (samples: readonly TrackSample[], distance: number): Pick<TrackSample, "position" | "tangent" | "side" | "up" | "channelDepth" | "width"> | undefined => {
   const first = samples[0]; const last = samples[samples.length - 1];
   if (!first || !last) return undefined;
   if (distance <= first.distance) return first;
@@ -87,63 +78,8 @@ const frameAtDistance = (samples: readonly TrackSample[], distance: number): Pic
   const span = right.distance - left.distance;
   const t = span > 1e-9 ? (distance - left.distance) / span : 0;
   const mix = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
-  return { position: mix(left.position, right.position), tangent: normalized(mix(left.tangent, right.tangent), left.tangent), side: normalized(mix(left.side, right.side), left.side), up: normalized(mix(left.up, right.up), left.up) };
+  return { position: mix(left.position, right.position), tangent: normalized(mix(left.tangent, right.tangent), left.tangent), side: normalized(mix(left.side, right.side), left.side), up: normalized(mix(left.up, right.up), left.up), channelDepth: left.channelDepth + (right.channelDepth - left.channelDepth) * t, width: left.width + (right.width - left.width) * t };
 };
-
-export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): FeatureBroadcastZone[] => {
-  type FeatureSample = TrackSample & { kind?: string; cellIndex?: number; localU?: number };
-  const groups = new Map<string, FeatureSample[]>();
-  for (const sample of samples as readonly FeatureSample[]) {
-    if ((sample.kind !== "bumper" && sample.kind !== "pinwheel") || !Number.isInteger(sample.cellIndex) || !Number.isFinite(sample.localU)) continue;
-    const key = `${sample.kind}:${sample.cellIndex}`;
-    const group = groups.get(key); if (group) group.push(sample); else groups.set(key, [sample]);
-  }
-  const zones: FeatureBroadcastZone[] = [];
-  groups.forEach((group, key) => {
-    group.sort((left, right) => left.localU! - right.localU!);
-    const first = group[0]; const last = group[group.length - 1];
-    if (!first || !last || first.localU === last.localU) return;
-    const slope = (last.distance - first.distance) / (last.localU! - first.localU!);
-    if (!Number.isFinite(slope) || slope <= 0) return;
-    const entryDistance = first.distance - first.localU! * slope;
-    const exitDistance = last.distance + (1 - last.localU!) * slope;
-    const frame = frameAtDistance(group, (entryDistance + exitDistance) / 2);
-    if (!frame) return;
-    const height = Math.max(1, ...group.map((sample) => sample.channelDepth));
-    const center = { x: frame.position.x + frame.up.x * height / 2, y: frame.position.y + frame.up.y * height / 2, z: frame.position.z + frame.up.z * height / 2 };
-    zones.push(Object.freeze({ key, kind: first.kind as "bumper" | "pinwheel", entryDistance, exitDistance, center: Object.freeze(center), tangent: Object.freeze(frame.tangent), side: Object.freeze(frame.side), up: Object.freeze(frame.up), length: exitDistance - entryDistance, width: Math.max(...group.map((sample) => sample.width)), height }));
-  });
-  return zones.sort((left, right) => left.entryDistance - right.entryDistance);
-};
-
-export const createFeatureBroadcastDirector = (zones: readonly FeatureBroadcastZone[]) => {
-  const completed = new Set<string>(); const passed = new Set<string | number>(); let active: FeatureBroadcastZone | undefined; let startingCount = 0; let activationElapsedMs = 0; let returningTop = false;
-  return Object.freeze({
-    update: (traffic: readonly FeatureTraffic[], deltaMs = 0): FeatureBroadcastZone | undefined => {
-      if (!active) {
-        active = zones.find((zone) => !completed.has(zone.key) && traffic.some((marble) => !marble.eliminated && marble.distance >= zone.entryDistance));
-        if (active) { startingCount = Math.max(1, traffic.length); activationElapsedMs = 0; returningTop = false; }
-      } else activationElapsedMs += Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0);
-      if (!active) return undefined;
-      for (const marble of traffic) if (!marble.eliminated && marble.distance > active.exitDistance) passed.add(marble.id);
-      const pending = traffic.some((marble) => !marble.eliminated && marble.distance <= active!.exitDistance);
-      const occupied = traffic.some((marble) => !marble.eliminated && marble.distance >= active!.entryDistance && marble.distance <= active!.exitDistance);
-      if (passed.size / startingCount >= 0.5) returningTop = true;
-      const wheelReady = passed.size > startingCount * 0.8 && (!occupied || activationElapsedMs >= 3_100);
-      if ((active.kind === "pinwheel" ? wheelReady || !pending : !pending)) { completed.add(active.key); active = undefined; passed.clear(); }
-      return active;
-    },
-    getFeatureBroadcastState: (): FeatureBroadcastState | undefined => active && Object.freeze({
-      phase: returningTop && activationElapsedMs >= 3_100 ? "returning-top" : activationElapsedMs < 500 ? "establishing" : activationElapsedMs < 1_600 ? "approach" : "close",
-      passFraction: passed.size / startingCount,
-      activationElapsedMs,
-    }),
-    reset: () => { completed.clear(); passed.clear(); active = undefined; startingCount = 0; activationElapsedMs = 0; returningTop = false; },
-  });
-};
-
-export const shouldPresentFeatureBroadcast = (state: Readonly<{ birdView: boolean; reducedMotion: boolean; debugPaused: boolean; recentManualInput: boolean }>): boolean =>
-  !state.birdView && !state.reducedMotion && !state.debugPaused && !state.recentManualInput;
 
 export const cameraLerpAlpha = (perFrameAlpha: number, deltaMs: number): number =>
   1 - Math.pow(1 - Math.max(0, Math.min(1, perFrameAlpha)), Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0) / (1000 / 60));
@@ -168,45 +104,6 @@ export const writeBirdViewFit = (target: CameraShot, bounds: TrackBounds, vertic
   return target;
 };
 
-export const writeFeatureBroadcastShot = (target: CameraShot, zone: FeatureBroadcastZone, verticalFovDegrees: number, aspect: number, elapsedMs: number, currentCameraPosition?: Vec3, broadcast?: FeatureBroadcastState): CameraShot => {
-  const fov = Math.min(179, Math.max(1, Number.isFinite(verticalFovDegrees) ? verticalFovDegrees : 60));
-  const safeAspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
-  const halfVertical = fov * Math.PI / 360;
-  const halfHorizontal = Math.atan(Math.tan(halfVertical) * safeAspect);
-  const radius = Math.max(1, Math.hypot(zone.length / 2, zone.width / 2, zone.height / 2));
-  const distance = 1.08 * radius / Math.sin(Math.min(halfVertical, halfHorizontal));
-  const state = broadcast ?? { phase: "establishing" as const, passFraction: 0, activationElapsedMs: 0 };
-  const elapsed = Math.max(0, Number.isFinite(state.activationElapsedMs) ? state.activationElapsedMs : 0);
-  const closing = state.phase === "returning-top" ? 0 : Math.max(0, Math.min(1, (elapsed - 500) / 1_100));
-  const displayUp = getFeatureDisplayUp(zone, safeAspect);
-  const lateralLimit = Math.max(0, zone.width / 2 - 1.5);
-  const lateral = closing * Math.min(lateralLimit, lateralLimit * (0.72 + Math.sin(elapsed / 700) * 0.08));
-  const along = closing * zone.length * 0.22 * Math.sin(elapsed / 750);
-  const clearance = zone.height * 3 / 4 + 1;
-  const provisionalView = normalized({ x: zone.up.x * clearance + zone.side.x * lateral + zone.tangent.x * along, y: zone.up.y * clearance + zone.side.y * lateral + zone.tangent.y * along, z: zone.up.z * clearance + zone.side.z * lateral + zone.tangent.z * along }, zone.up);
-  const extent = (axis: Vec3): number => Math.abs(dot(axis, zone.tangent)) * zone.length * 0.4 + Math.abs(dot(axis, zone.side)) * zone.width / 2 + Math.abs(dot(axis, zone.up)) * zone.height * 0.3;
-  const fitDistance = (view: Vec3): number => {
-    const screenRight = normalized(cross(view, displayUp), zone.side);
-    const screenUp = normalized(cross(screenRight, view), displayUp);
-    return 1.06 * Math.max(extent(screenRight) / Math.tan(halfHorizontal), extent(screenUp) / Math.tan(halfVertical)) + extent(view) + 0.5;
-  };
-  const topDistance = distance * 1.15;
-  const firstDistance = Math.max(fitDistance(provisionalView), topDistance / 2.2);
-  const planarSquared = lateral * lateral + along * along;
-  const firstElevation = Math.max(clearance, Math.sqrt(Math.max(0, firstDistance * firstDistance - planarSquared)));
-  const firstView = normalized({ x: zone.up.x * firstElevation + zone.side.x * lateral + zone.tangent.x * along, y: zone.up.y * firstElevation + zone.side.y * lateral + zone.tangent.y * along, z: zone.up.z * firstElevation + zone.side.z * lateral + zone.tangent.z * along }, zone.up);
-  const closeDistance = Math.max(firstDistance, fitDistance(firstView));
-  const elevation = Math.max(clearance, Math.sqrt(Math.max(0, closeDistance * closeDistance - planarSquared)));
-  const vertical = topDistance + (elevation - topDistance) * closing;
-  const shotDistance = Math.hypot(vertical, lateral, along);
-  const glide = Math.sin((Number.isFinite(elapsedMs) ? elapsedMs : 0) / 1_800) * (1 - closing) * 1.2 + Math.sin(elapsed / 750) * closing * 0.5;
-  const aimDown = -zone.height / 4;
-  target.lookAt.x = zone.center.x + zone.tangent.x * glide + zone.up.x * aimDown; target.lookAt.y = zone.center.y + zone.tangent.y * glide + zone.up.y * aimDown; target.lookAt.z = zone.center.z + zone.tangent.z * glide + zone.up.z * aimDown;
-  target.position.x = target.lookAt.x + zone.up.x * vertical + zone.side.x * lateral + zone.tangent.x * along; target.position.y = target.lookAt.y + zone.up.y * vertical + zone.side.y * lateral + zone.tangent.y * along; target.position.z = target.lookAt.z + zone.up.z * vertical + zone.side.z * lateral + zone.tangent.z * along;
-  target.near = Math.max(0.05, radius * 0.012); target.far = Math.max(shotDistance + radius * 2 + 20, finiteVector(currentCameraPosition) ? Math.hypot(currentCameraPosition.x - zone.center.x, currentCameraPosition.y - zone.center.y, currentCameraPosition.z - zone.center.z) + radius * 2 : 0);
-  return target;
-};
-
 const offsets: Readonly<Record<CameraShotName, Readonly<Vec3>>> = Object.freeze({
   overview: { x: 0.88, y: 1.42, z: 1.16 }, bird: { x: 0, y: 2.2, z: 0.001 }, side: { x: 1.72, y: 0.56, z: 0.16 }, profile: { x: 0.22, y: 0.44, z: 1.8 },
   leader: { x: 0.76, y: 0.56, z: 0.92 }, trailer: { x: -0.76, y: 0.5, z: 0.92 }, finish: { x: -0.68, y: 0.7, z: 1.08 },
@@ -227,67 +124,59 @@ export const writeCameraShot = (target: CameraShot, name: CameraShotName, bounds
 export const getCameraShot = (name: CameraShotName, bounds: TrackBounds, focus?: Vec3): CameraShot =>
   writeCameraShot({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 }, name, bounds, focus);
 
-const focusPhase = (leaderProgress: number): "leader" | "middle" | "trailer" =>
-  leaderProgress < 0.5 ? "leader" : leaderProgress < 0.75 ? "middle" : "trailer";
-
-export const selectFocusRank = (leaderProgress: number, liveCount: number): number => {
-  const finalRank = Math.max(0, liveCount - 1);
-  if (leaderProgress < 0.5) return 0;
-  if (leaderProgress >= 0.75) return finalRank;
-  return Math.round(finalRank * Math.max(0, Math.min(1, (leaderProgress - 0.5) / 0.25)));
+const deriveRouteRuns = (samples: readonly TrackSample[]): readonly Readonly<{ start: number; end: number; straight: boolean }>[] => {
+  if (!samples.length) return [];
+  const modular = samples as readonly (TrackSample & { kind?: string })[];
+  if (modular.some((sample) => sample.kind !== undefined)) {
+    const runs: { start: number; end: number; straight: boolean }[] = [];
+    let start = 0; let straight = modular[0]!.kind !== "curve";
+    for (let index = 1; index < modular.length; index += 1) {
+      const nextStraight = modular[index]!.kind !== "curve";
+      if (nextStraight === straight) continue;
+      runs.push({ start: modular[start]!.distance, end: modular[index - 1]!.distance, straight }); start = index; straight = nextStraight;
+    }
+    runs.push({ start: modular[start]!.distance, end: modular[modular.length - 1]!.distance, straight });
+    return runs;
+  }
+  const runs: { start: number; end: number; straight: boolean }[] = [];
+  let start = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    if (dot(normalized(samples[start]!.tangent, { x: 1, y: 0, z: 0 }), normalized(samples[index]!.tangent, { x: 1, y: 0, z: 0 })) < 0.965) {
+      const end = samples[index - 1]!.distance;
+      runs.push({ start: samples[start]!.distance, end, straight: end - samples[start]!.distance >= 12 }); start = index;
+    }
+  }
+  const end = samples[samples.length - 1]!.distance;
+  runs.push({ start: samples[start]!.distance, end, straight: end - samples[start]!.distance >= 12 });
+  return runs;
 };
 
-export const createRaceFocusDirector = (): RaceFocusDirector => {
-  let selectedId: string | number | undefined;
-  let selectedAt = Number.NEGATIVE_INFINITY;
-  let finalTrailerId: string | number | undefined;
+const densestRouteDistance = (traffic: readonly RouteCrowdTarget[]): number | undefined => {
+  const distances = traffic.filter((member) => !member.done && !member.eliminated && Number.isFinite(member.distance)).map((member) => member.distance).sort((left, right) => left - right);
+  if (!distances.length) return undefined;
+  let best = [distances[0]!]; let group = best;
+  for (let index = 1; index < distances.length; index += 1) {
+    if (distances[index]! - group[group.length - 1]! <= 8) { group.push(distances[index]!); if (group.length > best.length) best = group; }
+    else { group = [distances[index]!]; if (group.length > best.length) best = group; }
+  }
+  return best.reduce((sum, distance) => sum + distance, 0) / best.length;
+};
 
-  const selectById = <Target extends RaceFocusTarget>(live: readonly Target[], id: string | number | undefined): Target | undefined => {
-    if (id === undefined) return undefined;
-    for (let index = 0; index < live.length; index += 1) {
-      if (live[index].id === id) return live[index];
-    }
-    return undefined;
-  };
-
+export const createRouteCrowdDirector = (samples: readonly TrackSample[]): RouteCrowdDirector => {
+  const runs = deriveRouteRuns(samples); let runIndex = 0; let passed = new Set<string | number>(); let lastDistance = runs[0]?.start ?? 0;
   return Object.freeze({
-    select: <Target extends RaceFocusTarget>(live: readonly Target[], leaderProgress: number, nowMs: number): Target | undefined => {
-      if (!live.length) return undefined;
-      const finalTrailer = selectById(live, finalTrailerId);
-      if (finalTrailer) return finalTrailer;
-      if (finalTrailerId !== undefined) {
-        const next = live[live.length - 1];
-        finalTrailerId = next.id;
-        selectedId = next.id;
-        selectedAt = nowMs;
-        return next;
-      }
-      const phase = focusPhase(leaderProgress);
-      const selected = selectById(live, selectedId);
-      if (phase === "trailer") {
-        if (selected && nowMs - selectedAt < 1_800) return selected;
-        const next = live[live.length - 1];
-        finalTrailerId = next.id;
-        selectedId = next.id;
-        selectedAt = nowMs;
-        return next;
-      }
-
-      if (selected && nowMs - selectedAt < 1_800) return selected;
-      const desiredRank = selectFocusRank(leaderProgress, live.length);
-      if (phase === "middle" && selected) {
-        let selectedRank = -1;
-        for (let index = 0; index < live.length; index += 1) {
-          if (live[index].id === selected.id) { selectedRank = index; break; }
-        }
-        if (selectedRank >= 0 && Math.abs(selectedRank - desiredRank) <= 2) return selected;
-      }
-      const next = live[desiredRank];
-      selectedId = next.id;
-      selectedAt = nowMs;
-      return next;
+    update: (traffic, originalCount) => {
+      const run = runs[Math.min(runIndex, Math.max(0, runs.length - 1))] ?? { start: lastDistance, end: lastDistance, straight: true };
+      for (const member of traffic) if (!member.done && !member.eliminated && Number.isFinite(member.distance) && member.distance >= run.end) passed.add(member.id);
+      const unavailable = traffic.filter((member) => (member.done || member.eliminated) && !passed.has(member.id)).length;
+      const required = Math.max(1, Number.isFinite(originalCount) && originalCount > 0 ? originalCount * 0.8 : traffic.length * 0.8);
+      const dense = densestRouteDistance(traffic);
+      if (runIndex < runs.length - 1 && (run.straight ? passed.size + unavailable >= required : dense !== undefined && dense >= run.end)) { runIndex += 1; passed = new Set(); }
+      const current = runs[Math.min(runIndex, Math.max(0, runs.length - 1))] ?? run;
+      lastDistance = dense === undefined ? lastDistance : current.straight ? Math.min(dense, current.end) : dense;
+      return Object.freeze({ distance: lastDistance, runStart: current.start, runEnd: current.end, pace: current.straight ? "slow" : "fast" });
     },
-    reset: () => { selectedId = undefined; selectedAt = Number.NEGATIVE_INFINITY; finalTrailerId = undefined; },
+    reset: () => { runIndex = 0; passed = new Set(); lastDistance = runs[0]?.start ?? 0; },
   });
 };
 
@@ -318,6 +207,28 @@ export const writeTrackFollowShot = (target: CameraShot, marblePosition: Vec3, s
   target.lookAt.z = focus.z + up.z * 0.45;
   writeClip(target, safeBounds);
   return enforceCameraClearance(target, up, minimumClearance);
+};
+
+export const writeRouteCrowdFollowShot = (target: CameraShot, routeDistance: number, samples: readonly TrackSample[], bounds: TrackBounds, minimumClearance = 5, pace: "slow" | "fast" = "slow", verticalFovDegrees = 60, aspect = 1): CameraShot => {
+  const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
+  const frame = frameAtDistance(samples, routeDistance) ?? samples[0];
+  if (!frame) return writeCameraShot(target, "overview", safeBounds);
+  const up = finiteVector(frame.up) ? frame.up : { x: 0, y: 1, z: 0 };
+  const followDistance = pace === "fast" ? 6 : 10;
+  const lead = pace === "fast" ? 6 : 5;
+  const fov = Math.min(179, Math.max(1, Number.isFinite(verticalFovDegrees) ? verticalFovDegrees : 60)) * Math.PI / 180;
+  const horizontal = 2 * Math.atan(Math.tan(fov / 2) * Math.max(0.1, Number.isFinite(aspect) ? aspect : 1));
+  const fitDistance = frame.width * 0.62 / Math.sin(horizontal / 2);
+  const clearance = Math.max(minimumClearance, frame.channelDepth + 1, Math.sqrt(Math.max(0, fitDistance * fitDistance - (followDistance + lead) ** 2)));
+  const anchor = frameAtDistance(samples, routeDistance - followDistance) ?? frame;
+  target.position.x = anchor.position.x + anchor.up.x * clearance;
+  target.position.y = anchor.position.y + anchor.up.y * clearance;
+  target.position.z = anchor.position.z + anchor.up.z * clearance;
+  target.lookAt.x = frame.position.x + frame.tangent.x * lead + up.x * 0.45;
+  target.lookAt.y = frame.position.y + frame.tangent.y * lead + up.y * 0.45;
+  target.lookAt.z = frame.position.z + frame.tangent.z * lead + up.z * 0.45;
+  writeClip(target, safeBounds);
+  return enforceCameraClearance(target, up, clearance);
 };
 
 export const writeControlledTrackFollowShot = (target: CameraShot, directed: CameraShot, localUp: Vec3, controls: CameraControlOffsets, minimumClearance = 5): CameraShot => {

@@ -41,6 +41,15 @@ const rotationAroundY = (radians: number) => ({ x: 0, y: Math.sin(radians / 2), 
 afterEach(async () => { await yieldEventLoop(); });
 
 describe("modular track physics", () => {
+  it("yields to queued timers during a validation race", async () => {
+    await initializeTrackPhysics();
+    let timerServiced = false;
+    const timer = new Promise<void>((resolve) => setTimeout(() => { timerServiced = true; resolve(); }, 0));
+    await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 1, durationSeconds: 3 });
+    expect(timerServiced).toBe(true);
+    await timer;
+  }, 30_000);
+
   it("keeps the obstacle-free baseline throughput above 60 marbles in 60 seconds", async () => {
     const track = createValidTrackDesign();
     const cells = [...track.cells] as TrackCell[];
@@ -48,7 +57,17 @@ describe("modular track physics", () => {
       if (cell?.kind === "funnel" || cell?.kind === "wave" || cell?.kind === "bumper" || cell?.kind === "booster" || cell?.kind === "pinwheel") cells[cellIndex] = { kind: "straight", rotation: 0 };
     });
     const result = await runModularValidationRace({ track: { ...track, cells }, seed: 23, marbleCount: 100, durationSeconds: 60 });
-    expect(result.finishOrder.length).toBeGreaterThanOrEqual(60);
+    const summary = {
+      finished: result.finishOrder.length,
+      firstFinishMs: result.finishTimesMs[0],
+      unfinishedIds: Array.from({ length: 100 }, (_, index) => index + 1).filter((id) => !result.finishOrder.includes(id)).slice(0, 12),
+      escapes: result.escapes.map(({ marbleId, nearestSampleIndex }) => ({ marbleId, nearestSampleIndex })),
+      stalls: result.stalls.map(({ marbleId, nearestSampleIndex }) => ({ marbleId, nearestSampleIndex })),
+      nonFinite: result.nonFinite.map(({ marbleId, nearestSampleIndex }) => ({ marbleId, nearestSampleIndex })),
+      boosterCapViolations: result.boosterCapViolations.length,
+    };
+    console.info("obstacle-free baseline", summary);
+    expect(result.finishOrder.length, JSON.stringify(summary)).toBeGreaterThanOrEqual(60);
     expect(result.finishTimesMs[0]).toBeLessThanOrEqual(55_000);
     expect(result.nonFinite).toEqual([]);
     expect(result.boosterCapViolations).toEqual([]);
@@ -56,8 +75,9 @@ describe("modular track physics", () => {
   }, 180_000);
 
   it("finishes the mixed-device default race without losses by 120 seconds", async () => {
-    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 120 });
+    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 120, rush: true });
     expect(result.finishOrder).toHaveLength(100);
+    expect(result.rushPulseCount).toBeGreaterThan(0);
     expect(result.finishTimesMs[result.finishTimesMs.length - 1]).toBeLessThanOrEqual(120_000);
     expect(result.nonFinite).toEqual([]);
     expect(result.escapes).toEqual([]);
@@ -65,9 +85,26 @@ describe("modular track physics", () => {
     expect(result.boosterCapViolations).toEqual([]);
   }, 300_000);
 
-  it.runIf(process.env.RUN_MODULAR_300_VALIDATION === "1")("finishes a 300-marble mixed-device race without losses by 120 seconds", async () => {
-    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 300, durationSeconds: 120 });
-    expect(result.finishOrder).toHaveLength(300);
+  it.runIf(process.env.RUN_MODULAR_300_VALIDATION === "1")("finishes a 300-marble mixed-device race without losses by 120 seconds with half-field weighted RUSH", async () => {
+    const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 300, durationSeconds: 120, rush: true });
+    const lastSim = result.finishTimesMs.at(-1) ?? Number.NaN;
+    const summary = JSON.stringify({
+      lastSim, rushPulseCount: result.rushPulseCount, escapes: result.escapes, stalls: result.stalls, nonFinite: result.nonFinite,
+      boosterCapViolations: result.boosterCapViolations, missingIds: Array.from({ length: 300 }, (_, index) => index + 1).filter((id) => !result.finishOrder.includes(id)),
+    });
+    console.info("300-marble RUSH qualification", {
+      lastSimMs: lastSim,
+      marble209FinishMs: result.finishTimesMs[result.finishOrder.indexOf(209)],
+      rushPulseCount: result.rushPulseCount,
+      finished: result.finishOrder.length,
+      escapes: result.escapes.length,
+      stalls: result.stalls.length,
+      nonFinite: result.nonFinite.length,
+      boosterCapViolations: result.boosterCapViolations.length,
+    });
+    expect(result.finishOrder, summary).toHaveLength(300);
+    expect(lastSim, summary).toBeLessThanOrEqual(120_000);
+    expect(result.rushPulseCount, summary).toBeGreaterThan(0);
     expect(result.nonFinite).toEqual([]);
     expect(result.escapes).toEqual([]);
     expect(result.stalls).toEqual([]);
@@ -85,6 +122,7 @@ describe("modular track physics", () => {
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
+    expect(resources.trackCollider.friction()).toBeCloseTo(0.07, 6);
     expect(resources.fixedColliders).toHaveLength(0);
     resources.dispose();
     world.free();
@@ -212,7 +250,7 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
-  it("carries a ten-marble 1.5x RUSH packet through the pinball posts without jams", async () => {
+  it("carries a ten-marble 1.5x oversize stress packet through the pinball posts without jams", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createWorstCaseTrackDesign());
@@ -469,7 +507,7 @@ describe("modular track physics", () => {
     resources.dispose(); world.free();
   });
 
-  it("releases ten overlapping 1.5x RUSH marbles safely on a remaining restart", async () => {
+  it("releases ten overlapping 1.5x oversize stress marbles safely on a remaining restart", async () => {
     await initializeTrackPhysics();
     const world = createTrackPhysicsWorld();
     const built = buildModularTrack(createValidTrackDesign());

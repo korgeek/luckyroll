@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SetupScreen } from "./SetupScreen";
@@ -16,6 +16,41 @@ describe("SetupScreen", () => {
 		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000, participants: expect.arrayContaining([expect.objectContaining({ name: "Jin" }), expect.objectContaining({ name: "Mia" })]) }));
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("mode");
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("teamCount");
+	});
+
+	it("formats prize-pool digits without changing the submitted number", async () => {
+		const user = userEvent.setup(); const onStart = vi.fn();
+		render(<SetupScreen onStart={onStart} />);
+		const prize = screen.getByLabelText("Prize Pool");
+		await user.type(prize, "10000");
+		expect(prize).toHaveValue("10,000");
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000 }));
+	});
+
+	it("keeps prize-pool digit edits and caret movement stable around separators", async () => {
+		const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
+		const prize = screen.getByLabelText<HTMLInputElement>("Prize Pool");
+		await user.type(prize, "10000"); await user.clear(prize);
+		expect(prize).toHaveValue("");
+		await user.paste("abc12,345xyz");
+		expect(prize).toHaveValue("12,345");
+		prize.focus(); prize.setSelectionRange(1, 1); await user.keyboard("9");
+		expect(prize).toHaveValue("192,345"); expect(prize.selectionStart).toBe(2);
+		await user.clear(prize); await user.type(prize, "12345"); prize.setSelectionRange(3, 5); await user.keyboard("9");
+		expect(prize).toHaveValue("1,295"); expect(prize.selectionStart).toBe(4);
+		prize.setSelectionRange(2, 2); await user.keyboard("{Backspace}");
+		expect(prize).toHaveValue("295");
+		await user.clear(prize); await user.type(prize, "1234"); prize.setSelectionRange(1, 1); await user.keyboard("{Delete}");
+		expect(prize).toHaveValue("134");
+	});
+
+	it("restores separators after a comma-only native edit", async () => {
+		const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
+		const prize = screen.getByLabelText<HTMLInputElement>("Prize Pool");
+		await user.type(prize, "12345");
+		fireEvent.change(prize, { target: { value: "12345", selectionStart: 2 } });
+		expect(prize).toHaveValue("12,345"); expect(prize.selectionStart).toBe(2);
 	});
 
 	it("starts with the selected marble count", async () => {

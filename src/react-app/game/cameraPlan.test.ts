@@ -6,36 +6,23 @@ import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
   cameraLerpAlpha,
-  createFeatureBroadcastDirector,
-  createRaceFocusDirector,
-  deriveFeatureBroadcastZones,
-  getFeatureDisplayUp,
+  createRouteCrowdDirector,
   getBirdViewUp,
   getCameraShot,
   getTrackBounds,
   hasCameraClipChanged,
-  selectFocusRank,
-  shouldPresentFeatureBroadcast,
   writeControlledTrackFollowShot,
   writeBirdViewFit,
-  writeFeatureBroadcastShot,
+  writeRouteCrowdFollowShot,
   writeTrackFollowShot,
   type CameraShot,
-  type RaceFocusTarget,
 } from "./cameraPlan";
 
 const canonicalTrackBounds = getTrackBounds(buildValidatedTrack().samples);
 const isFiniteVec3 = (value: Vec3) => Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z);
 const subtract = (left: Vec3, right: Vec3): Vec3 => ({ x: left.x - right.x, y: left.y - right.y, z: left.z - right.z });
 const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * right.y + left.z * right.z;
-const target = (id: RaceFocusTarget["id"], progress: number): RaceFocusTarget => ({ id, progress });
-const field = (count: number, offset = 0): RaceFocusTarget[] => Array.from({ length: count }, (_, index) => target(`marble-${offset + index}`, 1 - index / count));
 const mutableShot = (): CameraShot => ({ position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 10 });
-const featureSamples = (kind: "bumper" | "pinwheel", cellIndex: number, entryDistance: number, x = entryDistance) => [
-  { index: 0, distance: entryDistance + 2, position: { x: x + 2, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const, kind, cellIndex, localU: 0.1 },
-  { index: 1, distance: entryDistance + 18, position: { x: x + 18, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 12, bankRadians: 0, zone: "run" as const, kind, cellIndex, localU: 0.9 },
-] as const;
-const traffic = (distances: readonly number[], eliminated: readonly number[] = []) => distances.map((distance, index) => ({ id: index + 1, distance, eliminated: eliminated.includes(index + 1) }));
 
 describe("track-bound race camera plan", () => {
 	it("keeps a sparse follow anchor continuous across a nearest-sample boundary", () => {
@@ -50,157 +37,6 @@ describe("track-bound race camera plan", () => {
 		expect(Math.abs(after.position.x - before.position.x)).toBeLessThan(0.1);
 	});
 
-	it("derives feature entry and exit from actual local route slope", () => {
-		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
-
-		expect(zone).toMatchObject({ key: "bumper:7", kind: "bumper", entryDistance: 10, exitDistance: 30, length: 20, width: 12, height: 12 });
-	});
-
-	it("holds a bumper from first entry until every non-DNF marble clears it", () => {
-		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10)));
-
-		expect(director.update(traffic([9, 9]))).toBeUndefined();
-		expect(director.update(traffic([10, 9]))?.key).toBe("bumper:7");
-		expect(director.update(traffic([31, 9]))?.key).toBe("bumper:7");
-		expect(director.update(traffic([31, 9], [2]))).toBeUndefined();
-		expect(director.update(traffic([10, 9]))).toBeUndefined();
-	});
-
-	it("holds a wheel through 80 unique exits and starts its occupied close hold on the 81st", () => {
-		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
-		const first80 = [...Array.from({ length: 80 }, () => 61), ...Array.from({ length: 20 }, () => 50)];
-
-		expect(director.update(traffic(first80))?.key).toBe("pinwheel:8");
-		const recross = [...first80]; recross[0] = 50;
-		expect(director.update(traffic(recross))?.key).toBe("pinwheel:8");
-		expect(director.update(traffic(first80))?.key).toBe("pinwheel:8");
-		const first81 = [...first80]; first81[80] = 61;
-		expect(director.update(traffic(first81))?.key).toBe("pinwheel:8");
-	});
-
-	it.each([[100, 81], [200, 161], [300, 241]])("releases a wheel only after more than 80%% of its starting field clears (%i -> %i)", (count, releaseCount) => {
-		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
-		const field = Array.from({ length: count }, () => 41);
-		const exits = (passed: number) => field.map((_, index) => index < passed ? 61 : 39);
-
-		expect(director.update(traffic(field))?.key).toBe("pinwheel:8");
-		expect(director.update(traffic(exits(releaseCount - 1)))?.key).toBe("pinwheel:8");
-		expect(director.update(traffic(exits(releaseCount)))).toBeUndefined();
-	});
-
-	it("holds a fast wheel release while marbles still occupy its close view", () => {
-		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
-		const field = Array.from({ length: 100 }, () => 41);
-		const exits = field.map((distance, index) => index < 81 ? 61 : distance);
-
-		expect(director.update(traffic(field))?.key).toBe("pinwheel:8");
-		expect(director.update(traffic(exits), 1_600)?.key).toBe("pinwheel:8");
-		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "close", passFraction: 0.81 });
-		expect(director.update(traffic(exits), 1_500)).toBeUndefined();
-	});
-
-	it("holds the reached close feature view for 1.5 occupied seconds before its half-field top return", () => {
-		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
-		const field = Array.from({ length: 100 }, () => 41);
-		const exits = (passed: number) => field.map((distance, index) => index < passed ? 61 : distance);
-
-		director.update(traffic(field));
-		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "establishing", passFraction: 0, activationElapsedMs: 0 });
-		director.update(traffic(exits(50)), 1_600);
-		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "close", passFraction: 0.5, activationElapsedMs: 1_600 });
-		director.update(traffic(field), 1_499);
-		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "close", passFraction: 0.5, activationElapsedMs: 3_099 });
-		director.update(traffic(field), 1);
-		expect(director.getFeatureBroadcastState()).toMatchObject({ phase: "returning-top", passFraction: 0.5, activationElapsedMs: 3_100 });
-	});
-
-	it("releases a smaller wheel after all remaining marbles clear", () => {
-		const director = createFeatureBroadcastDirector(deriveFeatureBroadcastZones(featureSamples("pinwheel", 8, 40)));
-		expect(director.update(traffic([41, 39]))?.key).toBe("pinwheel:8");
-		expect(director.update(traffic([61, 61]))).toBeUndefined();
-	});
-
-	it("resets one-shot state and treats multiple feature cells independently", () => {
-		const zones = deriveFeatureBroadcastZones([...featureSamples("bumper", 1, 10), ...featureSamples("bumper", 2, 40, 40)]);
-		const director = createFeatureBroadcastDirector(zones);
-		expect(director.update(traffic([11]))?.key).toBe("bumper:1");
-		expect(director.update(traffic([31]))).toBeUndefined();
-		expect(director.update(traffic([41]))?.key).toBe("bumper:2");
-		director.reset();
-		expect(director.update(traffic([11]))?.key).toBe("bumper:1");
-	});
-
-	it.each([320 / 740, 1024 / 768])("fits an entire tall feature module at aspect %s", (aspect) => {
-		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
-		const shot = writeFeatureBroadcastShot(mutableShot(), zone, 60, aspect, 0);
-		const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
-		camera.position.set(shot.position.x, shot.position.y, shot.position.z);
-		const displayUp = getFeatureDisplayUp(zone, aspect);
-		camera.up.set(displayUp.x, displayUp.y, displayUp.z);
-		camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
-		for (const along of [-zone.length / 2, zone.length / 2]) for (const across of [-zone.width / 2, zone.width / 2]) for (const up of [-zone.height / 2, zone.height / 2]) {
-			const projected = new THREE.Vector3(zone.center.x + zone.tangent.x * along + zone.side.x * across + zone.up.x * up, zone.center.y + zone.tangent.y * along + zone.side.y * across + zone.up.y * up, zone.center.z + zone.tangent.z * along + zone.side.z * across + zone.up.z * up).project(camera);
-			expect(Math.abs(projected.x)).toBeLessThanOrEqual(1); expect(Math.abs(projected.y)).toBeLessThanOrEqual(1);
-		}
-		const view = subtract(shot.position, shot.lookAt);
-		expect(dot(view, zone.up) / Math.hypot(view.x, view.y, view.z)).toBeGreaterThan(0.9);
-	});
-
-	it.each([["bumper", 0.51], ["pinwheel", 4]] as const)("fits the %s core, floor, and adjacent lanes in bold close views", (kind, deviceRadius) => {
-		const zone = deriveFeatureBroadcastZones(buildModularTrack(createValidTrackDesign()).samples).find((candidate) => candidate.kind === kind)!;
-		for (const aspect of [320 / 740, 1024 / 768]) {
-			for (const elapsedMs of [500, 1_050, 1_600, 2_300]) {
-				const shot = writeFeatureBroadcastShot(mutableShot(), zone, 60, aspect, elapsedMs, undefined, { phase: elapsedMs < 1_600 ? "approach" : "close", passFraction: 0.5, activationElapsedMs: elapsedMs });
-				const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
-				const displayUp = getFeatureDisplayUp(zone, aspect);
-				camera.position.set(shot.position.x, shot.position.y, shot.position.z); camera.up.set(displayUp.x, displayUp.y, displayUp.z); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
-				for (const along of [-zone.length * 0.4, zone.length * 0.4]) for (const across of [-zone.width / 2, zone.width / 2]) for (const up of [-zone.height * 0.55, Math.min(zone.height * 0.05, -zone.height / 4 + deviceRadius)]) {
-					const projected = new THREE.Vector3(zone.center.x + zone.tangent.x * along + zone.side.x * across + zone.up.x * up, zone.center.y + zone.tangent.y * along + zone.side.y * across + zone.up.y * up, zone.center.z + zone.tangent.z * along + zone.side.z * across + zone.up.z * up).project(camera);
-					expect(Math.abs(projected.x)).toBeLessThanOrEqual(1); expect(Math.abs(projected.y)).toBeLessThanOrEqual(1); expect(projected.z).toBeLessThanOrEqual(1);
-				}
-				const floor = { x: zone.center.x - zone.up.x * zone.height / 2, y: zone.center.y - zone.up.y * zone.height / 2, z: zone.center.z - zone.up.z * zone.height / 2 };
-				expect(dot(subtract(shot.position, floor), zone.up)).toBeGreaterThanOrEqual(zone.height + 1);
-				expect(Math.abs(dot(subtract(shot.position, shot.lookAt), zone.side))).toBeLessThanOrEqual(zone.width / 2 - 1.5);
-			}
-		}
-	});
-
-	it("moves from a top establishing view to a two-times closer oblique view, then latches back to top", () => {
-		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
-		const establishing = writeFeatureBroadcastShot(mutableShot(), zone, 60, 320 / 740, 0, undefined, { phase: "establishing", passFraction: 0, activationElapsedMs: 0 });
-		const approach = writeFeatureBroadcastShot(mutableShot(), zone, 60, 320 / 740, 0, undefined, { phase: "close", passFraction: 0.5, activationElapsedMs: 1_600 });
-		const returningTop = writeFeatureBroadcastShot(mutableShot(), zone, 60, 320 / 740, 0, undefined, { phase: "returning-top", passFraction: 0.4, activationElapsedMs: 3_700 });
-		const distance = (shot: CameraShot) => Math.hypot(shot.position.x - shot.lookAt.x, shot.position.y - shot.lookAt.y, shot.position.z - shot.lookAt.z);
-
-		expect(distance(approach)).toBeLessThanOrEqual(distance(establishing) / 1.8);
-		expect(Math.abs(dot(subtract(approach.position, approach.lookAt), zone.side))).toBeGreaterThan(1);
-		expect(Math.abs(dot(subtract(approach.position, approach.lookAt), zone.side))).toBeLessThanOrEqual(zone.width / 2 - 1.5);
-		expect(Math.abs(dot(subtract(approach.position, approach.lookAt), zone.tangent))).toBeGreaterThan(1);
-		expect(Math.abs(dot(subtract(approach.position, approach.lookAt), zone.tangent))).toBeLessThanOrEqual(zone.length * 0.3);
-		expect(distance(returningTop)).toBeGreaterThan(distance(approach));
-		expect(dot(subtract(returningTop.position, returningTop.lookAt), zone.up) / distance(returningTop)).toBeGreaterThan(0.9);
-	});
-
-	it("keeps a feature inside the far plane while easing from a distant bird view", () => {
-		const aspect = 320 / 740;
-		const [zone] = deriveFeatureBroadcastZones(featureSamples("bumper", 7, 10));
-		const bird = writeBirdViewFit(mutableShot(), { center: zone.center, radius: 120 }, 60, aspect);
-		const shot = writeFeatureBroadcastShot(mutableShot(), zone, 60, aspect, 0, bird.position);
-		const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
-		const displayUp = getFeatureDisplayUp(zone, aspect);
-		camera.position.set(bird.position.x, bird.position.y, bird.position.z); camera.up.set(displayUp.x, displayUp.y, displayUp.z);
-		camera.lookAt(zone.center.x, zone.center.y, zone.center.z); camera.updateMatrixWorld();
-
-		for (const along of [-zone.length / 2, zone.length / 2]) for (const across of [-zone.width / 2, zone.width / 2]) for (const up of [-zone.height / 2, zone.height / 2]) {
-			const projected = new THREE.Vector3(zone.center.x + zone.tangent.x * along + zone.side.x * across + zone.up.x * up, zone.center.y + zone.tangent.y * along + zone.side.y * across + zone.up.y * up, zone.center.z + zone.tangent.z * along + zone.side.z * across + zone.up.z * up).project(camera);
-			expect(projected.z).toBeLessThanOrEqual(1);
-		}
-	});
-
-	it("suppresses only feature presentation for camera overrides", () => {
-		expect(shouldPresentFeatureBroadcast({ birdView: false, reducedMotion: false, debugPaused: false, recentManualInput: false })).toBe(true);
-		for (const key of ["birdView", "reducedMotion", "debugPaused", "recentManualInput"] as const) expect(shouldPresentFeatureBroadcast({ birdView: false, reducedMotion: false, debugPaused: false, recentManualInput: false, [key]: true })).toBe(false);
-	});
 
 	it("uses frame-rate independent camera easing", () => {
 		const sixtyHz = cameraLerpAlpha(0.042, 1000 / 60);
@@ -283,73 +119,65 @@ describe("track-bound race camera plan", () => {
     expect(getTrackBounds(malformed)).toEqual({ center: { x: 0, y: 0, z: 0 }, radius: 1 });
   });
 
-  it("selects the leader before halfway, walks by progress percentile, and selects the trailer at three quarters", () => {
-    expect(selectFocusRank(0.49, 100)).toBe(0);
-    expect(selectFocusRank(0.625, 101)).toBe(50);
-    expect(selectFocusRank(0.749, 100)).toBeGreaterThan(95);
-    expect(selectFocusRank(0.75, 100)).toBe(99);
-  });
+  it("keeps one virtual focus on the densest pack instead of a rank-selected marble", () => {
+    const samples = [0, 10, 20, 100].map((distance, index) => ({ index, distance, position: { x: distance, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const }));
+    const director = createRouteCrowdDirector(samples);
 
-  it("holds the selected target for 1800ms and requires a two-rank middle-phase hysteresis band", () => {
-    const director = createRaceFocusDirector();
-    const original = field(8);
-
-    expect(director.select(original, 0.625, 0)?.id).toBe("marble-4");
-    expect(director.select(original, 0.4, 1_799)?.id).toBe("marble-4");
-    expect(director.select(original, 0.60, 1_800)?.id).toBe("marble-4");
-    expect(director.select(original, 0.74, 1_800)?.id).toBe("marble-7");
-  });
-
-  it("latches the final trailer across order and live-count changes until that target finishes", () => {
-    const director = createRaceFocusDirector();
-    const lateField = [target("leader", 0.9), target("middle", 0.7), target("trailer", 0.5)];
-
-    expect(director.select(lateField, 0.76, 4_000)?.id).toBe("trailer");
-    expect(director.select([target("trailer", 0.8), target("leader", 0.7)], 0.9, 4_100)?.id).toBe("trailer");
-    expect(director.select([target("leader", 0.9), target("middle", 0.7)], 0.9, 4_200)?.id).toBe("middle");
-  });
-
-  it("preserves a zero-valued marble id in the final trailer latch", () => {
-    const director = createRaceFocusDirector();
-
-    expect(director.select([target(5, 0.9), target(0, 0.5)], 0.8, 0)?.id).toBe(0);
-    expect(director.select([target(0, 0.8), target(5, 0.7)], 0.9, 1)?.id).toBe(0);
-  });
-
-  it("keeps a final trailer latch after the leader regresses below three quarters", () => {
-    const director = createRaceFocusDirector();
-    const live = [target("leader", 0.9), target("middle", 0.7), target("trailer", 0.5)];
-
-    expect(director.select(live, 0.8, 0)?.id).toBe("trailer");
-    expect(director.select([target("leader", 0.6), target("trailer", 0.55), target("middle", 0.4)], 0.49, 5_000)?.id).toBe("trailer");
-  });
-
-  it("honors an existing 1800ms hold before it latches the final trailer", () => {
-    const director = createRaceFocusDirector();
-    const live = field(5);
-
-    expect(director.select(live, 0.625, 0)?.id).toBe("marble-2");
-    expect(director.select(live, 0.76, 1_799)?.id).toBe("marble-2");
-    expect(director.select(live, 0.76, 1_800)?.id).toBe("marble-4");
-  });
-
-  it("keeps the director hold active across a paused wall-clock interval when given race elapsed time", () => {
-    const director = createRaceFocusDirector();
-    const live = field(5);
-
-    expect(director.select(live, 0.625, 0)?.id).toBe("marble-2");
-    expect(director.select(live, 0.4, 500)?.id).toBe("marble-2");
-    expect(director.select(live, 0.4, 1_799)?.id).toBe("marble-2");
-    expect(director.select(live, 0.4, 1_800)?.id).toBe("marble-0");
-  });
-
-  it("clears its hold and final-trailer latch on reset", () => {
-    const director = createRaceFocusDirector();
-    const lateField = [target("leader", 0.9), target("trailer", 0.5)];
-
-    expect(director.select(lateField, 0.8, 0)?.id).toBe("trailer");
+    expect(director.update([{ id: "leader", distance: 29 }, { id: "a", distance: 11 }, { id: "b", distance: 12 }, { id: "c", distance: 13 }], 4).distance).toBeCloseTo(12, 8);
     director.reset();
-    expect(director.select(lateField, 0.4, 1)?.id).toBe("leader");
+    expect(director.update([{ id: "trailer", distance: 1 }, { id: "a", distance: 30 }, { id: "b", distance: 31 }, { id: "c", distance: 32 }], 4).distance).toBeCloseTo(31, 8);
+  });
+
+  it("advances after eighty percent of the original field uniquely passes a run, despite rebounds and DNFs", () => {
+    const samples = [
+      { index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const },
+      { index: 1, distance: 20, position: { x: 20, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const },
+      { index: 2, distance: 21, position: { x: 20, y: 0, z: 1 }, tangent: { x: 0, y: 0, z: 1 }, side: { x: -1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const },
+      { index: 3, distance: 40, position: { x: 20, y: 0, z: 20 }, tangent: { x: 0, y: 0, z: 1 }, side: { x: -1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const },
+    ];
+    const director = createRouteCrowdDirector(samples);
+
+    expect(director.update([{ id: 1, distance: 21 }, { id: 2, distance: 21 }, { id: 3, distance: 19 }, { id: 4, distance: 19 }, { id: 5, distance: 19 }], 5).runEnd).toBe(20);
+    expect(director.update([{ id: 1, distance: 18, eliminated: true }, { id: 2, distance: 18 }, { id: 3, distance: 21 }, { id: 4, distance: 19 }, { id: 5, distance: 19 }], 5).runEnd).toBe(20);
+    expect(director.update([{ id: 1, distance: 18, eliminated: true }, { id: 2, distance: 18 }, { id: 3, distance: 21 }, { id: 4, distance: 19, eliminated: true }, { id: 5, distance: 19 }], 5).runEnd).toBe(40);
+  });
+
+  it("changes from the slow straight follow to the fast corner follow at the eightieth unique pass", () => {
+    const samples = [
+      { index: 0, distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const, kind: "straight" },
+      { index: 1, distance: 100, position: { x: 100, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const, kind: "straight" },
+      { index: 2, distance: 120, position: { x: 100, y: 0, z: 20 }, tangent: { x: 0, y: 0, z: 1 }, side: { x: -1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 }, width: 12, channelDepth: 4, bankRadians: 0, zone: "run" as const, kind: "curve" },
+    ];
+    const director = createRouteCrowdDirector(samples);
+    const traffic = (passed: number) => Array.from({ length: 100 }, (_, index) => ({ id: index, distance: index < passed ? 100 : 0 }));
+
+    expect(director.update(traffic(79), 100).pace).toBe("slow");
+    expect(director.update(traffic(80), 100).pace).toBe("fast");
+  });
+
+  it.each([320 / 740, 1024 / 768])("frames the route pack from behind at aspect %s", (aspect) => {
+    const samples = buildValidatedTrack().samples;
+    const distance = samples[Math.floor(samples.length * 0.55)]!.distance;
+    const shot = writeRouteCrowdFollowShot(mutableShot(), distance, samples, getTrackBounds(samples));
+    const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+    camera.position.set(shot.position.x, shot.position.y, shot.position.z); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+    const focus = samples.reduce((nearest, sample) => Math.abs(sample.distance - distance) < Math.abs(nearest.distance - distance) ? sample : nearest, samples[0]!);
+
+    expect(new THREE.Vector3(focus.position.x, focus.position.y, focus.position.z).project(camera).z).toBeGreaterThanOrEqual(-1);
+    expect(dot(subtract(shot.lookAt, shot.position), focus.tangent)).toBeGreaterThan(0);
+  });
+
+  it.each([320 / 740, 1024 / 768])("fits default modular lane edges and its pack at aspect %s", (aspect) => {
+    const samples = buildModularTrack(createValidTrackDesign()).samples;
+    const focus = samples.find((sample) => sample.kind !== "curve" && sample.width >= 12)!;
+    const shot = writeRouteCrowdFollowShot(mutableShot(), focus.distance, samples, getTrackBounds(samples), 5, "slow", 60, aspect);
+    const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+    camera.position.set(shot.position.x, shot.position.y, shot.position.z); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+
+    for (const lateral of [-focus.width * 0.45, 0, focus.width * 0.45]) {
+      const point = new THREE.Vector3(focus.position.x + focus.side.x * lateral + focus.up.x * 0.34, focus.position.y + focus.side.y * lateral + focus.up.y * 0.34, focus.position.z + focus.side.z * lateral + focus.up.z * 0.34).project(camera);
+      expect(Math.abs(point.x)).toBeLessThanOrEqual(1); expect(Math.abs(point.y)).toBeLessThanOrEqual(1); expect(point.z).toBeGreaterThanOrEqual(-1); expect(point.z).toBeLessThanOrEqual(1);
+    }
   });
 
   it("anchors a follow shot on the sampled route behind a banked curve marble", () => {

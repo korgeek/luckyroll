@@ -22,7 +22,7 @@ export function ResultsScreen({ rankings, participants, prizePool, celebrate, on
 			} as CSSProperties} />;
 		})}</div>}
 		<p className="eyebrow">WHO WAS LAST?</p><h1>TOP 10</h1>
-		{winner && <article className="result-hero"><span>{celebrate ? "#1 · LAST FINISHER" : "LATEST FINISHER · PARTIAL RESULTS"}</span><h2>{winnerName}</h2><p><i className="result-hero-dot" style={{ background: winner.color }} />{winner.symbol} Marble #{winner.id}</p></article>}
+		{winner && <article className="result-hero"><span>{celebrate ? "#1 · LAST FINISHER" : "LATEST FINISHER · PARTIAL RESULTS"}</span><div className="winner-name"><i className="winner-marble" role="img" aria-label={`${winnerName}'s ${winner.symbol} marble`} style={{ background: winner.color }}>{winner.symbol}</i><h2>{winnerName}</h2></div><p><i className="result-hero-dot" style={{ background: winner.color }} />{winner.symbol} Marble #{winner.id}</p></article>}
 		{prizePool > 0 && <p className="pool-label">Prize Pool: {prizePool.toLocaleString()}</p>}
 		<ol className="ranking-list">{rankings.slice(1).map((marble) => <li key={marble.id}><b>#{marble.rank}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>
 		{prizePool > 0 && <div className="prize-summary">{Object.entries(prizes).filter(([, amount]) => amount > 0).map(([owner, amount]) => <p key={owner}>{participants.find((person) => person.id === owner)?.name}<strong>{amount.toLocaleString()}</strong></p>)}</div>}

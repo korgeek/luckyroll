@@ -17,9 +17,10 @@ import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
 import { resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { curveBankBlend, effectiveCurveInnerInset, profileAt } from "./moduleGeometry";
+import { applyRaceRushPulse, shouldStartRaceRush } from "../raceRush";
 
 const TIMESTEP_SECONDS = 1 / 60;
-const TRACK_FRICTION = 0.05;
+const TRACK_FRICTION = 0.07;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
 const BUMPER_RESTITUTION = 0.65;
@@ -79,12 +80,14 @@ export type ModularValidationOptions = Readonly<{
   seed: number;
   marbleCount: number;
   durationSeconds: number;
+  rush?: boolean;
 }>;
 
 export type ModularValidationResult = Readonly<{
   seed: number;
   finishOrder: readonly number[];
   finishTimesMs: readonly number[];
+  rushPulseCount: number;
   escapes: readonly ModularMarbleFailure[];
   stalls: readonly ModularMarbleFailure[];
   nonFinite: readonly ModularMarbleFailure[];
@@ -527,9 +530,10 @@ export const runModularValidationRace = async (
     const stalls: ModularMarbleFailure[] = [];
     const nonFinite: ModularMarbleFailure[] = [];
     const boosterCapViolations: BoosterEvent[] = [];
+    const sampleIndexes = new Array<number>(bodies.length).fill(0);
     const targetRaceSteps = Math.floor(options.durationSeconds / TIMESTEP_SECONDS);
     const maxSteps = targetRaceSteps + Math.ceil(1 / TIMESTEP_SECONDS);
-    let postGateSteps = 0;
+    let postGateSteps = 0; let rushActive = false; let rushPulseSteps = 0; let rushPulseCount = 0;
     for (let step = 1; postGateSteps < targetRaceSteps && step <= maxSteps; step += 1) {
       const pose = resources.stepBeforeWorld();
       world.step();
@@ -550,6 +554,7 @@ export const runModularValidationRace = async (
           continue;
         }
         const projection = projectToTrack(position, built.samples);
+        sampleIndexes[index] = projection.sampleIndex;
         const nearestSample = built.samples[projection.sampleIndex];
         if (distanceSquaredToSample(position, nearestSample) > 15 ** 2 && distanceSquaredToTrackSegments(position, built.samples) > 15 ** 2) {
           escapes.push({ seed: options.seed, marbleId, elapsedMs: raceElapsedMs, position, velocity, nearestSampleIndex: projection.sampleIndex, category: "escape" });
@@ -571,12 +576,19 @@ export const runModularValidationRace = async (
           body.setEnabled(false);
         }
       }
+      if (options.rush && !rushActive && pose.gateOpen && shouldStartRaceRush(bodies.length - finished.size - failed.size, bodies.length)) rushActive = true;
+      if (rushActive && ++rushPulseSteps >= 60) {
+        rushPulseSteps = 0; rushPulseCount += 1;
+        applyRaceRushPulse(bodies.map((body, index) => ({ id: index + 1, done: finished.has(index + 1) || failed.has(index + 1), eliminated: failed.has(index + 1), position: toVec3(body.translation()), sampleIndex: sampleIndexes[index]!, body })), built.samples);
+      }
+      if (step % 120 === 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
       if (finished.size + failed.size === bodies.length) break;
     }
     return Object.freeze({
       seed: options.seed,
       finishOrder: Object.freeze(finishOrder),
       finishTimesMs: Object.freeze(finishTimesMs),
+      rushPulseCount,
       escapes: Object.freeze(escapes),
       stalls: Object.freeze(stalls),
       nonFinite: Object.freeze(nonFinite),

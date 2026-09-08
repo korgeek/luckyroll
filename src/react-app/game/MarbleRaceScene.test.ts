@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { alongRouteDistance, applyRushGrowth, attachSceneTrackCollider, createDebugCameraState, createFrameRateCounter, createLiveStandings, createRaceBoost, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, shouldEmitSceneTick, shouldStartRaceRush, stepSceneObstacleResources } from "./MarbleRaceScene";
+import { alongRouteDistance, applyRaceRushPulse, attachSceneTrackCollider, createDebugCameraState, createFrameRateCounter, createLiveStandings, createRaceBoost, createSceneDebugOverlay, createSceneObstacleResources, createSceneRaceClock, createSceneStartLifecycle, createSceneTrackResources, disposeSceneObstacleResources, evaluateRaceBody, getRaceElapsedMs, initializeScenePhysics, hasFinishedTrack, isTrackDebugEnabled, productionSceneStyle, projectRaceBody, refreshCameraRankView, shouldEmitSceneTick, shouldStartRaceRush, stepSceneObstacleResources } from "./MarbleRaceScene";
 import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, insideFinishVolume, launchPositionsFor } from "./track/trackPhysics";
 import { projectToTrack } from "./track/trackSampler";
 import { createLaunchSlots } from "./track/trackSpec";
@@ -59,18 +59,36 @@ describe("continuous-track scene seams", () => {
 		expect(boost.remainingMs()).toBe(5_000);
 	});
 
-	it("keeps BOOST's five-second charge wall time during RUSH double steps", () => {
+	it("continues charging BOOST on active fixed steps during RUSH", () => {
 		const boost = createRaceBoost();
-		for (let step = 0; step < 599; step += 1) boost.step(activeBoostState, 0.5);
+		for (let step = 0; step < 299; step += 1) boost.step({ ...activeBoostState, rushActive: true });
 		expect(boost.remainingMs()).toBeGreaterThan(0);
-		boost.step(activeBoostState, 0.5);
+		boost.step({ ...activeBoostState, rushActive: true });
 		expect(boost.remainingMs()).toBe(0);
 	});
 
-	it("starts RUSH only for one through ten live marbles", () => {
-		expect(shouldStartRaceRush(11)).toBe(false);
-		expect(shouldStartRaceRush(10)).toBe(true);
-		expect(shouldStartRaceRush(0)).toBe(false);
+	it("starts RUSH only for positive live fields at or below half of the original field", () => {
+		expect(shouldStartRaceRush(50, 100)).toBe(true);
+		expect(shouldStartRaceRush(51, 100)).toBe(false);
+		expect(shouldStartRaceRush(100, 200)).toBe(true);
+		expect(shouldStartRaceRush(150, 300)).toBe(true);
+		expect(shouldStartRaceRush(1, 0)).toBe(false);
+		expect(shouldStartRaceRush(0, 100)).toBe(false);
+	});
+
+	it("pulses live reverse ranks from +3 at the back to +0.5 at the front without changing lateral velocity", () => {
+		const back = boostBall({ x: 10, y: 2, z: -4 });
+		const middle = boostBall({ x: 10, y: 3, z: -5 });
+		const front = boostBall({ x: 10, y: 4, z: -6 });
+		applyRaceRushPulse([
+			{ ...back.ball, id: 1, eliminated: false, progress: 1, position: { x: 1, y: 0, z: 0 } },
+			{ ...middle.ball, id: 2, eliminated: false, progress: 5, position: { x: 5, y: 0, z: 0 } },
+			{ ...front.ball, id: 3, eliminated: false, progress: 9, position: { x: 9, y: 0, z: 0 } },
+		], [{ distance: 0, position: { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 } }, { distance: 10, position: { x: 10, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 } }]);
+
+		expect(back.velocity()).toEqual({ x: 13, y: 2, z: -4 });
+		expect(middle.velocity()).toEqual({ x: 11.75, y: 3, z: -5 });
+		expect(front.velocity()).toEqual({ x: 10.5, y: 4, z: -6 });
 	});
 
 	it("boosts forward speed by half up to 42 without changing lateral or local-normal velocity", () => {
@@ -122,6 +140,14 @@ describe("continuous-track scene seams", () => {
 			expect(boost.activate(state, [candidate.ball], samples)).toBe(false);
 			expect(candidate.velocity().x).toBe(20);
 		}
+	});
+
+	it("blocks manual BOOST during RUSH without changing velocity or charge", () => {
+		const boost = createRaceBoost(); const candidate = boostBall({ x: 20, y: 2, z: 0 });
+		chargeBoost(boost);
+		expect(boost.activate({ ...activeBoostState, rushActive: true }, [candidate.ball], [{ tangent: { x: 1, y: 0, z: 0 } }])).toBe(false);
+		expect(candidate.velocity()).toEqual({ x: 20, y: 2, z: 0 });
+		expect(boost.remainingMs()).toBe(0);
 	});
 
 	it("forces a final scene tick at timeout or when the last marble finishes", () => {
@@ -254,18 +280,6 @@ describe("continuous-track scene seams", () => {
     } finally {
       world.free();
     }
-	});
-
-	it("grows a live Rapier marble to RUSH size and lifts it above its old floor", async () => {
-		await initializeScenePhysics();
-		const resources = createSceneTrackResources(); const world = createTrackPhysicsWorld();
-		const [body] = createMarbleBodies(world, launchPositionsFor(createLaunchSlots(1), resources.built.geometry, 11));
-		const before = body.translation();
-		try {
-			applyRushGrowth(body, { x: 0, y: 1, z: 0 });
-			expect(body.collider(0)?.radius()).toBeCloseTo(0.51);
-			expect(body.translation().y).toBeCloseTo(before.y + 0.17);
-		} finally { world.free(); }
 	});
 
   it("drops a queued start when reset occurs before physics initialization", async () => {

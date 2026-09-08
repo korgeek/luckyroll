@@ -130,6 +130,19 @@ describe("default race course and camera controls", () => {
 		expect(screen.getByRole("button", { name: "Boost ready" })).toBeDisabled();
 	});
 
+	it("locks the manual BOOST control for RUSH", async () => {
+		const user = userEvent.setup(); render(<App />);
+		await screen.findByRole("region", { name: "Main menu" });
+		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await waitFor(() => expect(scene.create).toHaveBeenCalled()); await finishCountdown();
+		const emit = scene.create.mock.calls[0][1] as (event: { type: "tick"; elapsedMs: number; fps: number; finishedCount: number; eliminatedCount: number; standings: []; boostRemainingMs: number } | { type: "rush" }) => void;
+		act(() => { emit({ type: "tick", elapsedMs: 5_000, fps: 60, finishedCount: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 0 }); emit({ type: "rush" }); });
+		const boost = screen.getByRole("button", { name: "Boost unavailable during RUSH" });
+		expect(boost).toBeDisabled();
+		await user.click(boost);
+		expect(scene.boost).not.toHaveBeenCalled();
+	});
+
 	it("retains the selected marble count for menu return and replay while clearing RUSH", async () => {
 		const user = userEvent.setup(); render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });

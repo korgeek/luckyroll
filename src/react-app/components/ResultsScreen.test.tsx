@@ -11,6 +11,9 @@ describe("ResultsScreen", () => {
 		const { container } = render(<ResultsScreen rankings={[{ id: 7, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 100 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={0} celebrate onReplay={onReplay} onBack={onBack} />);
 		expect(screen.getByRole("heading", { name: "Jin" })).toBeInTheDocument();
 		const particles = [...container.querySelectorAll<HTMLElement>(".result-confetti i")];
+		const marble = screen.getByRole("img", { name: "Jin's ◆ marble" });
+		expect(marble).toHaveStyle({ background: "rgb(255, 255, 255)" });
+		expect(marble.compareDocumentPosition(screen.getByRole("heading", { name: "Jin" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(particles.length).toBeGreaterThanOrEqual(250);
 		const spreadX = particles.map((particle) => Number.parseFloat(particle.style.getPropertyValue("--burst-x")));
 		const spreadY = particles.map((particle) => Number.parseFloat(particle.style.getPropertyValue("--burst-y")));
