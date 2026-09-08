@@ -63,3 +63,8 @@ Mogul sounds use actual track solver contact points on the raised funnel surface
 classified with the same height function as the mesh. Flat-floor contacts and
 marbles passing above the moguls are silent. A marble sounds once on contact onset,
 rearming after separation; mogul gain is 0.22, range 12 world units, cooldown 90 ms.
+
+Manual BOOST uses the user-provided Kenney Voiceover Pack `Female/power_up.ogg`,
+copied unchanged as `kenney-power-up.ogg` (CC0), at voice gain 0.8.
+Physical track boosters retain `race-boost.wav`; the voice only plays when the
+manual boost is successfully activated, following the existing cooldown/RUSH gates.

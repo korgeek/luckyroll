@@ -1,3 +1,4 @@
+import powerUpUrl from "../assets/audio/kenney-power-up.ogg?url";
 import mogulUrl from "../assets/audio/kenney-mogul.ogg?url";
 import readyUrl from "../assets/audio/kenney-ready.ogg?url";
 import normalMusicUrl from "../assets/audio/pure-raceway-160.ogg?url";
@@ -18,7 +19,7 @@ export const soundProximity = (point: { x: number; y: number; z: number }, liste
 	Math.max(0, 1 - Math.hypot(point.x - listener.x, point.y - listener.y, point.z - listener.z) / radius);
 
 const lastEffects = new Map<string, number>();
-const urls = { mogul: mogulUrl, ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
+const urls = { powerUp: powerUpUrl, mogul: mogulUrl, ready: readyUrl, start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -153,7 +154,7 @@ export const retroSounds = {
 	},
 	ready() { cue("ready", [440], 0.8); },
 	countdown() { cue("countdown", [660], 0.18); },
-	boost() { cue("boost", [330, 660, 990]); },
+	boost() { cue("powerUp", [330, 660, 990], 0.8); },
 	rush() { cue("rush", [523, 784, 1047], 0.8); },
 	checkpoint() { cue("checkpoint", [880], 0.12); },
 	dnf() { cue("dnf", [220, 165], 0.12); },

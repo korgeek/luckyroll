@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(12);
+		expect(fetch).toHaveBeenCalledTimes(13);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -112,4 +112,13 @@ it("loops 160 then switches to 175, preserves paused time and resets for a new r
  retroSounds.setMuted(false); retroSounds.music("rush");
  expect(tracks[1].play).toHaveBeenCalledTimes(2);
  retroSounds.resetMusic(); expect(tracks.every(track => track.currentTime === 0)).toBe(true);
+});
+
+it("uses a separate Power up voice for the button and keeps the track booster effect", async () => {
+ const { sources } = mockAudio();
+ await retroSounds.preload();
+ expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("kenney-power-up"))).toBe(true);
+ retroSounds.boost(); retroSounds.obstacle("boost");
+ expect(sources).toHaveLength(2);
+ expect(sources[0].buffer).not.toBe(sources[1].buffer);
 });
