@@ -1,41 +1,38 @@
-import { useState } from "react";
-import { createShareUrl } from "../designer/trackCodec";
+import { useEffect, useRef, useState } from "react";
+import { encodeSharedTrack } from "../designer/trackCodec";
 import type { TrackDesign } from "../designer/trackDesign";
 
 export type ShareTrackDialogProps = Readonly<{
 	track: TrackDesign;
-	baseHref: string;
-	share: ((data: ShareData) => Promise<void>) | undefined;
 	writeText: ((text: string) => Promise<void>) | undefined;
-	onImport: (input: string) => void;
 	onClose: () => void;
 }>;
 
-export function ShareTrackDialog({ track, baseHref, share, writeText, onImport, onClose }: ShareTrackDialogProps) {
-	const [importInput, setImportInput] = useState("");
+export function ShareTrackDialog({ track, writeText, onClose }: ShareTrackDialogProps) {
 	const [status, setStatus] = useState("");
-	const { token, url } = createShareUrl(track, baseHref);
-	const shareTrack = async () => {
+	const dialog = useRef<HTMLDialogElement>(null);
+	const code = encodeSharedTrack(track);
+	useEffect(() => {
+		if (!dialog.current) return;
+		const current = dialog.current;
+		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+		current.showModal();
+		return () => { if (current.open) current.close(); opener?.focus(); };
+	}, []);
+	const copy = async () => {
 		try {
-			if (share) await share({ title: track.name, text: url, url });
-			else if (writeText) await writeText(url);
-			else throw new Error("Sharing is unavailable.");
-			setStatus("Track link copied or shared.");
-		} catch {
-			setStatus("Could not share automatically. Select and copy the link or token.");
-		}
+			if (!writeText) throw new Error("Clipboard unavailable");
+			await writeText(code);
+			setStatus("Track code copied.");
+		} catch { setStatus("Could not copy automatically. Select the code and copy it manually."); }
 	};
-	return <section className="dialog-backdrop" role="dialog" aria-modal="true" aria-label={`Share ${track.name}`}>
-		<div className="share-dialog">
+	return <dialog ref={dialog} className="dialog-backdrop" aria-label={`Share ${track.name}`} onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => event.target === event.currentTarget && onClose()}>
+		<section className="share-dialog">
 			<h2>Share {track.name}</h2>
-			<label>Share link<input aria-label="Share link" readOnly value={url} onFocus={(event) => event.currentTarget.select()} /></label>
-			<label>Share token<input aria-label="Share token" readOnly value={token} onFocus={(event) => event.currentTarget.select()} /></label>
+			<p>Send this code to another player.</p>
+			<label>Track code<textarea aria-label="Track code" readOnly value={code} onFocus={(event) => event.currentTarget.select()} /></label>
 			<p role="status" aria-live="polite">{status}</p>
-			<div className="dialog-actions"><button onClick={shareTrack}>Share</button><button onClick={onClose}>Close</button></div>
-			<form className="track-import" onSubmit={(event) => { event.preventDefault(); onImport(importInput); }}>
-				<label>Import track<input aria-label="Import track" value={importInput} onChange={(event) => setImportInput(event.target.value)} /></label>
-				<button type="submit">Import</button>
-			</form>
-		</div>
-	</section>;
+			<div className="dialog-actions"><button onClick={copy}>Copy code</button><button onClick={onClose}>Close</button></div>
+		</section>
+	</dialog>;
 }

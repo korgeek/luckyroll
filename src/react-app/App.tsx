@@ -5,6 +5,7 @@ import { SetupScreen, type SetupValues } from "./components/SetupScreen";
 import { ShareTrackDialog } from "./components/ShareTrackDialog";
 import { TimeoutDialog } from "./components/TimeoutDialog";
 import { TrackEditor } from "./components/TrackEditor";
+import { TrackLibraryPanel } from "./components/TrackLibraryPanel";
 import { createEditorState, type EditorState } from "./designer/editorState";
 import { decodeSharedTrack } from "./designer/trackCodec";
 import { createDefaultTrackDesign, type LocalTrack, type RaceCourseSelection, type TrackDesign, type TrackLibrary } from "./designer/trackDesign";
@@ -19,7 +20,7 @@ import "./App.css";
 
 type Session = SetupValues & { marbles: Marble[]; seed: number; course: RaceCourseSelection };
 type Hud = { elapsedMs: number; finishedCount: number; eliminatedCount: number; leader?: Marble; trailer?: Marble };
-type View = "setup" | "editor" | "race" | "results";
+type View = "setup" | "library" | "editor" | "race" | "results";
 const EMPTY_LIBRARY: TrackLibrary = { version: 1, tracks: [] };
 const SELECTED_TRACK_KEY = "luckyroll.selectedTrack";
 const QUICK_PLAY: SetupValues = { mode: "race", prizePool: 0, teamCount: 2, participants: [
@@ -45,7 +46,7 @@ function App() {
 	const [birdView, setBirdView] = useState(false);
 	const [muted, setMuted] = useState(false);
 	const [sceneReady, setSceneReady] = useState(false);
-	const [raceReturnView, setRaceReturnView] = useState<"setup" | "editor">("setup");
+	const [raceReturnView, setRaceReturnView] = useState<"setup" | "library" | "editor">("setup");
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const sceneRef = useRef<RaceScene | undefined>(undefined);
 
@@ -72,7 +73,7 @@ function App() {
 	}, []);
 
 	const trackById = (id: string | undefined): LocalTrack | undefined => library.tracks.find((track) => track.id === id);
-	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "editor" = "setup") => {
+	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "library" | "editor" = "setup") => {
 		const marbles = values.mode === "race" ? allocateMarbles(values.participants) : values.participants.map((participant, index) => ({ id: index + 1, ownerId: participant.id, color: participant.color, symbol: participant.symbol }));
 		retroSounds.start(); setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setRaceReturnView(returnView);
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
@@ -101,15 +102,17 @@ function App() {
 		return () => { active = false; if (teamTimer) window.clearTimeout(teamTimer); scene?.dispose(); sceneRef.current = undefined; };
 	}, [raceReturnView, session, view]);
 
-	const importTrack = (input: string) => {
-		try { const track = decodeSharedTrack(input); setEditor(createEditorState({ name: track.name, cells: track.cells })); setShareTrack(undefined); setView("editor"); setMessage("Shared track loaded. Save it to keep it."); }
-		catch (error) { setMessage(error instanceof Error ? error.message : "Track import failed."); }
+	const importTrack = (input: string): string | undefined => {
+		try { const track = decodeSharedTrack(input); setEditor(createEditorState({ name: track.name, cells: track.cells })); setView("editor"); setMessage("Imported track loaded. Save it to keep it."); return undefined; }
+		catch (error) { return error instanceof Error ? error.message : "Track import failed."; }
 	};
 	const saveEditor = () => {
 		try {
 			const saved = upsertTrack(library, editor.draft, { id: editor.id, now: Date.now(), uuid: () => crypto.randomUUID() });
 			persistTrackLibrary(window.localStorage, saved.library);
-			setLibrary(saved.library); setSelectedTrackId(saved.track.id); window.localStorage.setItem(SELECTED_TRACK_KEY, saved.track.id); setEditor(createEditorState(saved.track, saved.track.id)); setMessage("Track saved in this browser.");
+			setLibrary(saved.library); setSelectedTrackId(saved.track.id); setEditor(createEditorState(saved.track, saved.track.id)); setMessage("Track saved in this browser."); setView("library");
+			try { window.localStorage.setItem(SELECTED_TRACK_KEY, saved.track.id); }
+			catch (error) { setMessage(`Track saved, but its selection could not be remembered: ${error instanceof Error ? error.message : "storage error"}`); }
 		} catch (error) { setMessage(error instanceof Error ? error.message : "Track could not be saved."); }
 	};
 	const removeTrack = (id: string) => {
@@ -129,11 +132,12 @@ function App() {
 	if (!runtimeReady) return <main className="app-shell"><section className="setup-card" role="status"><p className="eyebrow">LUCKY ROLL</p><h1>Loading race engine…</h1>{message && <p>{message}</p>}</section></main>;
 	return <main className="app-shell">
 		{message && <div className="app-message" role="status">{message}{libraryError && <button onClick={() => { try { const next = resetTrackLibrary(window.localStorage); setLibrary(next); setLibraryError(false); setMessage("Saved track storage reset."); } catch (error) { setMessage(error instanceof Error ? error.message : "Saved track storage could not be reset."); } }}>Reset saved tracks</button>}</div>}
-		{view === "setup" && <SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onNewTrack={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEditTrack={editTrack} onSelectTrack={selectTrack} onPlayTrack={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track); } }} onShareTrack={(id) => openShare(trackById(id))} onDeleteTrack={removeTrack} onImportTrack={importTrack} />}
-		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("setup")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
+		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onManageTracks={() => setView("library")} /></div>
+		{view === "library" && <TrackLibraryPanel tracks={library.tracks} selectedTrackId={selectedTrackId} onBack={() => setView("setup")} onNew={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEdit={editTrack} onSelect={selectTrack} onPlay={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track, "library"); } }} onShare={(id) => openShare(trackById(id))} onDelete={removeTrack} onImport={importTrack} />}
+		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("library")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
 		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} finishedCount={hud.finishedCount} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} leader={hud.leader} trailer={hud.trailer} /><div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>Exit</button></div>{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}
 		{view === "results" && <ResultsScreen rankings={session?.mode === "race" ? reverseRank(finished) : undefined} participants={participants} prizePool={session?.prizePool ?? 0} teams={teams} onAgain={again} />}
-		{shareTrack && <ShareTrackDialog track={shareTrack} baseHref={window.location.href} share={navigator.share?.bind(navigator)} writeText={navigator.clipboard?.writeText.bind(navigator.clipboard)} onImport={importTrack} onClose={() => setShareTrack(undefined)} />}
+		{shareTrack && <ShareTrackDialog track={shareTrack} writeText={navigator.clipboard?.writeText.bind(navigator.clipboard)} onClose={() => setShareTrack(undefined)} />}
 	</main>;
 }
 

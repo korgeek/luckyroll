@@ -39,6 +39,17 @@ describe("atomic local track library", () => {
     expect(first.library.tracks[0].name).toBe("Old");
   });
 
+	it("saving the same track repeatedly keeps one record and preserves its siblings", () => {
+		const first = upsertTrack({ version: 1, tracks: [] }, createValidTrackDesign("First"), { id: undefined, now: 10, uuid: () => "one" });
+		const second = upsertTrack(first.library, createValidTrackDesign("Second"), { id: undefined, now: 20, uuid: () => "two" });
+		const edited = upsertTrack(second.library, createValidTrackDesign("First edited"), { id: "one", now: 30, uuid: () => "unused" });
+		const savedAgain = upsertTrack(edited.library, edited.track, { id: "one", now: 40, uuid: () => "unused" });
+		expect(savedAgain.library.tracks.map(({ id, name }) => ({ id, name }))).toEqual([
+			{ id: "one", name: "First edited" },
+			{ id: "two", name: "Second" },
+		]);
+	});
+
   it.each([
     ["corrupt", "{broken"],
     ["wrong version", JSON.stringify({ version: 2, tracks: [] })],

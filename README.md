@@ -11,9 +11,9 @@ Race sessions use the editor-built Default Track. Its high-walled rectangular st
 
 ## Track Designer
 
-The 5×8 modular editor starts from the valid Default Track. Select a different module and tap an occupied cell to replace it; tap without a new selection to rotate, or hold for replace/clear actions. Valid tracks can be saved in this browser, selected for the next visit, deleted, tested with the same 100-marble race, or shared as a Base64URL token or link. If a selected saved track disappears, the game falls back to Default Track.
+The 5×8 modular editor starts from the valid Default Track. Select a different module and tap an occupied cell to replace it; tap without a new selection to rotate, or hold for replace/clear actions. Setup opens a separate Manage Tracks screen with one card per saved track. Share opens a popup with Copy code; another player can use Import code in Manage Tracks to create an editable draft, then Save to keep it locally. If a selected saved track disappears, the game falls back to Default Track.
 
-The builder, browser-storage, and Base64URL share formats are unchanged. At race time, every low-friction bobsled route descends 7 degrees relative to its direction; curve interiors bank automatically to 24 degrees and return to flat, seamless landings. Boosters guarantee a minimum forward exit speed of 18 track units per second.
+The builder, browser-storage, and Base64URL share formats are unchanged; old shared links remain decodable for compatibility. At race time, every low-friction bobsled route descends 7 degrees relative to its direction; curve interiors bank automatically to 24 degrees and return to flat, seamless landings. Boosters guarantee a minimum forward exit speed of 18 track units per second.
 
 The race engine and physics are loaded before the setup screen is ready. After that Ready point, editing, saving, raw-token importing, and racing use no application API or database. A cold offline reload is not supported; installable PWA caching can be added if that becomes necessary.
 
