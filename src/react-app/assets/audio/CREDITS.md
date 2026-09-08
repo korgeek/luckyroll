@@ -24,7 +24,6 @@ soft interface and pizzicato samples. Filenames retain their event names.
 | rush (entry) | Sci-fi / spaceEngineSmall_000.ogg |
 | bumper (actual contact onset) | Impact / impactMetal_medium_000.ogg |
 | pinwheel (actual blade contact onset) | Impact / impactWood_medium_000.ogg |
-| fan (nearby rotating pinwheels) | Sci-fi / engineCircular_000.ogg |
 | rush-loop (while RUSH remains active) | Sci-fi / spaceEngineLow_000.ogg |
 
 Converted with FFmpeg to mono 44.1 kHz 16-bit PCM WAV, loudness normalized with
@@ -35,8 +34,10 @@ Only the selected clips ship locally; no runtime CDN or new audio library.
 Bumper contact begins are collected from Rapier narrow-phase solver contacts;
 persistent resting contacts do not repeat. Track booster sounds use actual
 BoosterEvent results. Effects fade with distance from the camera's subject
-(32 world-unit radius for bumper/boost, 12 for blade impacts, and only 8 for fan rotation). Bumper and blade impact gain is 0.5 before distance attenuation. Bumper/blade and track boost bursts are limited to 90 / 220 ms,
-and finish/DNF share a 150 ms cooldown. Fan and rush loops reuse sources with
+(32 world-unit radius for bumper/boost, 12 for blade impacts). Bumper and blade impact gain is 0.5 before distance attenuation. Bumper/blade and track boost bursts are limited to 90 / 220 ms,
+and finish/DNF share a 150 ms cooldown. The rush loop reuses its source with
 smoothed gain. Pause, mute, restart, completion and scene disposal stop loops;
 unmute/resume restores them from current scene state. Muting stops all playback.
 Failed asset downloads retry on preload; UI cues have soft sine fallbacks.
+
+Pinwheel rotation ambience was removed at user request. Actual blade impacts remain audible.

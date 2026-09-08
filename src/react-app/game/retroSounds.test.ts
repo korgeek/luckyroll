@@ -42,7 +42,7 @@ describe("retroSounds lifecycle and event mapping", () => {
 	it("loads distinct clips, groups marble bursts, and stops all playback when muted", async () => {
 		const { context, sources } = mockAudio();
 		await retroSounds.preload();
-		expect(fetch).toHaveBeenCalledTimes(12);
+		expect(fetch).toHaveBeenCalledTimes(11);
 		retroSounds.countdown(); retroSounds.start(); retroSounds.boost(); retroSounds.rush(); retroSounds.checkpoint();
 		expect(sources).toHaveLength(5);
 		expect(new Set(sources.map((source) => source.buffer)).size).toBe(5);
@@ -67,28 +67,20 @@ describe("retroSounds lifecycle and event mapping", () => {
 	});
 });
 
- it("reuses loops, resumes after mute, and limits nearby obstacle bursts", async () => {
-  const { context, sources } = mockAudio();
+ it("reuses only the rush loop and resumes it after mute", async () => {
+  const { sources } = mockAudio();
   await retroSounds.preload();
-  retroSounds.ambience(1, true); retroSounds.ambience(0.5, true);
-  expect(sources).toHaveLength(2);
-  retroSounds.obstacle("bumper", 0); expect(sources).toHaveLength(2);
-  retroSounds.obstacle("bumper"); retroSounds.obstacle("bumper");
-  retroSounds.obstacle("boost"); retroSounds.obstacle("boost");
-  expect(sources).toHaveLength(4);
-  context.currentTime += 0.25;
-  retroSounds.obstacle("bumper"); retroSounds.obstacle("boost");
-  expect(sources).toHaveLength(6);
-  retroSounds.ambience(0, false);
-  expect(sources[0].stop).toHaveBeenCalledOnce(); expect(sources[1].stop).toHaveBeenCalledOnce();
-  retroSounds.ambience(1, true); expect(sources).toHaveLength(8);
-  retroSounds.setMuted(true); retroSounds.ambience(1, true); expect(sources).toHaveLength(8);
-  expect(sources[6].stop).toHaveBeenCalled(); expect(sources[7].stop).toHaveBeenCalled();
-  retroSounds.setMuted(false); retroSounds.ambience(1, true); expect(sources).toHaveLength(10);
-  retroSounds.finish(); expect(sources[8].stop).toHaveBeenCalled(); expect(sources[9].stop).toHaveBeenCalled();
+  retroSounds.ambience(false); expect(sources).toHaveLength(0);
+  retroSounds.ambience(true); retroSounds.ambience(true); expect(sources).toHaveLength(1);
+  retroSounds.ambience(false); expect(sources[0].stop).toHaveBeenCalledOnce();
+  retroSounds.ambience(true); expect(sources).toHaveLength(2);
+  retroSounds.setMuted(true); retroSounds.ambience(true); expect(sources).toHaveLength(2);
+  expect(sources[1].stop).toHaveBeenCalled();
+  retroSounds.setMuted(false); retroSounds.ambience(true); expect(sources).toHaveLength(3);
+  retroSounds.finish(); expect(sources[2].stop).toHaveBeenCalled();
  });
 
- it("keeps fan audio local and uses a distinct, throttled pinwheel impact", async () => {
+ it("attenuates distant impacts and keeps a distinct, throttled pinwheel impact", async () => {
   const { soundProximity } = await import("./retroSounds");
   const origin = { x: 0, y: 0, z: 0 };
   expect(soundProximity(origin, origin, 8)).toBe(1);

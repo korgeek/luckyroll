@@ -128,10 +128,10 @@ describe("race scene lifecycle boundary", () => {
     seams.boosterEvent = true;
     const now = performance.now(); seams.frames.shift()?.(now + 17);
     expect(obstacle).toHaveBeenCalledWith("boost", expect.any(Number));
-    scene.setPaused(true); expect(ambience).toHaveBeenLastCalledWith(0, false);
+    scene.setPaused(true); expect(ambience).toHaveBeenLastCalledWith(false);
     const calls = obstacle.mock.calls.length; seams.frames.shift()?.(now + 34);
     expect(obstacle).toHaveBeenCalledTimes(calls);
-    scene.dispose(); expect(ambience).toHaveBeenLastCalledWith(0, false);
+    scene.dispose(); expect(ambience).toHaveBeenLastCalledWith(false);
     obstacle.mockRestore(); ambience.mockRestore();
   });
 

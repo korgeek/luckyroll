@@ -405,7 +405,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const bumperContacts = new Set<string>();
   const pinwheelContacts = new Set<string>();
   const stopRace = () => {
-    retroSounds.ambience(0, false);
+    retroSounds.ambience(false);
     bumperContacts.clear(); pinwheelContacts.clear();
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
@@ -429,7 +429,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
 
   const begin = (marbles: Marble[], seed: number, remainingRestart = false) => {
     bumperContacts.clear(); pinwheelContacts.clear();
-    retroSounds.ambience(0, false);
+    retroSounds.ambience(false);
     raceRun?.dispose(); raceRun = undefined;
     world?.free(); world = undefined;
     world = createTrackPhysicsWorld();
@@ -571,8 +571,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (elapsedMs >= RACE_TIMEOUT_MS && !timedOut && liveBalls.length) { timedOut = true; running = false; emit({ type: "timeout", remaining: liveBalls.map((ball) => ball.marble) }); }
       if (!liveBalls.length) running = false;
     }
-    const fanVolume = running && !paused ? Math.max(0, ...(raceRun?.pinwheelBodies ?? []).map(body => soundProximity(body.translation(), cameraLook, 8))) : 0;
-    retroSounds.ambience(fanVolume, running && !paused && rushActive);
+    retroSounds.ambience(running && !paused && rushActive);
     if (paused) updateCamera(cameraDelta);
     renderer.render(scene, camera);
     if (trackDebug) trackDebug.update({
@@ -603,7 +602,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       if (changed) signalCameraAction("boost");
       return changed;
     },
-    setPaused: (paused) => { manualPaused = paused; if (paused) retroSounds.ambience(0, false); },
+    setPaused: (paused) => { manualPaused = paused; if (paused) retroSounds.ambience(false); },
     setBirdView: (enabled) => { birdView = enabled; if (enabled) controls = initialCameraControls; },
     reset: () => { starts?.reset(); routeCrowd.reset(); actionDirector.reset(); pendingAction = undefined; actionShot = { mode: "crowd", framing: "wide" }; raceClock.reset(); stopRace(); },
     dispose: teardown,

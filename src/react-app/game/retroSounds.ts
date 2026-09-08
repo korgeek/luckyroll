@@ -9,7 +9,6 @@ import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
 
 import bumperUrl from "../assets/audio/kenney-bumper.wav?url";
 import pinwheelUrl from "../assets/audio/kenney-pinwheel.wav?url";
-import fanUrl from "../assets/audio/kenney-fan.wav?url";
 import rushLoopUrl from "../assets/audio/kenney-rush-loop.wav?url";
 
 export const soundProximity = (point: { x: number; y: number; z: number }, listener: { x: number; y: number; z: number }, radius = 32) =>
@@ -17,7 +16,7 @@ export const soundProximity = (point: { x: number; y: number; z: number }, liste
 
 const loops = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
 const lastEffects = new Map<string, number>();
-const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl, fan: fanUrl, rushLoop: rushLoopUrl };
+const urls = { start: startUrl, win: winUrl, timeout: timeoutUrl, countdown: countdownUrl, boost: boostUrl, rush: rushUrl, checkpoint: checkpointUrl, dnf: dnfUrl, bumper: bumperUrl, pinwheel: pinwheelUrl, rushLoop: rushLoopUrl };
 let lastMarbleCue = -Infinity;
 
 let context: AudioContext | undefined;
@@ -100,7 +99,7 @@ function cue(name: keyof typeof urls, frequencies: number[], volume = 0.22) {
 	if (!sample(name, volume)) frequencies.forEach((frequency, index) => note(frequency, ctx.currentTime + index * 0.075, 0.12, "sine", 0.035));
 }
 
-function loop(name: "fan" | "rushLoop", volume: number) {
+function loop(name: "rushLoop", volume: number) {
 	const existing = loops.get(name);
 	if (muted || volume <= 0.001) {
 		if (existing) { existing.source.stop(); loops.delete(name); }
@@ -135,9 +134,7 @@ export const retroSounds = {
 		lastEffects.clear();
 		lastMarbleCue = -Infinity;
 	},
-	// ponytail: one nearby fan bed and one rush bed; add per-device panners if spatial mixing is needed.
-	ambience(fan: number, rush: boolean) {
-		loop("fan", Math.max(0, Math.min(1, fan)) * 0.13);
+	ambience(rush: boolean) {
 		loop("rushLoop", rush ? 0.10 : 0);
 	},
 	obstacle(kind: "bumper" | "pinwheel" | "boost", proximity = 1) {
