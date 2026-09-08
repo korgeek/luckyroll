@@ -1,9 +1,12 @@
 import * as THREE from "three";
+import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import type { IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
+import { MODULE_SIZE, type ModulePathSample } from "./modularTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
 import {
   resolveModuleDevices,
+  createPusherVertices,
   type ModularDevicePose,
   type ModuleDevices,
 } from "./moduleDevices";
@@ -43,7 +46,7 @@ const planeQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.
 };
 const material = (color: string, emissive?: string): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, ...(emissive === undefined ? {} : { emissive }), roughness: 0.48, metalness: 0.3 });
 const chevronGeometry = (): THREE.ShapeGeometry => {
-  const shape = new THREE.Shape(); shape.moveTo(-0.7, -0.45); shape.lineTo(0.7, 0); shape.lineTo(-0.7, 0.45); shape.closePath();
+  const shape = new THREE.Shape(); shape.moveTo(-0.45, -0.7); shape.lineTo(0.45, -0.7); shape.lineTo(0, 0.7); shape.closePath();
   return new THREE.ShapeGeometry(shape);
 };
 
@@ -104,19 +107,48 @@ const createCurveSafetyChevrons = (built: BuiltModularTrack, group: THREE.Group)
   const chevrons = new THREE.Group(); chevrons.name = "curve-safety-chevrons"; chevrons.userData.collider = false;
   const geometry = chevronGeometry(); const marker = material("#ff9d28", "#6f2a00");
   samples.forEach((sample) => {
-    const innerSide = Math.sign(sample.centerlineCurvature.x * sample.side.x + sample.centerlineCurvature.y * sample.side.y + sample.centerlineCurvature.z * sample.side.z);
-    for (const offset of [-1.2, 0, 1.2]) {
+    for (const offset of [-1.6, 0, 1.6]) {
+      const frame = built.samples.reduce((nearest, candidate) => Math.abs(candidate.distance - sample.distance - offset) < Math.abs(nearest.distance - sample.distance - offset) ? candidate : nearest, sample);
       const mesh = new THREE.Mesh(geometry, marker);
-      mesh.position.copy(toVector(sample.position)).addScaledVector(toVector(sample.side), innerSide * 1.2).addScaledVector(toVector(sample.tangent), offset).addScaledVector(toVector(sample.up), 0.035);
-      mesh.quaternion.copy(planeQuaternion(sample)); chevrons.add(mesh);
+      mesh.position.copy(toVector(frame.position)).addScaledVector(toVector(frame.up), 0.08);
+      mesh.quaternion.copy(planeQuaternion(frame)); chevrons.add(mesh);
     }
   });
   group.add(chevrons);
 };
 
+// Close the empty space behind each inner rail without changing the racing surface.
+const createCurveInfill = (built: BuiltModularTrack, group: THREE.Group, capMaterial: THREE.Material): void => {
+  const positions: number[] = [];
+  const { profileSegments, positions: surface } = built.geometry;
+  const samples: readonly ModulePathSample[] = built.geometry.samples;
+  for (const step of built.route.route) {
+    if (built.track.cells[step.cellIndex]?.kind !== "curve") continue;
+    const rows = samples.flatMap((sample, row) => sample.cellIndex === step.cellIndex || sample.ports?.some(port => port.cellIndex === step.cellIndex) ? [row] : []);
+    const middle = samples[rows[Math.floor(rows.length / 2)]];
+    const inner = toVector(middle.centerlineCurvature).dot(toVector(middle.side)) < 0 ? 0 : profileSegments;
+    const rim = rows.map(row => new THREE.Vector3().fromArray(surface, (row * (profileSegments + 1) + inner) * 3));
+    const entry = samples[rows[0]].position;
+    const exit = samples[rows[rows.length - 1]].position;
+    const corner = new THREE.Vector3(
+      entry.x + exit.x - ((step.cellIndex % 5 + 0.5) * MODULE_SIZE),
+      (rim[0].y + rim[rim.length - 1].y) / 2,
+      entry.z + exit.z - ((Math.floor(step.cellIndex / 5) + 0.5) * MODULE_SIZE),
+    );
+    for (let index = 1; index < rim.length; index++) {
+      const a = rim[index - 1]; const b = rim[index];
+      const normal = b.clone().sub(a).cross(corner.clone().sub(a));
+      positions.push(...a.toArray(), ...(normal.y >= 0 ? b : corner).toArray(), ...(normal.y >= 0 ? corner : b).toArray());
+    }
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, capMaterial); mesh.name = "curve-inner-infill"; mesh.userData.collider = false; group.add(mesh);
+};
+
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, refs: ModularDeviceRefs): void => {
   const gate = new THREE.Mesh(new THREE.BoxGeometry(devices.start.gate.width, devices.start.gate.height, devices.start.gate.depth), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.center)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
-  const pusher = new THREE.Mesh(new THREE.BoxGeometry(devices.start.pusher.width, devices.start.pusher.height, devices.start.pusher.depth), dark); pusher.name = "modular-start-pusher"; pusher.position.copy(toVector(devices.start.pusher.center)); pusher.quaternion.copy(frameQuaternion(devices.start.pusher)); group.add(pusher);
+  const vertices = createPusherVertices(devices.start.pusher);
+  const pusher = new THREE.Mesh(new ConvexGeometry(Array.from({ length: vertices.length / 3 }, (_, index) => new THREE.Vector3().fromArray(vertices, index * 3))), dark); pusher.name = "modular-start-pusher"; pusher.position.copy(toVector(devices.start.pusher.center)); pusher.quaternion.copy(frameQuaternion(devices.start.pusher)); group.add(pusher);
   refs.gate = gate; refs.pusher = pusher;
 };
 
@@ -161,6 +193,7 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
+  createCurveInfill(built, group, channel);
   createCurveSafetyChevrons(built, group);
   createFinishDecoration(built, group);
   group.userData[REFS] = refs;

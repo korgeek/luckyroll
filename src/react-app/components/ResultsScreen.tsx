@@ -27,5 +27,6 @@ export function ResultsScreen({ rankings, participants, prizePool, celebrate, on
 		{winner && <article className="result-hero"><span>{celebrate ? "#1 · LAST FINISHER" : "LATEST FINISHER · PARTIAL RESULTS"}</span><div className="winner-name"><i className="winner-marble" role="img" aria-label={`${winnerName}'s ${winner.symbol} marble`} style={{ background: winner.color }}>{winner.symbol}</i><h2>{winnerName}</h2></div><p>Marble #{winner.id}</p></article>}
 		<ol className="ranking-list">{rankings.slice(1).map((marble) => <li key={marble.id}><b>#{marble.rank}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>
 		<div className="result-actions"><button className="primary-button" onClick={onReplay}>Replay same settings</button><button className="secondary-button" onClick={onBack}>Back to Menu</button></div>
+		<p className="audio-credit">Music: <a href="https://opengameart.org/content/level-finish-fanfares" target="_blank" rel="noreferrer">Level finish fanfares</a> · Johan Brodd, 2014 · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a></p>
 	</section>;
 }

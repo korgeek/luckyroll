@@ -83,7 +83,7 @@ const normalize = (a: Vec3): Vec3 => {
   return length === 0 ? { x: 0, y: 0, z: 0 } : scale(a, 1 / length);
 };
 
-const FUNNEL_MOGUL_HEIGHT = 1;
+const FUNNEL_MOGUL_HEIGHT = 1.2;
 const FUNNEL_MOGUL_RADIUS = 1.8;
 const FUNNEL_MOGUL_ALONG_SCALE = MODULE_SIZE / Math.cos(ROUTE_GRADE);
 const FUNNEL_MOGULS = [[0.22, -0.6], [0.36, 0.6], [0.64, -0.6], [0.78, 0.6]] as const;

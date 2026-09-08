@@ -14,6 +14,7 @@ import {
   getTrackBounds,
   hasCameraClipChanged,
   writeControlledTrackFollowShot,
+  writeFeatureOverviewShot,
   writeBirdViewFit,
   writeRouteCrowdFollowShot,
   writeTrackFollowShot,
@@ -286,6 +287,38 @@ describe("action camera", () => {
     expect(director.update({ ...state, activeMs: 4001 }).framing).toBe("wide");
     expect(director.update({ ...state, traffic: state.traffic.slice(0, 3), activeMs: 4002 }).mode).toBe("finale");
     expect(JSON.stringify(state)).toBe(original);
+  });
+  it("holds a wide bumper shot for every live marble, including gaps and returns, but yields at ten", () => {
+    const zone = zones.find(zone => zone.kind === "bumper")!;
+    const director = createActionCameraDirector(zones);
+    const wheel = zones.find(zone => zone.kind === "pinwheel")!;
+    director.update(input((wheel.entryDistance + wheel.exitDistance) / 2));
+    const state = input(zone.entryDistance - 20);
+    const entering = state.traffic.map((ball, index) => ({ ...ball, distance: index === 0 ? zone.entryDistance + 1 : ball.distance }));
+    expect(director.update({ ...state, traffic: entering })).toMatchObject({ mode: "feature", zoneKey: zone.key, framing: "wide" });
+    const gap = entering.map((ball, index) => ({ ...ball, distance: index < 19 ? zone.exitDistance + 1 : zone.entryDistance - 20 }));
+    const late = { ...input(zone.exitDistance + 10), traffic: gap, activeMs: 10_000 };
+    expect(director.update(late)).toMatchObject({ mode: "feature", framing: "wide" });
+    director.update({ ...late, enabled: false });
+    const returning = gap.map((ball, index) => index === 0 ? { ...ball, distance: zone.entryDistance + 2 } : ball);
+    expect(director.update({ ...late, traffic: returning })).toMatchObject({ mode: "feature", framing: "wide" });
+    expect(director.update({ ...late, traffic: returning.slice(10) })).toMatchObject({ mode: "finale", targetId: 19 });
+    director.reset(); director.update({ ...state, traffic: entering });
+    expect(director.update(input(zone.exitDistance + 1)).mode).toBe("crowd");
+  });
+  it.each([360 / 800, 1024 / 768])("fits the entire bumper channel and wall tops at aspect %s", aspect => {
+    const samples = buildModularTrack(createValidTrackDesign()).samples;
+    const zone = zones.find(zone => zone.kind === "bumper")!;
+    const shot = writeFeatureOverviewShot(mutableShot(), zone, samples, getTrackBounds(samples), 60, aspect);
+    const frame = samples.find(sample => sample.distance >= (zone.entryDistance + zone.exitDistance) / 2)!;
+    const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+    camera.position.copy(shot.position); camera.up.copy(frame.up); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
+    for (const sample of samples.filter(sample => sample.distance >= zone.entryDistance && sample.distance <= zone.exitDistance)) {
+      for (const side of [-1, 1]) for (const height of [0, sample.channelDepth]) {
+        const point = new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z).addScaledVector(new THREE.Vector3(sample.side.x, sample.side.y, sample.side.z), side * sample.width / 2).addScaledVector(new THREE.Vector3(sample.up.x, sample.up.y, sample.up.z), height).project(camera);
+        expect(Math.abs(point.x)).toBeLessThan(1); expect(Math.abs(point.y)).toBeLessThan(1); expect(Math.abs(point.z)).toBeLessThan(1);
+      }
+    }
   });
   it("replaces boost with rush and releases an invalid rush target", () => {
     const director = createActionCameraDirector([]); const state = input(0);

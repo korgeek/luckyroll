@@ -14,13 +14,13 @@ import {
 import { createTrackProjector, projectToTrack } from "../track/trackSampler";
 import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
-import { resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
+import { createPusherVertices, resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { curveBankBlend, effectiveCurveInnerInset, profileAt } from "./moduleGeometry";
 import { applyRaceRushPulse, shouldStartRaceRush } from "../raceRush";
 
 const TIMESTEP_SECONDS = 1 / 60;
-const TRACK_FRICTION = 0.07;
+const TRACK_FRICTION = 0.06;
 const FRICTION = 0.24;
 const RESTITUTION = 0.08;
 const BUMPER_RESTITUTION = 0.65;
@@ -215,8 +215,9 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     .setTranslation(devices.start.pusher.center.x, devices.start.pusher.center.y, devices.start.pusher.center.z)
     .setRotation(pusherRotation));
   ownedBodies.push(pusherBody);
-  world.createCollider(rapier.ColliderDesc.cuboid(devices.start.pusher.width / 2, devices.start.pusher.height / 2, devices.start.pusher.depth / 2)
-    .setFriction(FRICTION).setRestitution(RESTITUTION), pusherBody);
+  const pusherShape = rapier.ColliderDesc.convexHull(createPusherVertices(devices.start.pusher));
+  if (!pusherShape) throw new Error("Start pusher must form a convex prism.");
+  world.createCollider(pusherShape.setFriction(FRICTION).setRestitution(RESTITUTION), pusherBody);
 
   for (const bumper of devices.bumpers) {
     const body = world.createRigidBody(rapier.RigidBodyDesc.fixed()

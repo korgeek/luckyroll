@@ -146,6 +146,10 @@ const resolveBumpers = (cellIndex: number, samples: readonly ModulePathSample[])
   return Object.freeze(values);
 };
 
+// Local +X is across the track; -Z is forward, matching the device frame.
+export const createPusherVertices = ({ width, height, depth }: Pick<StartDeviceDescriptor, "width" | "height" | "depth">): Float32Array =>
+  new Float32Array([-height / 2, height / 2].flatMap(y => [-width / 2, y, depth / 2, width / 2, y, depth / 2, 0, y, -depth / 2]));
+
 export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samples: readonly ModulePathSample[]): ModuleDevices => {
   const first = samples[0];
   if (first === undefined) throw new Error("A modular device layout requires a sampled route.");
@@ -156,10 +160,10 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
     width: START_WIDTH, height: START_GATE_HEIGHT, depth: 0.36,
   });
   const pusher = Object.freeze({
-    center: add(startFrame.position, scale(startFrame.up, 1.6)),
-    endCenter: add(add(startFrame.position, scale(startFrame.tangent, 8.8)), scale(startFrame.up, 1.6)),
+    center: add(add(startFrame.position, scale(startFrame.tangent, -0.42)), scale(startFrame.up, 1.6)),
+    endCenter: add(add(startFrame.position, scale(startFrame.tangent, 8.38)), scale(startFrame.up, 1.6)),
     tangent: startFrame.tangent, side: startFrame.side, up: startFrame.up,
-    width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 0.36, durationMs: 650,
+    width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 1.2, durationMs: 650,
   });
   const start = Object.freeze({ frame: startFrame, gate: gateFrame, pusher, length: START_LENGTH, runoutLength: START_LENGTH + 20, width: START_WIDTH, radius: START_WIDTH / 2, shuffleMs: 700, wallHeight: 6 });
   const boosters: BoosterTrigger[] = [];

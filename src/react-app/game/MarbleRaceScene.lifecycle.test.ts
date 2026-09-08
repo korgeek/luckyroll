@@ -124,7 +124,7 @@ describe("race scene lifecycle boundary", () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
 
-  it("zooms closer and lowers the curve angle while keeping wall clearance, then restores bird view", async () => {
+  it("keeps zoom and clearance steady across straight and curve sections", async () => {
     const scene = await startScene();
     const now = performance.now();
     for (let frame = 1; frame <= 240; frame++) seams.frames.shift()?.(now + frame * 17);
@@ -132,9 +132,9 @@ describe("race scene lifecycle boundary", () => {
     seams.courseSamples!.forEach(sample => Object.assign(sample, { kind: "curve" }));
     for (let frame = 241; frame <= 480; frame++) seams.frames.shift()?.(now + frame * 17);
     const curve = cameraPoses[cameraPoses.length - 1]!;
-    expect(curve.camera.zoom).toBeCloseTo(1.25, 2);
-    expect(curve.position.y).toBeLessThan(straight.position.y - 0.3);
-    expect(curve.position.y - curve.lookAt.y).toBeGreaterThanOrEqual(4.49);
+    expect(curve.camera.zoom).toBe(1);
+    expect(curve.position.y).toBeCloseTo(straight.position.y, 2);
+    expect(curve.position.y - curve.lookAt.y).toBeGreaterThanOrEqual(4.99);
     scene.setBirdView(true);
     for (let frame = 481; frame <= 600; frame++) seams.frames.shift()?.(now + frame * 17);
     expect(curve.camera.zoom).toBeCloseTo(1, 2);
@@ -337,6 +337,24 @@ describe("race scene lifecycle boundary", () => {
 		expect(latestTick()?.elapsedMs).toBeCloseTo(2_017, -1);
 		scene.dispose();
 	});
+
+  it("holds the bumper overview while a large live pack moves inside it", async () => {
+    seams.featureSamples = true; seams.bodyX = 12;
+    const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 360 }, clientHeight: { value: 800 } });
+    const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    await settle(); scene.start(Array.from({ length: 20 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now();
+    for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
+    const camera = cameraPoses[0].camera;
+    expect(latestPose(camera).lookAt.x).toBeCloseTo(20, 2);
+    seams.bodyX = 24;
+    for (let frame = 501; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(latestPose(camera).lookAt.x).toBeCloseTo(20, 2);
+    seams.bodyX = 35;
+    for (let frame = 701; frame <= 900; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(latestPose(camera).lookAt.x).toBeGreaterThan(30);
+    scene.dispose();
+  });
 
 	it("keeps the route-follow camera through featured modules and manual input", async () => {
 		seams.featureSamples = true; seams.bodyX = 12;

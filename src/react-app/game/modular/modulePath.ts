@@ -21,7 +21,7 @@ const MIN_CHORD_ERROR = MARBLE_DIAMETER * 0.02;
 const MAX_TURN = 2 * Math.PI / 180;
 const HALF_SIZE = MODULE_SIZE / 2;
 const CURVE_RADIUS = (MODULE_SIZE - 2 * LANDING_LENGTH) / 2;
-const MIN_FUNNEL_WIDTH = 8.8;
+const MIN_FUNNEL_WIDTH = 7.8;
 const COLUMNS = 5;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 

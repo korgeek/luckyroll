@@ -14,7 +14,8 @@
 Go. RUSH plays Hurry up once and switches to the separate 175 BPM Climax track.
 Music volume is 0.16 and voice gain is 0.8. Native HTML audio streams the music;
 short effects use Web Audio. Pause/mute/back chooser preserve music position;
-results stop it, and a new race resets both tracks. Menu screens have no BGM.
+results switch to the AAA fanfare loop, and a new race resets all tracks. Results
+inherit the game mute setting. Menu screens have no BGM.
 
 ## Original race cues
 
@@ -28,7 +29,6 @@ The generator checks finite samples, non-silence and quiet endpoints.
 | --- | --- |
 | countdown / race-countdown.wav | 180 ms, 660 Hz beep on each of 3, 2, 1 |
 | win / race-fanfare.wav | 3-second original C-major brass-style fanfare |
-| boost / race-boost.wav | 550 ms filtered-noise passing gust |
 
 NOX vehicle recordings and the continuous RUSH engine loop were removed at user
 request. RUSH now uses music rather than engine ambience; unmuting does not replay its voice cue.
@@ -66,10 +66,20 @@ rearming after separation; mogul gain is 0.22, range 12 world units, cooldown 90
 
 Manual BOOST uses the user-provided Kenney Voiceover Pack `Female/power_up.ogg`,
 copied unchanged as `kenney-power-up.ogg` (CC0), at voice gain 0.8.
-Physical track boosters retain `race-boost.wav`; the voice only plays when the
+Physical track boosters use `kenney-track-boost.ogg` (`Audio/maximize_005.ogg`,
+user-provided, copied unchanged, CC0); the voice only plays when the
 manual boost is successfully activated, following the existing cooldown/RUSH gates.
 
 Default UI button clicks use the user-provided Kenney Interface Sounds
 `Audio/bong_001.ogg`, copied unchanged as `kenney-ui-click.ogg` (CC0), gain 0.22.
 The shared app click handler covers pointer and keyboard activation, skips disabled
 buttons and the BOOST button's dedicated Power up voice, and respects mute.
+
+## Results music
+
+**Level finish fanfares — Johan Brodd (jobromedia), 2014**,
+[source](https://opengameart.org/content/level-finish-fanfares),
+[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
+Downloaded 2026-09-08. `7 Open Surge score jingle - AAA.ogg` is bundled
+unchanged as `level-finish-aaa.ogg` (18.86 seconds), looping at volume 0.16.
+Attribution and license links also appear on the results screen.

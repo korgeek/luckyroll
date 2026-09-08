@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, distanceSquaredToSample, distanceSquaredToTrackSegments, initializeTrackPhysics, launchPositionsFor, runValidationRace, runValidationSuite } from "./trackPhysics";
+import { insideFinishVolume, createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, distanceSquaredToSample, distanceSquaredToTrackSegments, initializeTrackPhysics, launchPositionsFor, runValidationRace, runValidationSuite } from "./trackPhysics";
 import { createDefaultTrackDesign } from "../../designer/trackDesign";
 import { buildModularTrack } from "../modular/modularTrackBuild";
 import { projectToTrack } from "./trackSampler";
@@ -9,6 +9,21 @@ import { createLaunchSlots } from "./trackSpec";
 import { validateSeedsTwice } from "./trackPhysics.testSupport";
 
 describe.sequential("headless track physics", () => {
+  it("counts finish crossings across the full graded channel width and rejects outside points", () => {
+    const samples = buildModularTrack(createDefaultTrackDesign()).samples;
+    const finish = samples[samples.length - 1]!;
+    const point = (along: number, across: number, height: number) => ({
+      x: finish.position.x + finish.tangent.x * along + finish.side.x * across + finish.up.x * height,
+      y: finish.position.y + finish.tangent.y * along + finish.side.y * across + finish.up.y * height,
+      z: finish.position.z + finish.tangent.z * along + finish.side.z * across + finish.up.z * height,
+    });
+    for (const side of [-1, 1]) expect(insideFinishVolume(point(1, side * 5.5, 0.34), finish)).toBe(true);
+    expect(insideFinishVolume(point(0, 6.1, 1), finish)).toBe(false);
+    expect(insideFinishVolume(point(0, 0, -0.1), finish)).toBe(false);
+    expect(insideFinishVolume(point(4.1, 0, 1), finish)).toBe(false);
+    expect(insideFinishVolume(point(0, 0, 25), finish)).toBe(false);
+  });
+
 	it("measures escape distance to adjacent sample segments instead of sparse points", () => {
 		const samples = [{ position: { x: 0, y: 0, z: 0 } }, { position: { x: 16, y: 0, z: 0 } }] as unknown as Parameters<typeof distanceSquaredToTrackSegments>[1];
 		expect(distanceSquaredToSample({ x: 8, y: 12, z: 6 }, samples[0])).toBe(244);

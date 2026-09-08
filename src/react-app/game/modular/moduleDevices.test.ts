@@ -100,7 +100,7 @@ describe("canonical modular devices", () => {
       const initialAlong = dot({ x: pusher.center.x - devices.start.frame.position.x, y: pusher.center.y - devices.start.frame.position.y, z: pusher.center.z - devices.start.frame.position.z }, devices.start.frame.tangent);
       const finalAlong = dot({ x: pusher.endCenter.x - devices.start.frame.position.x, y: pusher.endCenter.y - devices.start.frame.position.y, z: pusher.endCenter.z - devices.start.frame.position.z }, devices.start.frame.tangent);
       const gateAlong = dot({ x: devices.start.gate.center.x - devices.start.frame.position.x, y: devices.start.gate.center.y - devices.start.frame.position.y, z: devices.start.gate.center.z - devices.start.frame.position.z }, devices.start.frame.tangent);
-      expect(pusher).toMatchObject({ width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 0.36, durationMs: 650 });
+      expect(pusher).toMatchObject({ width: CHANNEL_WIDTH - MARBLE_DIAMETER, height: 3.2, depth: 1.2, durationMs: 650 });
       expect(initialAlong + pusher.depth / 2).toBeLessThan(0.62 - MARBLE_DIAMETER / 2);
       expect(finalAlong + pusher.depth / 2).toBeLessThan(gateAlong - devices.start.gate.depth / 2);
     }

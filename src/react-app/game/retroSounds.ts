@@ -8,7 +8,8 @@ import startUrl from "../assets/audio/kenney-go.ogg?url";
 import winUrl from "../assets/audio/race-fanfare.wav?url";
 import timeoutUrl from "../assets/audio/kenney-timeout.wav?url";
 import countdownUrl from "../assets/audio/race-countdown.wav?url";
-import boostUrl from "../assets/audio/race-boost.wav?url";
+import boostUrl from "../assets/audio/kenney-track-boost.ogg?url";
+import resultsMusicUrl from "../assets/audio/level-finish-aaa.ogg?url";
 import rushUrl from "../assets/audio/kenney-hurry-up.ogg?url";
 import checkpointUrl from "../assets/audio/kenney-checkpoint.ogg?url";
 import dnfUrl from "../assets/audio/kenney-dnf.wav?url";
@@ -29,7 +30,7 @@ const buffers = new Map<string, AudioBuffer>();
 const active = new Set<AudioScheduledSourceNode>();
 let loading: Promise<void> | undefined;
 
-type MusicMode = "normal" | "rush";
+type MusicMode = "normal" | "rush" | "results";
 const musicTracks = new Map<MusicMode, HTMLAudioElement>();
 let playingMusic: MusicMode | null = null;
 
@@ -37,7 +38,7 @@ function musicTrack(mode: MusicMode) {
 	if (typeof Audio === "undefined") return undefined;
 	let track = musicTracks.get(mode);
 	if (!track) {
-		track = new Audio(mode === "normal" ? normalMusicUrl : rushMusicUrl);
+		track = new Audio(mode === "normal" ? normalMusicUrl : mode === "rush" ? rushMusicUrl : resultsMusicUrl);
 		track.loop = true; track.volume = 0.16; track.preload = "auto";
 		musicTracks.set(mode, track);
 	}
@@ -121,7 +122,7 @@ function cue(name: keyof typeof urls, frequencies: number[], volume = 0.22) {
 export const retroSounds = {
 	preload() {
 		audio();
-		musicTrack("normal"); musicTrack("rush");
+		musicTrack("normal"); musicTrack("rush"); musicTrack("results");
 		return loading ??= Promise.all(Object.entries(urls).map(([name, url]) => load(name, url))).then(() => { loading = undefined; });
 	},
 	music(mode: MusicMode | null) {

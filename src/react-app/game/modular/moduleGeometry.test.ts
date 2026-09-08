@@ -33,9 +33,9 @@ describe("welded modular channel geometry", { timeout: 30_000 }, () => {
     const radial = 0.9;
     const alongU = radial * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
     const diagonal = radial / Math.sqrt(2);
-    const expectedHalfRadiusHeight = 0.421875;
+    const expectedHalfRadiusHeight = 0.50625;
 
-    expect(peaks.map(([u, lateral]) => funnelMogulHeight(u, lateral))).toEqual([1, 1, 1, 1]);
+    expect(peaks.map(([u, lateral]) => funnelMogulHeight(u, lateral))).toEqual([1.2, 1.2, 1.2, 1.2]);
     expect(funnelMogulHeight(0.22 + alongU, -0.6)).toBeCloseTo(expectedHalfRadiusHeight, 10);
     expect(funnelMogulHeight(0.22, -0.6 + radial)).toBeCloseTo(expectedHalfRadiusHeight, 10);
     expect(funnelMogulHeight(0.22 + diagonal * Math.cos(ROUTE_GRADE) / MODULE_SIZE, -0.6 + diagonal)).toBeCloseTo(expectedHalfRadiusHeight, 10);
@@ -57,7 +57,8 @@ describe("welded modular channel geometry", { timeout: 30_000 }, () => {
     const column = profile.slice(1).reduce((best, right, index) => Math.abs((profile[index].lateral + right.lateral) / 2 + 0.6) < Math.abs((profile[best].lateral + profile[best + 1].lateral) / 2 + 0.6) ? index : best, 0);
     const raised = vertex(geometry, samples.indexOf(peak), column);
     const raisedHeight = dot3({ x: raised.x - peak.position.x, y: raised.y - peak.position.y, z: raised.z - peak.position.z }, peak.up);
-    expect(raisedHeight).toBeCloseTo(0.9948233, 6);
+    expect(raisedHeight).toBeGreaterThan(1.1);
+    expect(raisedHeight).toBeLessThanOrEqual(1.2);
     expect(raisedHeight).toBeGreaterThan(0.9);
 
     const localU = 0.22 + 0.9 * Math.cos(ROUTE_GRADE) / MODULE_SIZE;

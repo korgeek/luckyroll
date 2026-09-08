@@ -76,7 +76,7 @@ describe("modular track physics", () => {
 
   it("finishes the mixed-device default race without losses by 120 seconds", async () => {
     const result = await runModularValidationRace({ track: createValidTrackDesign(), seed: 23, marbleCount: 100, durationSeconds: 120, rush: true });
-    expect(result.finishOrder).toHaveLength(100);
+    expect(result.finishOrder, JSON.stringify({ escapes: result.escapes, stalls: result.stalls, unfinished: Array.from({ length: 100 }, (_, index) => index + 1).filter(id => !result.finishOrder.includes(id)) })).toHaveLength(100);
     expect(result.rushPulseCount).toBeGreaterThan(0);
     expect(result.finishTimesMs[result.finishTimesMs.length - 1]).toBeLessThanOrEqual(120_000);
     expect(result.nonFinite).toEqual([]);
@@ -122,7 +122,7 @@ describe("modular track physics", () => {
     const rapier = getInitializedTrackPhysicsRapier();
     expect(resources.trackCollider.shapeType()).toBe(rapier.ShapeType.TriMesh);
     expect((resources.trackCollider.shape as InstanceType<typeof rapier.TriMesh>).flags & rapier.TriMeshFlags.FIX_INTERNAL_EDGES).toBeTruthy();
-    expect(resources.trackCollider.friction()).toBeCloseTo(0.07, 6);
+    expect(resources.trackCollider.friction()).toBeCloseTo(0.06, 6);
     expect(resources.fixedColliders).toHaveLength(0);
     resources.dispose();
     world.free();
@@ -326,7 +326,7 @@ describe("modular track physics", () => {
         }
       });
     }
-    expect(exitSteps.every((exitStep) => exitStep !== undefined)).toBe(true);
+    expect(exitSteps.every((exitStep) => exitStep !== undefined), JSON.stringify(bodies.map((body, index) => ({ exit: exitSteps[index], position: body.translation(), velocity: body.linvel() })))).toBe(true);
     resources.dispose(); world.free();
   });
 
@@ -468,10 +468,16 @@ describe("modular track physics", () => {
     if (!resources.pusherBody) throw new Error("Missing physical start pusher.");
     const pusherCollider = resources.pusherBody.collider(0);
     expect(resources.pusherBody.numColliders()).toBe(1);
-    expect(pusherCollider.shapeType()).toBe(getInitializedTrackPhysicsRapier().ShapeType.Cuboid);
-    expect(pusherCollider.halfExtents().x).toBeCloseTo(devices.start.pusher.width / 2, 6);
-    expect(pusherCollider.halfExtents().y).toBeCloseTo(devices.start.pusher.height / 2, 6);
-    expect(pusherCollider.halfExtents().z).toBeCloseTo(devices.start.pusher.depth / 2, 6);
+    expect(pusherCollider.shapeType()).toBe(getInitializedTrackPhysicsRapier().ShapeType.ConvexPolyhedron);
+    for (const side of [-1, 1]) {
+      const { center, tangent, side: across } = devices.start.pusher;
+      const origin = { ...center };
+      for (const axis of ["x", "y", "z"] as const) origin[axis] += across[axis] * side * 2 + tangent[axis] * 3;
+      const hit = pusherCollider.castRayAndGetNormal(new (getInitializedTrackPhysicsRapier().Ray)(origin, { x: -tangent.x, y: -tangent.y, z: -tangent.z }), 5, true);
+      expect(hit).not.toBeNull();
+      expect(dot(hit!.normal, devices.start.pusher.side) * side).toBeGreaterThan(0.1);
+      expect(dot(hit!.normal, devices.start.pusher.tangent)).toBeGreaterThan(0.9);
+    }
     const initial = resources.reset();
     expect(initial.gateOpen).toBe(false);
     expect(initial.pusherCenter).toEqual(devices.start.pusher.center);

@@ -95,3 +95,37 @@ Automatic rendering fallback now uses relative pixel ratios 1.0 → 0.8 → 0.65
 No shadow tier was added: the existing scene has no shadow-casting marbles/lights. Experimental surface-map removal and 100 ms camera-target refresh showed no FPS gain at 300 marbles; camera CPU time changed only from about 0.14 to 0.06 ms/frame. Those experimental branches were removed. Camera motion and target calculations remain per-frame; ranking-display cadence remains 100 ms. Controller hysteresis, exclusions and actual scene pixel-ratio changes have automated checks.
 
 Final verification: 49 test files passed (487 tests passed, 3 optional tests skipped), including the 100-marble default completion check; final TypeScript/Vite/Worker dry-run and ESLint passed. No production deployment verification was performed in this follow-up.
+
+## Corner rendering, surface tuning, and results audio follow-up
+
+- Removed corner-triggered zoom/lowering. The reported rounded black opening was
+  reproduced even at near=0.1 and with double-sided rendering. Inner-rim infill
+  closes that empty space without changing the collider mesh; browser comparison
+  confirmed it closed. Three floor arrows now face forward and follow the curve.
+- Final tuning: funnel throat 7.8 (was 8.8), mogul height 1.2 (was 1.0), track
+  friction 0.06 (was 0.07; final explicit user setting), with unchanged 12-unit ports. A 6.8 throat and 1.5
+  height caused stalls/large jumps, so those trial settings were rejected.
+- Focused physics validation: all 100 finish by 120 simulated seconds with no
+  escapes, stalls, non-finite states, or booster cap violations. All three probe
+  lanes clear moguls at speeds 8/18/42, including 1.5x radius at speed 42.
+- Results loop the unmodified AAA Level finish fanfare by Johan Brodd (CC BY-SA
+  3.0), with visible attribution/license links and inherited mute state. Physical
+  booster channels use the supplied Kenney maximize_005.ogg; manual BOOST retains
+  Power up. Audio routing and muted/unmuted result transitions are covered by tests.
+
+- Later follow-up: the pusher is a shallow triangular prism (depth 1.2), shared
+  between render and convex collider. Its forward tip retains the previous start
+  and end positions, so spawn and gate clearance stay unchanged. Follow-camera
+  clearance is lowered uniformly by one unit, with no corner-triggered zoom.
+
+- Bumper overview now starts on first entry, stays wide through gaps and returning
+  marbles until every live marble passes its exit, and yields first to last-place
+  follow at ten or fewer live marbles. Portrait/landscape projections cover the
+  channel edges and wall tops; pinwheel framing keeps its existing behavior.
+
+- Final friction 0.06 exposed a pre-existing finish-volume bug: a fixed radius-4
+  circle missed edge-lane crossings on the width-12 channel. The shared detector
+  now uses the finish tangent/side/up frame and full width. Edge/outside/below-floor
+  checks, scene finish checks, legacy finish seeds, and the 100-marble mixed race
+  all pass; the final mixed race has no losses by 120 simulated seconds.
+- Production build and ESLint pass. Git-triggered Cloudflare deployment is used.

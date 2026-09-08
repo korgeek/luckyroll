@@ -109,8 +109,13 @@ it("loops 160 then switches to 175, preserves paused time and resets for a new r
  expect(tracks[0].pause).toHaveBeenCalled(); expect(tracks[1].src).toContain("pure-raceway-175");
  expect(tracks[1].play).toHaveBeenCalledOnce();
  retroSounds.setMuted(true); expect(tracks[1].pause).toHaveBeenCalled();
+ retroSounds.music("results"); expect(tracks).toHaveLength(2);
  retroSounds.setMuted(false); retroSounds.music("rush");
  expect(tracks[1].play).toHaveBeenCalledTimes(2);
+ retroSounds.music("results");
+ expect(tracks[2].src).toContain("level-finish-aaa"); expect(tracks[2].loop).toBe(true);
+ expect(tracks[2].play).toHaveBeenCalledOnce();
+ retroSounds.setMuted(true); expect(tracks[2].pause).toHaveBeenCalled();
  retroSounds.resetMusic(); expect(tracks.every(track => track.currentTime === 0)).toBe(true);
 });
 
@@ -118,6 +123,7 @@ it("uses a separate Power up voice for the button and keeps the track booster ef
  const { sources } = mockAudio();
  await retroSounds.preload();
  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("kenney-power-up"))).toBe(true);
+ expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("kenney-track-boost"))).toBe(true);
  retroSounds.boost(); retroSounds.obstacle("boost");
  expect(sources).toHaveLength(2);
  expect(sources[0].buffer).not.toBe(sources[1].buffer);

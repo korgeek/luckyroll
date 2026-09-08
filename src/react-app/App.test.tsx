@@ -430,6 +430,20 @@ describe("default race course and camera controls", () => {
 		expect(container.querySelector(".result-confetti")).toBeInTheDocument();
 	});
 
+  it.each([false, true])("plays results BGM only when the race is not muted (%s)", async (muted) => {
+    const user = userEvent.setup(); render(<App />);
+    await screen.findByRole("region", { name: "Main menu" });
+    await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    await waitFor(() => expect(scene.create).toHaveBeenCalled());
+    if (muted) await user.click(screen.getByRole("button", { name: "Mute" }));
+    act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
+    expect(await screen.findByRole("button", { name: "Replay same settings" })).toBeInTheDocument();
+    expect(retroSounds.music).toHaveBeenLastCalledWith(muted ? null : "results");
+    expect(screen.getByRole("link", { name: "Level finish fanfares" })).toHaveAttribute("href", "https://opengameart.org/content/level-finish-fanfares");
+    await user.click(screen.getByRole("button", { name: "Back to Menu" }));
+    expect(retroSounds.music).toHaveBeenLastCalledWith(null);
+  });
+
 	it("does not celebrate early results", async () => {
 		const user = userEvent.setup();
 		const track = { ...createDefaultTrackDesign("Saved Course"), id: "saved", updatedAt: 1 };
@@ -445,6 +459,7 @@ describe("default race course and camera controls", () => {
 		act(() => { emit({ type: "finish", marble: { id: 1, ownerId: "player-1", color: "#fff", symbol: "◆" } }); emit({ type: "timeout", remaining: [] }); });
 		await user.click(screen.getByRole("button", { name: "VIEW CURRENT RESULTS" }));
 		expect(container.querySelector(".result-confetti")).not.toBeInTheDocument();
+		expect(retroSounds.music).toHaveBeenLastCalledWith("results");
 		await user.click(screen.getByRole("button", { name: "Replay same settings" }));
 		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
 		await waitFor(() => expect(scene.create).toHaveBeenCalledTimes(2));

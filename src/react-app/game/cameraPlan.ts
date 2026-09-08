@@ -213,7 +213,7 @@ export const writeRouteCrowdFollowShot = (target: CameraShot, routeDistance: num
   const fov = Math.min(179, Math.max(1, Number.isFinite(verticalFovDegrees) ? verticalFovDegrees : 60)) * Math.PI / 180;
   const horizontal = 2 * Math.atan(Math.tan(fov / 2) * Math.max(0.1, Number.isFinite(aspect) ? aspect : 1));
   const fitDistance = frame.width * (close ? 0.46 : 0.62) / Math.sin(horizontal / 2);
-  const clearance = Math.max(minimumClearance, frame.channelDepth + 1, Math.sqrt(Math.max(0, fitDistance * fitDistance - (followDistance + lead) ** 2)));
+  const clearance = Math.max(minimumClearance, frame.channelDepth, Math.sqrt(Math.max(0, fitDistance * fitDistance - (followDistance + lead) ** 2)));
   const anchor = frameAtDistance(samples, routeDistance - followDistance) ?? frame;
   target.position.x = anchor.position.x + anchor.up.x * clearance;
   target.position.y = anchor.position.y + anchor.up.y * clearance;
@@ -284,6 +284,23 @@ export const deriveFeatureBroadcastZones = (samples: readonly TrackSample[]): Fe
   return zones.sort((left, right) => left.entryDistance - right.entryDistance);
 };
 
+export const writeFeatureOverviewShot = (target: CameraShot, zone: FeatureBroadcastZone, samples: readonly TrackSample[], bounds: TrackBounds, fov: number, aspect: number): CameraShot => {
+  const frame = frameAtDistance(samples, (zone.entryDistance + zone.exitDistance) / 2);
+  if (!frame) return writeCameraShot(target, "overview", bounds);
+  const center = { x: frame.position.x + frame.up.x * frame.channelDepth / 2, y: frame.position.y + frame.up.y * frame.channelDepth / 2, z: frame.position.z + frame.up.z * frame.channelDepth / 2 };
+  const radius = Math.hypot((zone.exitDistance - zone.entryDistance) / 2 + 2, frame.width / 2 + 1, frame.channelDepth / 2 + 1);
+  writeBirdViewFit(target, { center, radius }, fov, aspect);
+  const distance = Math.hypot(target.position.x - center.x, target.position.y - center.y, target.position.z - center.z);
+  const direction = normalized({ x: frame.up.x - frame.tangent.x * 0.5, y: frame.up.y - frame.tangent.y * 0.5, z: frame.up.z - frame.tangent.z * 0.5 }, frame.up);
+  target.position.x = center.x + direction.x * distance;
+  target.position.y = center.y + direction.y * distance;
+  target.position.z = center.z + direction.z * distance;
+  const fittedFar = target.far;
+  writeClip(target, bounds);
+  target.far = Math.max(target.far, fittedFar);
+  return target;
+};
+
 export type CameraTraffic = Readonly<{ id: number; distance: number; sampleIndex: number; done: boolean; eliminated: boolean }>;
 export type CameraAction = Readonly<{ kind: "boost" | "rush"; targetIds: readonly number[]; exitDistance: number }>;
 export type ActionCameraSelection = Readonly<{ mode: "crowd" | "feature" | "boost" | "rush" | "finale"; targetId?: number; zoneKey?: string; framing: "wide" | "close" }>;
@@ -314,15 +331,15 @@ export const createActionCameraDirector = (zones: readonly FeatureBroadcastZone[
       const fraction = cohort.length ? passed.size / cohort.length : 0;
       const zone = zones.find(z => z.key === selected.zoneKey);
       const occupied = zone && live.some(b => b.distance >= zone.entryDistance && b.distance <= zone.exitDistance);
-      const expired = selected.mode === "feature" ? !occupied || fraction >= 0.8
+      const expired = selected.mode === "feature" ? (zone?.kind === "bumper" ? live.every(b => b.distance > zone.exitDistance) : !occupied || fraction >= 0.8)
         : selected.mode === "boost" || selected.mode === "rush" ? fraction >= (selected.mode === "rush" ? 1 : 0.8) : false;
       if (expired) clear();
       if (selected.mode === "feature" && fraction >= 0.5) selected = { ...selected, framing: "wide" };
-      else if (selected.mode === "feature" && zone && crowd.distance >= zone.entryDistance + (zone.exitDistance - zone.entryDistance) * 0.2 && activeMs - selectedAt >= 1_800) selected = { ...selected, framing: "close" };
-      for (const z of zones) if (crowd.distance > z.exitDistance) completed.add(z.key);
-      const candidate = zones.find(z => !completed.has(z.key) && crowd.distance >= z.entryDistance && crowd.distance <= z.exitDistance && live.some(b => b.distance >= z.entryDistance && b.distance <= z.exitDistance));
-      if (candidate && selected.mode !== "feature") {
-        clear(); completed.add(candidate.key); selectedAt = activeMs;
+      else if (selected.mode === "feature" && zone?.kind === "pinwheel" && crowd.distance >= zone.entryDistance + (zone.exitDistance - zone.entryDistance) * 0.2 && activeMs - selectedAt >= 1_800) selected = { ...selected, framing: "close" };
+      for (const z of zones) if (z.kind === "bumper" ? live.every(b => b.distance > z.exitDistance) : crowd.distance > z.exitDistance) completed.add(z.key);
+      const candidate = zones.find(z => !completed.has(z.key) && (z.kind === "bumper" || crowd.distance >= z.entryDistance && crowd.distance <= z.exitDistance) && live.some(b => b.distance >= z.entryDistance && b.distance <= z.exitDistance));
+      if (candidate && (selected.mode !== "feature" || candidate.kind === "bumper" && zone?.kind !== "bumper")) {
+        clear(); if (candidate.kind !== "bumper") completed.add(candidate.key); selectedAt = activeMs;
         cohort = live.filter(b => Math.abs(b.distance - crowd.distance) <= 12).map(b => b.id);
         exitDistance = candidate.exitDistance;
         selected = { mode: "feature", zoneKey: candidate.key, framing: "wide" };

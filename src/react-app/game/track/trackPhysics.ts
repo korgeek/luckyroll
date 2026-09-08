@@ -112,10 +112,13 @@ export const distanceSquaredToTrackSegments = (position: Vec3, samples: readonly
   return best;
 };
 
-export const insideFinishVolume = (position: Vec3, finish: TrackSample): boolean =>
-  Math.hypot(position.x - finish.position.x, position.z - finish.position.z) <= 4 &&
-  position.y >= finish.position.y &&
-  position.y <= finish.position.y + finish.channelDepth * 2;
+export const insideFinishVolume = (position: Vec3, finish: TrackSample): boolean => {
+  const delta = { x: position.x - finish.position.x, y: position.y - finish.position.y, z: position.z - finish.position.z };
+  const along = delta.x * finish.tangent.x + delta.y * finish.tangent.y + delta.z * finish.tangent.z;
+  const across = delta.x * finish.side.x + delta.y * finish.side.y + delta.z * finish.side.z;
+  const height = delta.x * finish.up.x + delta.y * finish.up.y + delta.z * finish.up.z;
+  return Math.abs(along) <= 4 && Math.abs(across) <= finish.width / 2 && height >= 0 && height <= finish.channelDepth * 2;
+};
 
 export const createTrackCollider = (
   world: RapierWorld,

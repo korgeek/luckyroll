@@ -55,7 +55,7 @@ function App() {
 	const [raceReturnView, setRaceReturnView] = useState<"setup" | "library" | "editor">("setup");
 	useEffect(() => { retroSounds.resetMusic(); }, [session]);
 	useEffect(() => {
-		retroSounds.music(view === "race" && !paused && !backChoice && !remaining && !muted ? (rush ? "rush" : "normal") : null);
+		retroSounds.music(muted ? null : view === "results" ? "results" : view === "race" && !paused && !backChoice && !remaining ? (rush ? "rush" : "normal") : null);
 		return () => retroSounds.music(null);
 	}, [view, paused, backChoice, remaining, muted, rush, session]);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -142,7 +142,7 @@ function App() {
 					completed += 1;
 					if (event.type === "finish") { retroSounds.checkpoint(); finishers += 1; setFinished((current) => [...current, event.marble]); }
 					else { retroSounds.dnf(); setMessage(`Marble #${event.marble.id} did not finish (${event.reason}).`); }
-					if (completed === session.marbles.length) { const complete = finishers === session.marbles.length; if (complete) retroSounds.finish(); setCelebrate(complete); setView("results"); }
+					if (completed === session.marbles.length) { const complete = finishers === session.marbles.length; retroSounds.stop(); setCelebrate(complete); setView("results"); }
 				}
 			}, session.course);
 			sceneRef.current = scene; scene.setPaused(true); scene.start(session.marbles, session.seed);

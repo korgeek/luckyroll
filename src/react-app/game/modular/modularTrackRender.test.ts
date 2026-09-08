@@ -81,6 +81,57 @@ describe("modular track rendering", () => {
     disposeModularTrackRender(rendered);
   });
 
+  it("covers the empty inner corners without covering the racing floor", () => {
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const rendered = createModularTrackRender(built);
+    const cap = rendered.group.getObjectByName("curve-inner-infill") as THREE.Mesh;
+    expect(cap.userData.collider).toBe(false);
+    const vertices = cap.geometry.getAttribute("position");
+    expect(vertices.count).toBeGreaterThan(0);
+    for (let index = 0; index < vertices.count; index += 3) {
+      const a = new THREE.Vector3().fromBufferAttribute(vertices, index);
+      const b = new THREE.Vector3().fromBufferAttribute(vertices, index + 1);
+      const c = new THREE.Vector3().fromBufferAttribute(vertices, index + 2);
+      expect(b.clone().sub(a).cross(c.clone().sub(a)).y).toBeGreaterThan(0);
+    }
+    for (const step of built.route.route.filter(step => built.track.cells[step.cellIndex]?.kind === "curve")) {
+      const frame = built.samples.find(sample => sample.cellIndex === step.cellIndex && sample.localU >= 0.5)!;
+      const inward = new THREE.Vector3(frame.centerlineCurvature.x, 0, frame.centerlineCurvature.z).normalize();
+      const floor = new THREE.Vector3(frame.position.x, frame.position.y, frame.position.z);
+      const ray = new THREE.Raycaster(floor.clone().add(new THREE.Vector3(0, 30, 0)), new THREE.Vector3(0, -1, 0));
+      expect(ray.intersectObject(cap)).toHaveLength(0);
+      ray.ray.origin.addScaledVector(inward, 6);
+      expect(ray.intersectObject(cap).length).toBeGreaterThan(0);
+    }
+    rendered.dispose();
+  });
+
+  it("keeps corner arrow tips facing forward and every vertex above the curved floor", () => {
+    const built = buildModularTrack(createWorstCaseTrackDesign());
+    const rendered = createModularTrackRender(built); rendered.group.updateMatrixWorld(true);
+    const surface = rendered.group.getObjectByName("modular-channel") as THREE.Mesh;
+    const arrows = rendered.group.getObjectByName("curve-safety-chevrons")!;
+    for (const arrow of arrows.children as THREE.Mesh[]) {
+      const frame = built.samples.reduce((nearest, sample) => arrow.position.distanceToSquared(new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z)) < arrow.position.distanceToSquared(new THREE.Vector3(nearest.position.x, nearest.position.y, nearest.position.z)) ? sample : nearest);
+      const forward = new THREE.Vector3(frame.tangent.x, frame.tangent.y, frame.tangent.z);
+      expect(new THREE.Vector3(0, 1, 0).applyQuaternion(arrow.quaternion).dot(forward)).toBeCloseTo(1, 3);
+    }
+    // Raycast one complete three-arrow group against the actual indexed racing mesh.
+    for (const arrow of arrows.children.slice(0, 3) as THREE.Mesh[]) {
+      const up = new THREE.Vector3(0, 0, 1).applyQuaternion(arrow.quaternion);
+      const vertices = arrow.geometry.getAttribute("position");
+      for (let index = 0; index < vertices.count; index++) {
+        const point = new THREE.Vector3().fromBufferAttribute(vertices, index).applyMatrix4(arrow.matrixWorld);
+        const ray = new THREE.Raycaster(point.clone().addScaledVector(up, 1), up.clone().negate(), 0, 2);
+        const hit = ray.intersectObject(surface)[0];
+        expect(hit).toBeDefined();
+        expect(hit.distance).toBeGreaterThan(1);
+        expect(hit.distance).toBeLessThan(1.2);
+      }
+    }
+    rendered.dispose();
+  });
+
   it("updates the canonical pinwheel pose and disposes idempotently", () => {
     const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign()));
     const arms = rendered.group.getObjectByName("pinwheel-arms") as THREE.InstancedMesh;
@@ -101,7 +152,9 @@ describe("modular track rendering", () => {
     expect(gateZ.dot(startTangent)).toBeCloseTo(-1, 5); expect(gateX.clone().cross(gateY).dot(gateZ)).toBeCloseTo(1, 5);
     expect((gate.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.gate.width); expect((gate.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.gate.height); expect((gate.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.gate.depth);
     expect(pusher.position.toArray()).toEqual([rendered.devices.start.pusher.center.x, rendered.devices.start.pusher.center.y, rendered.devices.start.pusher.center.z]);
-    expect((pusher.geometry as THREE.BoxGeometry).parameters.width).toBe(rendered.devices.start.pusher.width); expect((pusher.geometry as THREE.BoxGeometry).parameters.height).toBe(rendered.devices.start.pusher.height); expect((pusher.geometry as THREE.BoxGeometry).parameters.depth).toBe(rendered.devices.start.pusher.depth);
+    pusher.geometry.computeBoundingBox();
+    const size = pusher.geometry.boundingBox!.getSize(new THREE.Vector3());
+    expect(size.x).toBeCloseTo(rendered.devices.start.pusher.width, 5); expect(size.y).toBeCloseTo(rendered.devices.start.pusher.height, 5); expect(size.z).toBeCloseTo(rendered.devices.start.pusher.depth, 5);
     const pinwheel = rendered.group.getObjectByName(`pinwheel-${pinwheelLayout.cellIndex}`)!;
     setModularDevicePose(rendered, { elapsedSeconds: 0, gateOpen: false, pusherCenter: rendered.devices.start.pusher.center, pinwheelAngles: [0] });
     expect(gate.visible).toBe(true);
