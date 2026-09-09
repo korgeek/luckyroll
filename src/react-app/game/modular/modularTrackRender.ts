@@ -8,7 +8,7 @@ import {
   PINWHEEL_ARM_COUNT,
   resolveModuleDevices,
   createPusherVertices,
-  createWaveVertices,
+  createWaveGeometry,
   type ModularDevicePose,
   type ModuleDevices,
 } from "./moduleDevices";
@@ -198,8 +198,10 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   for (const wave of devices.waves) {
-    const vertices = createWaveVertices(wave);
-    const mesh = new THREE.Mesh(new ConvexGeometry(Array.from({ length: vertices.length / 3 }, (_, index) => new THREE.Vector3().fromArray(vertices, index * 3))), channel);
+    const shared = createWaveGeometry(wave); const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(shared.positions, 3)); geometry.setIndex(new THREE.BufferAttribute(shared.indices, 1)); geometry.computeVertexNormals();
+    const finish = channel.clone(); finish.polygonOffset = true; finish.polygonOffsetFactor = -1; finish.polygonOffsetUnits = -1;
+    const mesh = new THREE.Mesh(geometry, finish);
     mesh.name = `wave-semicircle-${wave.cellIndex}-${wave.localU}`; mesh.position.copy(toVector(wave.center)); mesh.quaternion.copy(frameQuaternion(wave)); group.add(mesh);
   }
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));

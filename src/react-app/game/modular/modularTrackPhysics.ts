@@ -14,7 +14,7 @@ import {
 import { createTrackProjector, projectToTrack } from "../track/trackSampler";
 import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
-import { PINWHEEL_ARM_COUNT, createPusherVertices, createWaveVertices, resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
+import { PINWHEEL_ARM_COUNT, createPusherVertices, createWaveGeometry, resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { curveInnerWallBase, profileAt } from "./moduleGeometry";
 import { applyRaceRushPulse, shouldStartRaceRush } from "../raceRush";
@@ -232,8 +232,8 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     const body = world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(wave.center.x, wave.center.y, wave.center.z)
       .setRotation(rotationFromBasis(wave.side, wave.up, scale(wave.tangent, -1))));
     ownedBodies.push(body);
-    const shape = rapier.ColliderDesc.convexHull(createWaveVertices(wave));
-    if (!shape) throw new Error("Wave obstacles must form convex semicylinders.");
+    const geometry = createWaveGeometry(wave);
+    const shape = rapier.ColliderDesc.trimesh(geometry.positions, geometry.indices, rapier.TriMeshFlags.FIX_INTERNAL_EDGES);
     world.createCollider(shape.setFriction(FRICTION).setRestitution(RESTITUTION), body);
   }
 

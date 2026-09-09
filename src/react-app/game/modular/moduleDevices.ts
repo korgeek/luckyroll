@@ -70,21 +70,49 @@ export type PinwheelLayout = Readonly<{
   minimumPassage: number;
 }>;
 
-export type WaveLayout = Readonly<{ cellIndex: number; localU: number; center: Vec3; tangent: Vec3; side: Vec3; up: Vec3; radius: number; height: number; inward: 1 | -1 }>;
+export type WaveLayout = Readonly<{ cellIndex: number; localU: number; center: Vec3; tangent: Vec3; side: Vec3; up: Vec3; radius: number; lateralRadius: number; height: number; inward: 1 | -1 }>;
 
-export const createWaveVertices = (wave: Pick<WaveLayout, "radius" | "height" | "inward">): Float32Array => {
-  const edge = CHANNEL_WIDTH * 0.275;
-  const wall = CHANNEL_PROFILE.filter(point => point.lateral >= edge && point.height <= wave.height);
+export const createWaveGeometry = (wave: Pick<WaveLayout, "radius" | "lateralRadius" | "height" | "inward">): { positions: Float32Array; indices: Uint32Array } => {
+  const centerOffset = 2.8;
+  const wall = CHANNEL_PROFILE.filter(point => point.lateral >= CHANNEL_WIDTH * 0.275 && point.height <= wave.height);
   const last = wall[wall.length - 1]; const next = CHANNEL_PROFILE.find(point => point.lateral > 0 && point.height > wave.height)!;
   wall.push({ height: wave.height, lateral: last.lateral + (next.lateral - last.lateral) * (wave.height - last.height) / (next.height - last.height) });
-  return new Float32Array([
-    ...[-wave.height / 2, wave.height / 2].flatMap(y => Array.from({ length: 33 }, (_, index) => {
-      const angle = -Math.PI / 2 + index * Math.PI / 32;
-      return [wave.inward * wave.radius * Math.cos(angle), y, wave.radius * Math.sin(angle)];
-    }).flat()),
-    ...wall.flatMap(point => [-wave.radius, wave.radius].flatMap(z => [-wave.inward * (point.lateral - edge), point.height - wave.height / 2, z])),
-  ]);
+  const positions: number[] = []; const indices: number[] = [];
+  const front: number[][] = []; const back: number[][] = [];
+  const vertex = (x: number, y: number, z: number) => { const index = positions.length / 3; positions.push(x, y, z); return index; };
+  const quad = (a: number, b: number, c: number, d: number) => {
+    for (const face of [[a, b, c], [b, d, c]]) if (new Set(face).size === 3) indices.push(...(wave.inward === 1 ? face : face.reverse()));
+  };
+  const stops = Array.from({ length: 65 }, (_, index) => index / 64); stops.splice(20, 0, 0.3);
+  for (let row = 0; row < stops.length; row++) {
+    const travel = 1 - stops[row];
+    const amount = travel <= 0.7 ? travel / 0.7 : (1 - travel) / 0.3;
+    const blend = amount * amount * (3 - 2 * amount);
+    const z = wave.radius * (2 * stops[row] - 1); front.push([]); back.push([]);
+    for (const point of wall) {
+      const height = point.height * blend;
+      const upper = wall.findIndex(sample => sample.height >= height);
+      const left = wall[Math.max(0, upper - 1)]; const right = wall[upper];
+      const lateral = left.lateral + (right.lateral - left.lateral) * (height - left.height) / (right.height - left.height || 1);
+      const boundary = centerOffset - lateral;
+      const face = boundary + (centerOffset - CHANNEL_WIDTH * 0.275 + wave.lateralRadius - boundary) * blend;
+      const a = blend === 0 && front[row].length ? front[row][0] : vertex(wave.inward * face, height - wave.height / 2, z);
+      front[row].push(a);
+      back[row].push(blend === 0 ? a : vertex(wave.inward * boundary, height - wave.height / 2, z));
+    }
+    if (row === 0) continue;
+    for (let column = 1; column < wall.length; column++) {
+      quad(front[row - 1][column - 1], front[row - 1][column], front[row][column - 1], front[row][column]);
+      quad(back[row - 1][column - 1], back[row][column - 1], back[row - 1][column], back[row][column]);
+    }
+    const top = wall.length - 1;
+    quad(front[row - 1][top], back[row - 1][top], front[row][top], back[row][top]);
+    quad(back[row - 1][0], front[row - 1][0], back[row][0], front[row][0]);
+  }
+  return { positions: new Float32Array(positions), indices: new Uint32Array(indices) };
 };
+
+export const createWaveVertices = (wave: WaveLayout): Float32Array => createWaveGeometry(wave).positions;
 
 export type ModuleDevices = Readonly<{
   start: ResolvedStart & Readonly<{
@@ -204,10 +232,10 @@ export const resolveModuleDevices = (track: TrackDesign, route: ValidRoute, samp
     } else if (cell.kind === "bumper") {
       bumpers.push(...resolveBumpers(step.cellIndex, samples));
     } else if (cell.kind === "wave") {
-      for (const [localU, inward] of [[0.24, 1], [0.76, -1]] as const) {
+      for (const [localU, inward] of [[0.22, 1], [0.78, -1]] as const) {
         const frame = frameAtCellU(samples, step.cellIndex, localU)!;
-        waves.push(Object.freeze({ cellIndex: step.cellIndex, localU, inward, radius: 3.6, height: 4,
-          center: add(add(frame.position, scale(frame.side, -inward * CHANNEL_WIDTH * 0.275)), scale(frame.up, 2)),
+        waves.push(Object.freeze({ cellIndex: step.cellIndex, localU, inward, radius: 4, lateralRadius: 2.4, height: 4,
+          center: add(add(frame.position, scale(frame.side, -inward * 2.8)), scale(frame.up, 2)),
           tangent: frame.tangent, side: frame.side, up: frame.up }));
       }
     } else if (cell.kind === "pinwheel") {

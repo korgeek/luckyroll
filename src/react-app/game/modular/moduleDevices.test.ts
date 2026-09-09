@@ -16,29 +16,44 @@ const frameAt = (rows: readonly { localU: number; position: { x: number; y: numb
 };
 
 describe("canonical modular devices", () => {
-  it("spaces two opposing wave semicircles with at least four marble diameters of passage", () => {
+  it("spaces two smooth wave wall bulges with at least six marble diameters of passage", () => {
     const built = buildModularTrack(createWorstCaseTrackDesign());
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
     for (const cellIndex of new Set(devices.waves.map(wave => wave.cellIndex))) {
       const pair = devices.waves.filter(wave => wave.cellIndex === cellIndex);
-      expect(pair.map(wave => wave.localU)).toEqual([0.24, 0.76]);
+      expect(pair.map(wave => wave.localU)).toEqual([0.22, 0.78]);
       expect(pair.map(wave => wave.inward)).toEqual([1, -1]);
       for (const wave of pair) {
-        expect(CHANNEL_WIDTH * 0.55 - wave.radius).toBeGreaterThanOrEqual(4 * MARBLE_DIAMETER);
+        expect(CHANNEL_WIDTH * 0.55 - wave.lateralRadius).toBeGreaterThanOrEqual(6 * MARBLE_DIAMETER);
+        expect(2 * wave.radius).toBeGreaterThan(3 * wave.lateralRadius);
         const vertices = createWaveVertices(wave);
+        const topByZ = new Map<number, number>();
+        for (let index = 0; index < vertices.length; index += 3) topByZ.set(vertices[index + 2], Math.max(topByZ.get(vertices[index + 2]) ?? 0, vertices[index + 1] + wave.height / 2));
+        expect(topByZ.get(wave.radius)).toBeCloseTo(0, 5);
+        expect(topByZ.get(-wave.radius)).toBeCloseTo(0, 5);
+        const [peakZ, peakHeight] = [...topByZ].sort((a, b) => b[1] - a[1])[0];
+        expect(peakZ).toBeLessThan(0); // Local -Z is forward: the crest follows the long entry ramp.
+        expect(peakHeight).toBeCloseTo(wave.height, 5);
         const across = Array.from(vertices).filter((_, index) => index % 3 === 0).map(value => value * wave.inward);
-        expect(Math.max(...across)).toBeCloseTo(3.6, 5);
+        expect(Math.max(...across)).toBeCloseTo(1.9, 5);
         const wall = CHANNEL_PROFILE.filter(point => point.lateral >= 3.3);
         for (let index = 0; index < vertices.length; index += 3) {
           const height = vertices[index + 1] + wave.height / 2;
           const upper = wall.findIndex(point => point.height >= height - 1e-7);
           const left = wall[Math.max(0, upper - 1)]; const right = wall[upper];
           const limit = left.lateral + (right.lateral - left.lateral) * (height - left.height) / (right.height - left.height || 1);
-          expect(Math.abs(-wave.inward * 3.3 + vertices[index])).toBeLessThanOrEqual(limit + 1e-5);
+          expect(Math.abs(-wave.inward * 2.8 + vertices[index])).toBeLessThanOrEqual(limit + 1e-5);
         }
       }
-      const separation = dot({ x: pair[1].center.x - pair[0].center.x, y: pair[1].center.y - pair[0].center.y, z: pair[1].center.z - pair[0].center.z }, pair[0].tangent);
-      expect(separation - pair[0].radius - pair[1].radius).toBeGreaterThanOrEqual(4 * MARBLE_DIAMETER);
+      const floors = pair.map(wave => {
+        const vertices = createWaveVertices(wave); const points = [];
+        for (let index = 0; index < vertices.length; index += 3) if (Math.abs(vertices[index + 1] + wave.height / 2) < 1e-6) {
+          const x = vertices[index]; const y = vertices[index + 1]; const z = vertices[index + 2];
+          points.push({ x: wave.center.x + wave.side.x * x + wave.up.x * y - wave.tangent.x * z, y: wave.center.y + wave.side.y * x + wave.up.y * y - wave.tangent.y * z, z: wave.center.z + wave.side.z * x + wave.up.z * y - wave.tangent.z * z });
+        }
+        return points;
+      });
+      expect(Math.min(...floors[0].flatMap(a => floors[1].map(b => distance(a, b))))).toBeGreaterThanOrEqual(6 * MARBLE_DIAMETER);
     }
     expect(devices.waves.length).toBeGreaterThan(0);
   });

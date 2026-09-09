@@ -24,7 +24,7 @@ import { projectToTrack } from "../track/trackSampler";
 
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 
-it("collides with the two wave semicircle fronts at their shared radius", async () => {
+it("collides with the asymmetric wave crest and lifts wall-side arrivals onto its entry ramp", async () => {
   await initializeTrackPhysics();
   const world = createTrackPhysicsWorld(); const built = buildModularTrack(createValidTrackDesign());
   const resources = createModularPhysics(world, built); const devices = resolveModuleDevices(built.track, built.route, built.samples);
@@ -32,13 +32,34 @@ it("collides with the two wave semicircle fronts at their shared radius", async 
     let obstacle: ReturnType<typeof world.getCollider> | undefined;
     world.forEachCollider(collider => { const p = collider.translation(); if (Math.hypot(p.x - wave.center.x, p.y - wave.center.y, p.z - wave.center.z) < 1e-5) obstacle = collider; });
     expect(obstacle).toBeDefined();
-    for (const angle of [-Math.PI / 4, 0, Math.PI / 4]) {
-      const radial = { x: wave.side.x * wave.inward * Math.cos(angle) + wave.tangent.x * Math.sin(angle), y: wave.side.y * wave.inward * Math.cos(angle) + wave.tangent.y * Math.sin(angle), z: wave.side.z * wave.inward * Math.cos(angle) + wave.tangent.z * Math.sin(angle) };
-      const origin = { x: wave.center.x + radial.x * (wave.radius + 1), y: wave.center.y + radial.y * (wave.radius + 1), z: wave.center.z + radial.z * (wave.radius + 1) };
-      const hit = obstacle!.castRay(new (getInitializedTrackPhysicsRapier().Ray)(origin, { x: -radial.x, y: -radial.y, z: -radial.z }), 2, true);
-      expect(hit).toBeCloseTo(1, 3);
-    }
+    const radial = { x: wave.side.x * wave.inward, y: wave.side.y * wave.inward, z: wave.side.z * wave.inward };
+    const tip = wave.lateralRadius + 2.8 - 3.3;
+    const crestOffset = wave.radius * 0.4; // The 70/30 crest is forward of the obstacle midpoint.
+    const outside = { x: wave.center.x + radial.x * (tip + 1) + wave.tangent.x * crestOffset, y: wave.center.y + radial.y * (tip + 1) + wave.tangent.y * crestOffset, z: wave.center.z + radial.z * (tip + 1) + wave.tangent.z * crestOffset };
+    expect(obstacle!.castRay(new (getInitializedTrackPhysicsRapier().Ray)(outside, { x: -radial.x, y: -radial.y, z: -radial.z }), 2, true)).toBeCloseTo(1, 3);
+    const origin = { x: wave.center.x - wave.side.x * wave.inward * 0.25 - wave.tangent.x * 6, y: wave.center.y - wave.side.y * wave.inward * 0.25 - wave.tangent.y * 6, z: wave.center.z - wave.side.z * wave.inward * 0.25 - wave.tangent.z * 6 };
+    const contact = obstacle!.castRayAndGetNormal(new (getInitializedTrackPhysicsRapier().Ray)(origin, wave.tangent), 8, true);
+    expect(contact).not.toBeNull();
+    expect(dot(contact!.normal, wave.up)).toBeGreaterThan(0.25);
+    expect(dot(contact!.normal, wave.tangent)).toBeLessThan(-0.1);
   }
+  const wave = devices.waves[0];
+  const position = {
+    x: wave.center.x - wave.tangent.x * 6 - wave.side.x * wave.inward * 0.25 + wave.up.x * (0.36 - wave.height / 2),
+    y: wave.center.y - wave.tangent.y * 6 - wave.side.y * wave.inward * 0.25 + wave.up.y * (0.36 - wave.height / 2),
+    z: wave.center.z - wave.tangent.z * 6 - wave.side.z * wave.inward * 0.25 + wave.up.z * (0.36 - wave.height / 2),
+  };
+  const [body] = createMarbleBodies(world, [{ ...position, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
+  body.setLinvel({ x: wave.tangent.x * 18, y: wave.tangent.y * 18, z: wave.tangent.z * 18 }, true);
+  let highest = 0;
+  for (let step = 0; step < 90; step++) {
+    resources.stepBeforeWorld(); world.step(); resources.stepAfterWorld([body]);
+    const current = body.translation();
+    highest = Math.max(highest, dot({ x: current.x - wave.center.x, y: current.y - wave.center.y, z: current.z - wave.center.z }, wave.up) + wave.height / 2);
+  }
+  const end = body.translation();
+  expect(highest).toBeGreaterThan(wave.height / 2);
+  expect(dot({ x: end.x - wave.center.x, y: end.y - wave.center.y, z: end.z - wave.center.z }, wave.tangent)).toBeGreaterThan(wave.radius);
   resources.dispose(); world.free();
 });
 const subtract = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
