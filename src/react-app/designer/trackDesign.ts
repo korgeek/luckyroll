@@ -49,9 +49,9 @@ export const createShortTrackDesign = (name = "30-Second Track"): TrackDesign =>
     { kind: "curve", rotation: 1 }, { kind: "curve", rotation: 3 }, null, null, null,
     { kind: "wave", rotation: 1 }, null, null, null, null,
     { kind: "funnel", rotation: 1 }, null, null, null, null,
-    { kind: "straight", rotation: 1 }, null, null, null, null,
-    { kind: "straight", rotation: 1 }, null, null, null, null,
-    { kind: "straight", rotation: 1 }, null, null, null, null,
+    { kind: "pinwheel", rotation: 1 }, null, null, null, null,
+    { kind: "wave", rotation: 1 }, null, null, null, null,
+    { kind: "funnel", rotation: 1 }, null, null, null, null,
     { kind: "curve", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "bumper", rotation: 0 }, { kind: "finish", rotation: 0 },
   ]),
 });

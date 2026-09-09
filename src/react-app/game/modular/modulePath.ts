@@ -56,34 +56,9 @@ const cellPortPosition = (cellIndex: number, direction: Direction): Vec3 => {
   return add(center, scale(directionVector[direction], HALF_SIZE));
 };
 
-const waveOffsetAt = (localU: number): number => {
-  if (localU <= 0.1 || localU >= 0.9) return 0;
-  const u = (localU - 0.1) / 0.8;
-  return 0.15 * CHANNEL_WIDTH * Math.sin(2 * Math.PI * u) * Math.sin(Math.PI * u) ** 2;
-};
-const waveOffsetFirst = (localU: number): number => {
-  if (localU <= 0.1 || localU >= 0.9) return 0;
-  const u = (localU - 0.1) / 0.8;
-  const sin2 = Math.sin(2 * Math.PI * u);
-  return 0.15 * CHANNEL_WIDTH / 0.8 * (2 * Math.PI * Math.cos(2 * Math.PI * u) * Math.sin(Math.PI * u) ** 2 + Math.PI * sin2 ** 2);
-};
-const waveOffsetSecond = (localU: number): number => {
-  if (localU <= 0.1 || localU >= 0.9) return 0;
-  const u = (localU - 0.1) / 0.8;
-  const sin2 = Math.sin(2 * Math.PI * u);
-  return 0.15 * CHANNEL_WIDTH / 0.8 ** 2 * (-4 * Math.PI ** 2 * sin2 * Math.sin(Math.PI * u) ** 2 + 6 * Math.PI ** 2 * sin2 * Math.cos(2 * Math.PI * u));
-};
-
-/** Wave displacement in board-local lateral units. */
-export const waveOffset = waveOffsetAt;
-
 const funnelSmoothStep = (t: number): number => 6 * t ** 5 - 15 * t ** 4 + 10 * t ** 3;
 export const moduleWidthAt = (kind: ModuleKind | "start" | "finish", localU: number): number => {
   const u = clamp(localU, 0, 1);
-  if (kind === "wave") {
-    if (u <= 0.1 || u >= 0.9) return CHANNEL_WIDTH;
-    return CHANNEL_WIDTH - 1.2 * Math.sin(Math.PI * (u - 0.1) / 0.8) ** 2;
-  }
   if (kind !== "funnel") return CHANNEL_WIDTH;
   if (u <= 0.1 || u >= 0.9) return CHANNEL_WIDTH;
   const interior = (u - 0.1) / 0.8;
@@ -151,13 +126,10 @@ const makeCellPath = (kind: ModuleKind | "start" | "finish", entry: Direction, e
     exit,
     sideAt: () => side,
     pointAt(localU) {
-      const offset = kind === "wave" ? waveOffsetAt(localU) : 0;
-      const firstOffset = kind === "wave" ? waveOffsetFirst(localU) : 0;
-      const secondOffset = kind === "wave" ? waveOffsetSecond(localU) : 0;
       return {
-        position: add(add(entryPort, scale(chord, MODULE_SIZE * localU)), scale(side, offset)),
-        derivative: add(scale(chord, MODULE_SIZE), scale(side, firstOffset)),
-        secondDerivative: scale(side, secondOffset),
+        position: add(entryPort, scale(chord, MODULE_SIZE * localU)),
+        derivative: scale(chord, MODULE_SIZE),
+        secondDerivative: { x: 0, y: 0, z: 0 },
       };
     },
   };

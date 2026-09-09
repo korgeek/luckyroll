@@ -41,9 +41,7 @@ const analyticPoint = (cellIndex: number, kind: string, entry: keyof typeof dire
   }
   if (kind === "wave" && localU > 0.1 && localU < 0.9) {
     const chord = normalize({ x: exitPort.x - entryPort.x, y: 0, z: exitPort.z - entryPort.z });
-    const side = normalize({ x: -chord.z, y: 0, z: chord.x }); const u = (localU - 0.1) / 0.8;
-    const offset = 0.15 * 12 * Math.sin(2 * Math.PI * u) * Math.sin(Math.PI * u) ** 2;
-    return add(add(entryPort, scale(chord, 20 * localU)), scale(side, offset));
+    return add(entryPort, scale(chord, 20 * localU));
   }
   return undefined;
 };
@@ -70,7 +68,7 @@ describe("canonical modular module paths", () => {
     expect(distance(downstream.curvature, { x: 0, y: 0, z: 0 })).toBeLessThanOrEqual(1e-6);
   });
 
-  it("emits the wave interior instead of accepting an aliased midpoint", () => {
+  it("keeps the wave outer channel straight and wide for its alternating obstacles", () => {
     const track = createWorstCaseTrackDesign();
     const samples = sampleModulePath(track, assertValidTrackDesign(track)).filter((sample) => sample.cellIndex === 8);
     const start = samples[0].position;
@@ -81,7 +79,8 @@ describe("canonical modular module paths", () => {
       chord.x * (sample.position.z - start.z) - chord.z * (sample.position.x - start.x),
     ) / chordLength);
 
-    expect(Math.max(...lateralOffsets)).toBeGreaterThan(0.1);
+    expect(Math.max(...lateralOffsets)).toBeLessThan(1e-6);
+    expect(samples.every(sample => sample.width === 12)).toBe(true);
   });
 
   it("samples the funnel waist and its 0.40S hold", () => {

@@ -2,7 +2,6 @@ import type { TrackGeometry, Vec3 } from "../track/trackTypes";
 import {
   CHANNEL_WIDTH,
   MODULE_SIZE,
-  MAX_CURVE_BANK,
   MARBLE_DIAMETER,
   RAIL_HEIGHT,
   ROUTE_GRADE,
@@ -14,14 +13,8 @@ export const FLOOR_SPAN = 0.55;
 const WALL_SEGMENTS = 64;
 const FLOOR_SEGMENTS = PROFILE_SEGMENTS - WALL_SEGMENTS * 2;
 const WALL_RISE_HEIGHT = RAIL_HEIGHT * 0.5;
-const CURVE_INNER_RAIL_HEIGHT = 4.5;
-const BASE_CURVE_INNER_RAIL_HEIGHT = 3;
-export const CURVE_INNER_INSET = 2.8;
-const CURVE_INNER_INSET_COMPENSATION = (CURVE_INNER_RAIL_HEIGHT - BASE_CURVE_INNER_RAIL_HEIGHT) * Math.tan(MAX_CURVE_BANK) + 0.05;
-
-export const curveBankBlend = (sideY: number): number => Math.min(1, Math.abs(sideY) / (Math.sin(MAX_CURVE_BANK) * Math.cos(ROUTE_GRADE)));
-export const effectiveCurveInnerInset = (bankBlend: number): number =>
-  (CURVE_INNER_INSET + CURVE_INNER_INSET_COMPENSATION) * Math.max(0, Math.min(1, bankBlend));
+const curveBankAngle = (sideY: number): number => Math.asin(Math.max(-1, Math.min(1, -sideY / Math.cos(ROUTE_GRADE))));
+export const curveInnerWallBase = (sideY: number): number => CHANNEL_WIDTH * FLOOR_SPAN / 2 * Math.cos(curveBankAngle(sideY));
 
 export type ChannelProfilePoint = Readonly<{ lateral: number; height: number }>;
 
@@ -86,7 +79,7 @@ const normalize = (a: Vec3): Vec3 => {
 const FUNNEL_MOGUL_HEIGHT = 1.2;
 const FUNNEL_MOGUL_RADIUS = 1.8;
 const FUNNEL_MOGUL_ALONG_SCALE = MODULE_SIZE / Math.cos(ROUTE_GRADE);
-const FUNNEL_MOGULS = [[0.22, -0.6], [0.36, 0.6], [0.64, -0.6], [0.78, 0.6]] as const;
+const FUNNEL_MOGULS = [[0.64, -0.6], [0.78, 0.6]] as const;
 
 export const funnelMogulHeight = (localU: number, lateral: number): number => {
   let height = 0;
@@ -110,16 +103,13 @@ const funnelMogulSlope = (localU: number, lateral: number): number => {
 };
 const profileForFrame = (frame: Pick<ModulePathSample, "side" | "width" | "kind" | "localU"> & Readonly<{ centerlineCurvature: Vec3 }>): readonly ChannelProfilePoint[] => {
   const signedCurvature = frame.centerlineCurvature.x * frame.side.x + frame.centerlineCurvature.y * frame.side.y + frame.centerlineCurvature.z * frame.side.z;
-  const bankBlend = curveBankBlend(frame.side.y);
-  const innerHeight = lerp(RAIL_HEIGHT, CURVE_INNER_RAIL_HEIGHT, bankBlend);
-  const innerHalfWidth = frame.width / 2 - effectiveCurveInnerInset(bankBlend);
-  const profile = profileAt(
-    frame.width,
-    signedCurvature < 0 ? innerHeight : RAIL_HEIGHT,
-    signedCurvature > 0 ? innerHeight : RAIL_HEIGHT,
-    signedCurvature < 0 ? innerHalfWidth : frame.width / 2,
-    signedCurvature > 0 ? innerHalfWidth : frame.width / 2,
-  );
+  const profile = profileAt(frame.width).map(point => {
+    if (frame.kind !== "curve" || point.lateral * signedCurvature <= 0) return point;
+    // Level the inner wall; blend through the floor so it meets the banked outer half smoothly.
+    const t = Math.min(1, Math.abs(point.lateral) / (frame.width * FLOOR_SPAN / 2));
+    const angle = curveBankAngle(frame.side.y) * t * t * (3 - 2 * t);
+    return freeze({ lateral: point.lateral * Math.cos(angle) - point.height * Math.sin(angle), height: point.lateral * Math.sin(angle) + point.height * Math.cos(angle) });
+  });
   return frame.kind === "funnel" ? profile.map((point) => freeze({ ...point, height: point.height + funnelMogulHeight(frame.localU, point.lateral) })) : profile;
 };
 

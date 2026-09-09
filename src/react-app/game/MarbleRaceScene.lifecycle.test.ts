@@ -524,6 +524,20 @@ describe("race scene lifecycle boundary", () => {
 		scene.dispose();
 	});
 
+  it.each([3, 25])("keeps bumper-transit gaze local with live marbles at route distance %s", async bodyX => {
+    const director = vi.spyOn(cameraPlan, "createActionCameraDirector").mockReturnValue({ update: () => ({ mode: "feature", zoneKey: "bumper:7", targetId: 1, framing: "wide" }), reset: () => undefined });
+    seams.featureSamples = true; seams.bodyX = bodyX;
+    const scene = createRaceScene(prepareCanvas(), () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    await settle(); scene.start(Array.from({ length: 20 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now(); const camera = cameraPoses[0].camera;
+    for (let frame = 1; frame <= 20; frame++) seams.frames.shift()?.(now + frame * 17);
+    const pose = latestPose(camera);
+    expect(pose.position.x).toBeLessThan(1);
+    if (bodyX === 3) { expect(pose.lookAt.x).toBeGreaterThan(3); expect(pose.lookAt.x).toBeLessThan(5); }
+    else { expect(pose.lookAt.x).toBeGreaterThan(5); expect(pose.lookAt.x).toBeLessThan(8); }
+    scene.dispose(); director.mockRestore();
+  });
+
   it("approaches the bumper above the preceding channel and gently follows a marble", async () => {
     seams.featureSamples = true; seams.bodyX = 12;
     const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 360 }, clientHeight: { value: 800 } });

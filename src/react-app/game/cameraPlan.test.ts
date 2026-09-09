@@ -33,6 +33,19 @@ import {
 const canonicalTrackBounds = getTrackBounds(buildValidatedTrack().samples);
 
 describe("camera transitions", () => {
+  it("looks at local marbles or the local track during bumper transit, then reveals the bumper on arrival", () => {
+    const base = buildValidatedTrack().samples[0];
+    const samples = [0, 100, 200].map((distance, index) => ({ ...base, index, distance, position: { x: distance, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, side: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }));
+    const zone = { key: "bumper:1", kind: "bumper" as const, entryDistance: 100, exitDistance: 120 };
+    const remoteMarble = { x: 110, y: 0.34, z: 2 }; const localMarble = { x: 25, y: 0.34, z: -2 };
+    const local = writeBumperTrackShot(mutableShot(), zone, samples, canonicalTrackBounds, 20, remoteMarble, localMarble);
+    const empty = writeBumperTrackShot(mutableShot(), zone, samples, canonicalTrackBounds, 20, remoteMarble);
+    expect(local.lookAt).toEqual(localMarble);
+    expect(empty.lookAt).toEqual({ x: 26, y: 0.8, z: 0 });
+    expect(local.position).toEqual(empty.position);
+    const arrived = writeBumperTrackShot(mutableShot(), zone, samples, canonicalTrackBounds, 97, remoteMarble, localMarble);
+    expect(arrived.lookAt.x).toBeGreaterThan(109);
+  });
   it.each(BUILTIN_TRACKS.flatMap(preset => [360 / 800, 1024 / 768].map(aspect => ({ ...preset, aspect }))))("keeps the starter visible through the finished channel shell on $track.name at $aspect", ({ track, aspect }) => {
     const built = buildModularTrack(track); const rendered = createModularTrackRender(built);
     const start = rendered.devices.start;

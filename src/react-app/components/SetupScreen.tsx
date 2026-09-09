@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { CreditsDialog } from "./CreditsDialog";
 import type { Participant } from "../domain/types";
-import { moneyCents, PAYOUT_MODES, type PayoutMode } from "../domain/race";
+import { moneyCents, PAYOUT_MODES, TOP3_RULES, type PayoutMode } from "../domain/race";
 import { BUILTIN_TRACKS, type LocalTrack, type TrackDesign } from "../designer/trackDesign";
 
 export type SetupValues = { participants: Participant[]; prizePool: number; payoutMode?: PayoutMode; marbleCount?: 50 | 100 };
@@ -22,11 +22,12 @@ export type SetupScreenProps = Readonly<{
 export function SetupScreen({ active = true, onStart, tracks = [], selectedTrackId, onManageTracks = () => undefined, onSelectTrack = () => undefined }: SetupScreenProps) {
 	const [names, setNames] = useState(["Player 1", "Player 2"]);
 	const [prizePool, setPrizePool] = useState("");
-	const [payoutMode, setPayoutMode] = useState<PayoutMode>("equal");
+	const [payoutMode, setPayoutMode] = useState<PayoutMode>("winner");
 	const [marbleCount, setMarbleCount] = useState<50 | 100>(50);
 	const [prizeRevision, setPrizeRevision] = useState(0);
 	const [creditsOpen, setCreditsOpen] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState<"select" | "start" | false>(false);
+	const [pickerTrackId, setPickerTrackId] = useState(selectedTrackId);
 	const dialog = useRef<HTMLDialogElement>(null); const prizeInput = useRef<HTMLInputElement>(null); const prizeCaret = useRef<number | undefined>(undefined);
 	const pickerButton = useRef<HTMLButtonElement>(null);
 	const startButton = useRef<HTMLButtonElement>(null);
@@ -62,20 +63,22 @@ export function SetupScreen({ active = true, onStart, tracks = [], selectedTrack
 		setPrizePool((input.value.slice(0, remove) + input.value.slice(remove + 1)).replace(/[^\d.]/g, "").replace(/^\./, "0."));
 	};
 	const submit = (track: TrackDesign) => onStart({ prizePool: moneyCents(prizePool || "0") / 100, payoutMode, marbleCount, participants: names.map((name, index) => ({ id: `player-${index + 1}`, name: name.trim() || `Player ${index + 1}`, color: COLORS[index], symbol: SYMBOLS[index] })) }, track);
-	const chooseTrack = (id?: string) => { const track = tracks.find((candidate) => candidate.id === id) ?? BUILTIN_TRACKS.find((candidate) => candidate.id === id)?.track; onSelectTrack(id); setPickerOpen(false); if (pickerOpen === "start" && track) submit(track); };
+	const openPicker = (intent: "select" | "start") => { setPickerTrackId(selectedTrackId); setPickerOpen(intent); };
+	const chooseTrack = (id?: string) => { setPickerTrackId(id); onSelectTrack(id); };
+	const startSelectedTrack = () => { const track = tracks.find((candidate) => candidate.id === pickerTrackId) ?? BUILTIN_TRACKS.find((candidate) => candidate.id === pickerTrackId)?.track ?? BUILTIN_TRACKS[0].track; setPickerOpen(false); submit(track); };
 
 	return <section className="setup-card" aria-label="Main menu">
 		<p className="eyebrow">INSTANT PARTY GAME</p><h1>LUCKY ROLL</h1><p className="tagline">Who&apos;s last?</p>
-		<button ref={startButton} className="primary-button setup-start" onClick={() => setPickerOpen("start")}>START RACE · {selectedTrackName}</button>
+		<button ref={startButton} className="primary-button setup-start" onClick={() => openPicker("start")}>START RACE · {selectedTrackName}</button>
 		<div className="section-title"><span>PLAYERS</span><button className="text-button" onClick={() => setNames((current) => [...current].sort(() => Math.random() - 0.5))}>Shuffle</button></div>
 		<div className="name-list">{names.map((name, index) => <label className="name-row" key={index}><span className="player-dot" style={{ background: COLORS[index] }}>{SYMBOLS[index]}</span><span className="sr-only">Player {index + 1}</span><input aria-label={`Player ${index + 1}`} value={name} maxLength={16} onChange={(event) => update(index, event.target.value)} />{names.length > 2 && <button className="remove-button" aria-label={`Remove player ${index + 1}`} onClick={() => setNames((current) => current.filter((_, removeIndex) => removeIndex !== index))}>×</button>}</label>)}</div>
 		{names.length < 10 && <button className="add-button" onClick={() => setNames((current) => [...current, `Player ${current.length + 1}`])}>+ Add player</button>}
 		<label className="field-label prize-field">Prize Pool <span>optional</span><input ref={prizeInput} aria-label="Prize Pool" inputMode="decimal" placeholder="0.00" value={formatPrizePool(prizePool)} onChange={updatePrizePool} onKeyDown={prizeKeyDown} onBlur={() => { if (prizePool) { const [whole, fraction = ""] = prizePool.split("."); setPrizePool(`${Number(whole)}.${fraction.padEnd(2, "0")}`); } }} /></label>
 		<fieldset className="payout-options"><legend>Payout</legend>{PAYOUT_MODES.map(({ id, label }) => <label key={id}><input type="radio" name="payout-mode" value={id} checked={payoutMode === id} onChange={() => setPayoutMode(id)} /><span>{label}</span></label>)}</fieldset>
-		<p className="payout-note">{payoutMode === "winner" ? "The last marble wins the entire prize for its player!" : payoutMode === "top3" ? "Last 10 marbles score 10 to 1 points. Player totals decide the Top 3: split 5:3:1, or 5:3 for two players. A sole scoring player takes all. Ties favor the best marble rank." : "Every player gets an equal share."} {payoutMode !== "winner" && "Whole-number shares; all remainders and decimals go to first place!"}</p>
+		<p className="payout-note">{payoutMode === "winner" ? "Last marble standing takes the whole pot!" : TOP3_RULES}</p>
 		<p className="allocation-note">{marbleCount} marbles split as evenly as possible.</p>
-		<section className="track-summary" aria-label="Selected track"><div><span>TRACK</span><strong>{selectedTrackName}</strong><small>{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</small></div><div className="track-summary-actions"><button ref={pickerButton} className="secondary-button" onClick={() => setPickerOpen("select")}>Change Track</button><button className="text-button" onClick={onManageTracks}>Manage Tracks</button></div></section>
-		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><p>Choose a course. Times are estimates and vary with each race.</p><fieldset className="payout-options marble-count-options"><legend>Marbles</legend>{([50, 100] as const).map((count) => <label key={count}><input type="radio" name="marble-count" checked={marbleCount === count} onChange={() => setMarbleCount(count)} /><span>{count}</span></label>)}</fieldset>{BUILTIN_TRACKS.map(({ id, track }) => <button key={id ?? "builtin-60"} aria-label={`Select ${track.name}`} aria-pressed={id === selectedTrackId} onClick={() => chooseTrack(id)}>{track.name} {id === selectedTrackId && <span>Selected</span>}</button>)}{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === selectedTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === selectedTrackId && <span>Selected</span>}</button>)}<button className="text-button" onClick={() => setPickerOpen(false)}>Cancel</button></section></dialog>}
+		<section className="track-summary" aria-label="Selected track"><div><span>TRACK</span><strong>{selectedTrackName}</strong><small>{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</small></div><div className="track-summary-actions"><button ref={pickerButton} className="secondary-button" onClick={() => openPicker("select")}>Change Track</button><button className="text-button" onClick={onManageTracks}>Manage Tracks</button></div></section>
+		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><p>Choose a course. Times are estimates and vary with each race.</p><fieldset className="payout-options marble-count-options"><legend>Marbles</legend>{([50, 100] as const).map((count) => <label key={count}><input type="radio" name="marble-count" checked={marbleCount === count} onChange={() => setMarbleCount(count)} /><span>{count}</span></label>)}</fieldset>{BUILTIN_TRACKS.map(({ id, track }) => <button key={id ?? "builtin-60"} aria-label={`Select ${track.name}`} aria-pressed={id === pickerTrackId} onClick={() => chooseTrack(id)}>{track.name} {id === pickerTrackId && <span>Selected</span>}</button>)}{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === pickerTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === pickerTrackId && <span>Selected</span>}</button>)}<div className="track-picker-actions"><button className="primary-button" onClick={startSelectedTrack}>START</button><button className="secondary-button" onClick={() => setPickerOpen(false)}>BACK</button></div></section></dialog>}
 <footer className="setup-footer"><button className="text-button" onClick={() => setCreditsOpen(true)}>Credits</button></footer>
 		{creditsOpen && <CreditsDialog onClose={() => setCreditsOpen(false)} />}
 	</section>;

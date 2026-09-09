@@ -5,8 +5,22 @@ import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../design
 import { buildModularTrack } from "./modularTrackBuild";
 import type { ModulePathSample } from "./modularTypes";
 import { createModularTrackRender, disposeModularTrackRender, setModularDevicePose } from "./modularTrackRender";
+import { createWaveVertices } from "./moduleDevices";
 
 describe("modular track rendering", () => {
+  it("renders each wave semicircle from the shared collision vertices", () => {
+    const rendered = createModularTrackRender(buildModularTrack(createValidTrackDesign()));
+    for (const wave of rendered.devices.waves) {
+      const mesh = rendered.group.getObjectByName(`wave-semicircle-${wave.cellIndex}-${wave.localU}`) as THREE.Mesh;
+      expect(mesh).toBeDefined();
+      const expected = new THREE.Box3().setFromArray(createWaveVertices(wave));
+      mesh.geometry.computeBoundingBox();
+      expect(mesh.geometry.boundingBox!.min.distanceTo(expected.min)).toBeLessThan(1e-6);
+      expect(mesh.geometry.boundingBox!.max.distanceTo(expected.max)).toBeLessThan(1e-6);
+    }
+    expect(rendered.devices.waves.length).toBeGreaterThan(0);
+    rendered.dispose();
+  });
   it("gives every module a closed, thick exterior visible from its floor and both sides without moving the interior", () => {
     const seen = new Set<string>();
     const track = createValidTrackDesign();
@@ -85,11 +99,19 @@ describe("modular track rendering", () => {
   });
 
 	it("adds collider-free finish dressing", () => {
-		const rendered = createModularTrackRender(buildModularTrack(createValidTrackDesign()));
+		const built = buildModularTrack(createValidTrackDesign());
+		const rendered = createModularTrackRender(built);
 		const finish = rendered.group.getObjectByName("modular-finish-decoration")!;
 		expect(finish.userData.collider).toBe(false);
-		expect(finish.getObjectByName("finish-checker-strip")?.children).toHaveLength(12);
-		expect(finish.getObjectByName("finish-neon-arch")).toBeDefined();
+		const checker = finish.getObjectByName("finish-checker-strip") as THREE.Mesh;
+		const frame = built.samples[built.samples.length - 1];
+		const position = checker.geometry.getAttribute("position");
+		const offsets = Array.from({ length: position.count }, (_, index) => new THREE.Vector3().fromBufferAttribute(position, index).sub(new THREE.Vector3().copy(frame.position)));
+		expect(Math.max(...offsets.map(point => point.dot(new THREE.Vector3().copy(frame.side))))).toBeCloseTo(frame.width / 2, 4);
+		expect(Math.min(...offsets.map(point => point.dot(new THREE.Vector3().copy(frame.side))))).toBeCloseTo(-frame.width / 2, 4);
+		expect(Math.max(...offsets.map(point => point.dot(new THREE.Vector3().copy(frame.up))))).toBeCloseTo(12, 4);
+		expect(checker.geometry.getAttribute("color")).toBeDefined();
+		expect(finish.getObjectByName("finish-neon-arch")).toBeUndefined();
 		disposeModularTrackRender(rendered);
 	});
   it("renders exact board buffers and collider-free booster chevrons", () => {
@@ -171,7 +193,7 @@ describe("modular track rendering", () => {
     const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign()));
     const arms = rendered.group.getObjectByName("pinwheel-arms") as THREE.InstancedMesh;
     expect(arms).toBeInstanceOf(THREE.InstancedMesh);
-    expect(arms.count).toBe(3);
+    expect(arms.count).toBe(2);
     expect(arms.geometry.type).toBe("CapsuleGeometry");
     const pinwheelLayout = rendered.devices.pinwheels[0]!;
     const armGeometry = arms.geometry as THREE.CapsuleGeometry;

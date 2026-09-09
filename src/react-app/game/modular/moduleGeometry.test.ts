@@ -28,31 +28,33 @@ const triangleNormal = (geometry: ReturnType<typeof buildModuleGeometry>, triang
 const dot3 = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 
 describe("welded modular channel geometry", { timeout: 30_000 }, () => {
-  it("makes four noticeable circular C2 funnel moguls while leaving ports and throat flat", () => {
-    const peaks = [[0.22, -0.6], [0.36, 0.6], [0.64, -0.6], [0.78, 0.6]] as const;
+  it("makes one diagonal pair of circular C2 funnel moguls without a repeated pair", () => {
+    const peaks = [[0.64, -0.6], [0.78, 0.6]] as const;
     const radial = 0.9;
     const alongU = radial * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
     const diagonal = radial / Math.sqrt(2);
     const expectedHalfRadiusHeight = 0.50625;
 
-    expect(peaks.map(([u, lateral]) => funnelMogulHeight(u, lateral))).toEqual([1.2, 1.2, 1.2, 1.2]);
-    expect(funnelMogulHeight(0.22 + alongU, -0.6)).toBeCloseTo(expectedHalfRadiusHeight, 10);
-    expect(funnelMogulHeight(0.22, -0.6 + radial)).toBeCloseTo(expectedHalfRadiusHeight, 10);
-    expect(funnelMogulHeight(0.22 + diagonal * Math.cos(ROUTE_GRADE) / MODULE_SIZE, -0.6 + diagonal)).toBeCloseTo(expectedHalfRadiusHeight, 10);
+    expect(peaks.map(([u, lateral]) => funnelMogulHeight(u, lateral))).toEqual([1.2, 1.2]);
+    expect(funnelMogulHeight(0.22, -0.6)).toBe(0);
+    expect(funnelMogulHeight(0.36, 0.6)).toBe(0);
+    expect(funnelMogulHeight(0.64 + alongU, -0.6)).toBeCloseTo(expectedHalfRadiusHeight, 10);
+    expect(funnelMogulHeight(0.64, -0.6 + radial)).toBeCloseTo(expectedHalfRadiusHeight, 10);
+    expect(funnelMogulHeight(0.64 + diagonal * Math.cos(ROUTE_GRADE) / MODULE_SIZE, -0.6 + diagonal)).toBeCloseTo(expectedHalfRadiusHeight, 10);
     for (const u of [0, 0.1, 0.5, 0.9, 1]) for (const lateral of [-2.4, 0, 2.4]) expect(funnelMogulHeight(u, lateral)).toBe(0);
 
     const boundary = -2.4;
     const epsilon = 1e-6;
-    expect(funnelMogulHeight(0.22, boundary)).toBeLessThan(1e-20);
-    expect(Math.abs((funnelMogulHeight(0.22, boundary + epsilon) - funnelMogulHeight(0.22, boundary - epsilon)) / (2 * epsilon))).toBeLessThan(1e-5);
-    expect(Math.abs((funnelMogulHeight(0.22, boundary + epsilon) - 2 * funnelMogulHeight(0.22, boundary) + funnelMogulHeight(0.22, boundary - epsilon)) / epsilon ** 2)).toBeLessThan(0.01);
+    expect(funnelMogulHeight(0.64, boundary)).toBeLessThan(1e-20);
+    expect(Math.abs((funnelMogulHeight(0.64, boundary + epsilon) - funnelMogulHeight(0.64, boundary - epsilon)) / (2 * epsilon))).toBeLessThan(1e-5);
+    expect(Math.abs((funnelMogulHeight(0.64, boundary + epsilon) - 2 * funnelMogulHeight(0.64, boundary) + funnelMogulHeight(0.64, boundary - epsilon)) / epsilon ** 2)).toBeLessThan(0.01);
   });
 
   it("puts the raised moguls in the shared mesh with finite derivative-consistent normals", () => {
     const track = createValidTrackDesign();
     const samples = sampleModulePath(track, assertValidTrackDesign(track));
     const geometry = buildModuleGeometry(samples);
-    const peak = samples.find((sample) => sample.cellIndex === 2 && sample.localU === 0.22)!;
+    const peak = samples.find((sample) => sample.cellIndex === 2 && sample.localU === 0.64)!;
     const profile = profileAt(peak.width);
     const column = profile.slice(1).reduce((best, right, index) => Math.abs((profile[index].lateral + right.lateral) / 2 + 0.6) < Math.abs((profile[best].lateral + profile[best + 1].lateral) / 2 + 0.6) ? index : best, 0);
     const raised = vertex(geometry, samples.indexOf(peak), column);
@@ -61,7 +63,7 @@ describe("welded modular channel geometry", { timeout: 30_000 }, () => {
     expect(raisedHeight).toBeLessThanOrEqual(1.2);
     expect(raisedHeight).toBeGreaterThan(0.9);
 
-    const localU = 0.22 + 0.9 * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
+    const localU = 0.64 + 0.9 * Math.cos(ROUTE_GRADE) / MODULE_SIZE;
     const width = moduleWidthAt("funnel", localU);
     const base = profileAt(width);
     const floorColumn = base.slice(1).reduce((best, right, index) => Math.abs((base[index].lateral + right.lateral) / 2 + 0.6) < Math.abs((base[best].lateral + base[best + 1].lateral) / 2 + 0.6) ? index : best, 0);
@@ -222,9 +224,6 @@ describe("welded modular channel geometry", { timeout: 30_000 }, () => {
       const inwardRail = Math.max(...[vertex(geometry, row, 0), vertex(geometry, row, PROFILE_SEGMENTS)].map((point) =>
         (point.x - sample.position.x) * inward.x + (point.z - sample.position.z) * inward.z));
       expect(inwardRail).toBeLessThan(radius - MARBLE_DIAMETER / 2);
-      if (sample.localU > 0.4 && sample.localU < 0.6) {
-        expect(radius - inwardRail).toBeGreaterThanOrEqual(3.4);
-      }
 
       const previous = samples[row - 1]; const next = samples[row + 1];
       if (previous?.cellIndex !== sample.cellIndex || next?.cellIndex !== sample.cellIndex) continue;
@@ -236,6 +235,33 @@ describe("welded modular channel geometry", { timeout: 30_000 }, () => {
       if (normalDot < minimumInnerNormalDot) { minimumInnerNormalDot = normalDot; worstRow = row; }
     }
     expect(minimumInnerNormalDot, `worst row ${worstRow}, u=${samples[worstRow]?.localU}`).toBeGreaterThan(Math.cos(45 * Math.PI / 180));
+  });
+
+  it("fills the inner bend with a level, continuous rim instead of a scooped or folded rail", () => {
+    const track = createWorstCaseTrackDesign();
+    const samples = sampleModulePath(track, assertValidTrackDesign(track));
+    const geometry = buildModuleGeometry(samples);
+    let minimumFacing = 1;
+    for (const { cellIndex } of assertValidTrackDesign(track).route) {
+      if (track.cells[cellIndex]?.kind !== "curve") continue;
+      const rows = samples.map((sample, row) => ({ sample, row })).filter(({ sample }) => sample.cellIndex === cellIndex && Math.hypot(sample.centerlineCurvature.x, sample.centerlineCurvature.z) > 1e-9);
+      for (const { sample, row } of rows) {
+        const signed = dot3(sample.centerlineCurvature, sample.side);
+        const tip = vertex(geometry, row, signed < 0 ? 0 : PROFILE_SEGMENTS);
+        expect(tip.y - sample.position.y).toBeCloseTo(RAIL_HEIGHT * Math.cos(ROUTE_GRADE), 4);
+        const next = rows.find(candidate => candidate.row === row + 1);
+        if (!next) continue;
+        const nextTip = vertex(geometry, next.row, signed < 0 ? 0 : PROFILE_SEGMENTS);
+        const tangent = { x: sample.tangent.x + next.sample.tangent.x, y: 0, z: sample.tangent.z + next.sample.tangent.z };
+        expect((nextTip.x - tip.x) * tangent.x + (nextTip.z - tip.z) * tangent.z).toBeGreaterThan(0);
+        const expectedNormals = profileNormalsAt(sample, sample.width);
+        for (let column = 0; column < PROFILE_SEGMENTS; column++) {
+          for (const triangle of [0, 1]) minimumFacing = Math.min(minimumFacing, dot3(triangleNormal(geometry, (row * PROFILE_SEGMENTS + column) * 2 + triangle), expectedNormals[column]));
+        }
+      }
+    }
+    expect(minimumFacing).toBeGreaterThan(0);
+    expect(validateModuleGeometry(geometry)).toEqual([]);
   });
 
   it("rejects a longitudinal mesh-strip normal turn even when path tangents are unchanged", () => {

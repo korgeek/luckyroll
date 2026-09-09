@@ -14,9 +14,9 @@ import {
 import { createTrackProjector, projectToTrack } from "../track/trackSampler";
 import type { PhysicalLaunchPosition, Vec3 } from "../track/trackTypes";
 import { buildModularTrack, type BuiltModularTrack } from "./modularTrackBuild";
-import { createPusherVertices, resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
+import { PINWHEEL_ARM_COUNT, createPusherVertices, createWaveVertices, resolveModuleDevices, type ModularDevicePose, type ModuleDevices } from "./moduleDevices";
 import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
-import { curveBankBlend, effectiveCurveInnerInset, profileAt } from "./moduleGeometry";
+import { curveInnerWallBase, profileAt } from "./moduleGeometry";
 import { applyRaceRushPulse, shouldStartRaceRush } from "../raceRush";
 
 const TIMESTEP_SECONDS = 1 / 60;
@@ -228,14 +228,23 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
     addFixedBody(body, [collider]);
   }
 
+  for (const wave of devices.waves) {
+    const body = world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(wave.center.x, wave.center.y, wave.center.z)
+      .setRotation(rotationFromBasis(wave.side, wave.up, scale(wave.tangent, -1))));
+    ownedBodies.push(body);
+    const shape = rapier.ColliderDesc.convexHull(createWaveVertices(wave));
+    if (!shape) throw new Error("Wave obstacles must form convex semicylinders.");
+    world.createCollider(shape.setFriction(FRICTION).setRestitution(RESTITUTION), body);
+  }
+
   const pinwheelBodies: readonly RapierBody[] = devices.pinwheels.map((pinwheel) => {
     const baseRotation = rotationFromUp(pinwheel.axis);
     const body = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(pinwheel.center.x, pinwheel.center.y, pinwheel.center.z).setRotation(baseRotation));
     ownedBodies.push(body);
     const halfLength = Math.max(0, pinwheel.radius / 2 - pinwheel.armThickness / 2);
-    for (let arm = 0; arm < 3; arm += 1) {
-      const angle = arm * Math.PI * 2 / 3;
+    for (let arm = 0; arm < PINWHEEL_ARM_COUNT; arm += 1) {
+      const angle = arm * Math.PI * 2 / PINWHEEL_ARM_COUNT;
       const radial = { x: Math.cos(angle), y: 0, z: Math.sin(angle) };
       const descriptor = rapier.ColliderDesc.capsule(halfLength, pinwheel.armThickness / 2)
         .setTranslation(radial.x * pinwheel.radius / 2, 0, radial.z * pinwheel.radius / 2)
@@ -341,10 +350,11 @@ const createModularPhysics = (world: RapierWorld, built: BuiltModularTrack): Mod
       }
 
       const sample = built.samples[project(current).sampleIndex];
+      body.enableCcd(sample.kind !== "start" && Math.hypot(velocity.x, velocity.y, velocity.z) * TIMESTEP_SECONDS > MARBLE_DIAMETER / 2);
       const slot = marbleIndex * cellCount + sample.cellIndex;
       const forwardSpeed = dot(velocity, sample.tangent);
       const innerContact = Math.sign(dot(sample.centerlineCurvature, sample.side)) * dot(subtract(current, sample.position), sample.side)
-        >= CHANNEL_WIDTH / 2 - effectiveCurveInnerInset(curveBankBlend(sample.side.y)) - MARBLE_DIAMETER;
+        >= curveInnerWallBase(sample.side.y) - MARBLE_DIAMETER;
       if (built.track.cells[sample.cellIndex]?.kind === "curve" && sample.localU > 0.4 && sample.localU < 0.6 && innerContact && consumed[slot] === 0 && forwardSpeed < CURVE_GUARD_MIN_SPEED) {
         const after = add(velocity, scale(sample.tangent, CURVE_GUARD_MIN_SPEED - forwardSpeed));
         consumed[slot] = 1; velocity = after; body.setLinvel(after, true);
@@ -540,7 +550,7 @@ export const runModularValidationRace = async (
       const pose = resources.stepBeforeWorld();
       world.step();
       const events = resources.stepAfterWorld(bodies);
-      boosterCapViolations.push(...events.filter((event) => event.afterForwardSpeed > event.beforeForwardSpeed && event.afterForwardSpeed > MAX_BOOSTER_SPEED));
+      boosterCapViolations.push(...events.filter((event) => event.afterForwardSpeed > event.beforeForwardSpeed && event.afterForwardSpeed > MAX_BOOSTER_SPEED + 1e-9));
       if (pose.gateOpen) postGateSteps += 1;
       const raceElapsedMs = postGateSteps * TIMESTEP_SECONDS * 1_000;
 

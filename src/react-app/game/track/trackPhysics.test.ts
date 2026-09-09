@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { Vector3 } from "three";
 import { insideFinishVolume, createMarbleBodies, createTrackCollider, createTrackPhysicsWorld, distanceSquaredToSample, distanceSquaredToTrackSegments, initializeTrackPhysics, launchPositionsFor, runValidationRace, runValidationSuite } from "./trackPhysics";
 import { createDefaultTrackDesign } from "../../designer/trackDesign";
 import { buildModularTrack } from "../modular/modularTrackBuild";
+import { createModularPhysics } from "../modular/modularTrackPhysics";
 import { projectToTrack } from "./trackSampler";
 import { buildValidatedTrack } from "./trackBuild";
 import { exactLaunchMeshDistance } from "./trackPhysics.mesh.testSupport";
@@ -9,6 +11,36 @@ import { createLaunchSlots } from "./trackSpec";
 import { validateSeedsTwice } from "./trackPhysics.testSupport";
 
 describe.sequential("headless track physics", () => {
+  it("stops a fast marble at the actual final curve wall instead of tunneling through it", async () => {
+    await initializeTrackPhysics();
+    const built = buildModularTrack(createDefaultTrackDesign());
+    const geometrySamples: typeof built.samples = built.geometry.samples;
+    const row = geometrySamples.findIndex(sample => sample.cellIndex === 35 && sample.localU >= 0.7);
+    const offset = (row * built.geometry.profileSegments + 140) * 6;
+    const [a, b, c] = [0, 1, 2].map(index => new Vector3().fromArray(built.geometry.positions, built.geometry.indices[offset + index] * 3));
+    const normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+    const center = a.add(b).add(c).divideScalar(3);
+    const world = createTrackPhysicsWorld({ x: 0, y: 0, z: 0 });
+    const resources = createModularPhysics(world, built);
+    try {
+      const position = center.clone().addScaledVector(normal, 0.8);
+      const [body] = createMarbleBodies(world, [{ ...position, crossOffset: 0, row: 0, column: 0, physicalLaunchPosition: true }]);
+      expect(body.isCcdEnabled()).toBe(false);
+      body.setLinvel(normal.clone().multiplyScalar(-120), true);
+      resources.stepAfterWorld([body]);
+      expect(body.isCcdEnabled()).toBe(true);
+      world.step();
+      const clearance = new Vector3().copy(body.translation()).sub(center).dot(normal);
+      expect(clearance).toBeGreaterThan(0.3);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      resources.stepAfterWorld([body]);
+      expect(body.isCcdEnabled()).toBe(false);
+      body.setTranslation(built.samples[0].position, true);
+      body.setLinvel({ x: 120, y: 0, z: 0 }, true);
+      resources.stepAfterWorld([body]);
+      expect(body.isCcdEnabled()).toBe(false);
+    } finally { resources.dispose(); world.free(); }
+  });
   it("counts finish crossings across the full graded channel width and rejects outside points", () => {
     const samples = buildModularTrack(createDefaultTrackDesign()).samples;
     const finish = samples[samples.length - 1]!;

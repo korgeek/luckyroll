@@ -9,10 +9,10 @@ describe("ResultsScreen", () => {
 		const rankings = ["jin", "lee", "lee", "mia"].map((ownerId, index) => ({ id: index + 1, ownerId, color: "#fff", symbol: "◆", rank: index + 1, finishOrder: 4 - index }));
 		const participants = ["jin", "lee", "mia"].map((id) => ({ id, name: id, color: "#fff", symbol: "◆" }));
 		const { container } = render(<ResultsScreen rankings={rankings} participants={participants} prizePool={100.99} payoutMode="top3" celebrate onReplay={vi.fn()} onBack={vi.fn()} />);
-		expect(container.querySelector(".prize-summary")).toHaveTextContent("#1 lee · 17 pts56.99#2 jin · 10 pts33.00#3 mia · 7 pts11.00");
+		expect(container.querySelector(".prize-summary")).toHaveTextContent("#1 lee · 17 pts60.99#2 jin · 10 pts30.00#3 mia · 7 pts10.00");
 		expect(container.querySelector(".result-hero")).toHaveTextContent("#1 · LAST FINISHER");
 		expect(within(container.querySelector<HTMLElement>(".result-hero")!).getByRole("heading", { name: "jin" })).toBeInTheDocument();
-		expect(screen.getByText(/10 points for the last finisher/)).toBeInTheDocument();
+		expect(screen.getByText(/Last 10 score points/)).toBeInTheDocument();
 	});
 	it("keeps the scored Top 3 visible when the pool is zero", () => {
 		const { container } = render(<ResultsScreen rankings={[{ id: 1, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 1 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={0} payoutMode="top3" celebrate={false} onReplay={vi.fn()} onBack={vi.fn()} />);

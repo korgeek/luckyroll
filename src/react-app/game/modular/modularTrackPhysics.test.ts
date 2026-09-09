@@ -23,6 +23,24 @@ import { CHANNEL_WIDTH, MARBLE_DIAMETER } from "./modularTypes";
 import { projectToTrack } from "../track/trackSampler";
 
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
+
+it("collides with the two wave semicircle fronts at their shared radius", async () => {
+  await initializeTrackPhysics();
+  const world = createTrackPhysicsWorld(); const built = buildModularTrack(createValidTrackDesign());
+  const resources = createModularPhysics(world, built); const devices = resolveModuleDevices(built.track, built.route, built.samples);
+  for (const wave of devices.waves) {
+    let obstacle: ReturnType<typeof world.getCollider> | undefined;
+    world.forEachCollider(collider => { const p = collider.translation(); if (Math.hypot(p.x - wave.center.x, p.y - wave.center.y, p.z - wave.center.z) < 1e-5) obstacle = collider; });
+    expect(obstacle).toBeDefined();
+    for (const angle of [-Math.PI / 4, 0, Math.PI / 4]) {
+      const radial = { x: wave.side.x * wave.inward * Math.cos(angle) + wave.tangent.x * Math.sin(angle), y: wave.side.y * wave.inward * Math.cos(angle) + wave.tangent.y * Math.sin(angle), z: wave.side.z * wave.inward * Math.cos(angle) + wave.tangent.z * Math.sin(angle) };
+      const origin = { x: wave.center.x + radial.x * (wave.radius + 1), y: wave.center.y + radial.y * (wave.radius + 1), z: wave.center.z + radial.z * (wave.radius + 1) };
+      const hit = obstacle!.castRay(new (getInitializedTrackPhysicsRapier().Ray)(origin, { x: -radial.x, y: -radial.y, z: -radial.z }), 2, true);
+      expect(hit).toBeCloseTo(1, 3);
+    }
+  }
+  resources.dispose(); world.free();
+});
 const subtract = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 
 const rotate = (quaternion: { x: number; y: number; z: number; w: number }, vector: { x: number; y: number; z: number }) => ({
@@ -409,9 +427,9 @@ describe("modular track physics", () => {
     body.setTranslation({ x: 0, y: 0, z: 0 }, false);
     body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, false);
     world.propagateModifiedBodyPositionsToColliders();
-    expect(body.numColliders()).toBe(3);
-    for (let arm = 0; arm < 3; arm += 1) {
-      const radial = { x: Math.cos(arm * Math.PI * 2 / 3), y: 0, z: Math.sin(arm * Math.PI * 2 / 3) };
+    expect(body.numColliders()).toBe(2);
+    for (let arm = 0; arm < 2; arm += 1) {
+      const radial = { x: Math.cos(arm * Math.PI), y: 0, z: Math.sin(arm * Math.PI) };
       const collider = body.collider(arm);
       expect(collider.shapeType()).toBe((getInitializedTrackPhysicsRapier()).ShapeType.Capsule);
       const localTranslation = collider.translation();
@@ -462,7 +480,7 @@ describe("modular track physics", () => {
     const resources = createModularPhysics(world, built);
     const devices = resolveModuleDevices(built.track, built.route, built.samples);
     const bumperColliderCount = devices.bumpers.length;
-    expect(world.colliders.len()).toBe(3 + bumperColliderCount + devices.pinwheels.length * 3);
+    expect(world.colliders.len()).toBe(3 + bumperColliderCount + devices.pinwheels.length * 2 + devices.waves.length);
     expect(resources.fixedColliders).toHaveLength(bumperColliderCount);
     expect(resources.pusherBody).toBeDefined();
     if (!resources.pusherBody) throw new Error("Missing physical start pusher.");

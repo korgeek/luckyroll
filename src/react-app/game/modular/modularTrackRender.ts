@@ -3,9 +3,12 @@ import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js"
 import type { IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
+import { profileAt } from "./moduleGeometry";
 import {
+  PINWHEEL_ARM_COUNT,
   resolveModuleDevices,
   createPusherVertices,
+  createWaveVertices,
   type ModularDevicePose,
   type ModuleDevices,
 } from "./moduleDevices";
@@ -91,10 +94,10 @@ const createPinwheels = (devices: ModuleDevices, group: THREE.Group, pinwheelMat
     const rotor = new THREE.Group(); rotor.name = `pinwheel-${layout.cellIndex}`; rotor.position.copy(toVector(layout.center)); orient(rotor, layout.axis);
     rotor.userData.baseQuaternion = rotor.quaternion.clone();
     const armGeometry = new THREE.CapsuleGeometry(layout.armThickness / 2, layout.radius - layout.armThickness, 4, 8);
-    const arms = new THREE.InstancedMesh(armGeometry, pinwheelMaterial, 3); arms.name = "pinwheel-arms";
+    const arms = new THREE.InstancedMesh(armGeometry, pinwheelMaterial, PINWHEEL_ARM_COUNT); arms.name = "pinwheel-arms";
     const transform = new THREE.Object3D();
-    for (let arm = 0; arm < 3; arm += 1) {
-      const angle = arm * Math.PI * 2 / 3; const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+    for (let arm = 0; arm < PINWHEEL_ARM_COUNT; arm += 1) {
+      const angle = arm * Math.PI * 2 / PINWHEEL_ARM_COUNT; const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
       transform.position.copy(radial).multiplyScalar(layout.radius / 2); transform.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), radial); transform.scale.setScalar(1); transform.updateMatrix(); arms.setMatrixAt(arm, transform.matrix);
     }
     arms.instanceMatrix.needsUpdate = true; rotor.add(arms);
@@ -151,21 +154,27 @@ const createFinishDecoration = (built: BuiltModularTrack, group: THREE.Group): v
   const finish = built.samples[built.samples.length - 1];
   if (finish === undefined) return;
   const decoration = new THREE.Group(); decoration.name = "modular-finish-decoration"; decoration.userData.collider = false;
-  const checker = new THREE.Group(); checker.name = "finish-checker-strip";
-  const black = material("#101018"); const white = material("#f5f4dd", "#444433");
-  for (let row = 0; row < 2; row += 1) for (let column = 0; column < 6; column += 1) {
-    const square = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), (row + column) % 2 ? black : white);
-    square.position.copy(toVector(finish.position)).addScaledVector(toVector(finish.side), (column - 2.5) * 1).addScaledVector(toVector(finish.tangent), -(row + 0.5)).addScaledVector(toVector(finish.up), 0.05);
-    square.quaternion.copy(planeQuaternion(finish)); checker.add(square);
+  const positions: number[] = []; const colors: number[] = [];
+  const profile = profileAt(finish.width); const black = new THREE.Color("#101018"); const white = new THREE.Color("#f5f4dd");
+  let across = 0;
+  for (let column = 1; column < profile.length; column += 1) {
+    const left = profile[column - 1]; const right = profile[column];
+    const length = Math.hypot(right.lateral - left.lateral, right.height - left.height);
+    for (let row = 0; row < 2; row += 1) {
+      const color = (Math.floor(across + length / 2) + row) % 2 ? black : white;
+      for (const [point, along] of [[left, -row], [right, -row], [right, -row - 1], [left, -row], [right, -row - 1], [left, -row - 1]] as const) {
+        const vertex = toVector(finish.position).addScaledVector(toVector(finish.side), point.lateral).addScaledVector(toVector(finish.up), point.height).addScaledVector(toVector(finish.tangent), along);
+        positions.push(vertex.x, vertex.y, vertex.z); colors.push(color.r, color.g, color.b);
+      }
+    }
+    across += length;
   }
-  const rails = new THREE.Group(); rails.name = "finish-neon-arch"; const neon = material("#ff3ca8", "#8d004c");
-  for (const side of [-1, 1]) {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 5, 8), neon);
-    post.position.copy(toVector(finish.position)).addScaledVector(toVector(finish.side), side * (finish.width / 2 + 1.2)).addScaledVector(toVector(finish.up), 2.5); post.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(finish.up)); rails.add(post);
-  }
-  const arch = new THREE.Mesh(new THREE.TorusGeometry(finish.width / 2 + 1.2, 0.28, 8, 20, Math.PI), neon);
-  arch.position.copy(toVector(finish.position)).addScaledVector(toVector(finish.up), 5); arch.quaternion.copy(frameQuaternion(finish)); rails.add(arch);
-  decoration.add(checker, rails); group.add(decoration);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3)); geometry.computeVertexNormals();
+  const checker = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+  checker.name = "finish-checker-strip";
+  decoration.add(checker); group.add(decoration);
 };
 
 const disposeGroup = (group: THREE.Group): void => {
@@ -188,6 +197,11 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), pusher: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
+  for (const wave of devices.waves) {
+    const vertices = createWaveVertices(wave);
+    const mesh = new THREE.Mesh(new ConvexGeometry(Array.from({ length: vertices.length / 3 }, (_, index) => new THREE.Vector3().fromArray(vertices, index * 3))), channel);
+    mesh.name = `wave-semicircle-${wave.cellIndex}-${wave.localU}`; mesh.position.copy(toVector(wave.center)); mesh.quaternion.copy(frameQuaternion(wave)); group.add(mesh);
+  }
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
   createCurveSafetyChevrons(built, group);
   createFinishDecoration(built, group);

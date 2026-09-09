@@ -526,7 +526,12 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         cameraClearance = Math.max(5, sample.channelDepth);
         if (bumperZone) {
           bumperFeature = true; activeShot = "profile";
-          writeBumperTrackShot(cameraShot, bumperZone, cameraSamples, bounds, bumperCameraDistance, target?.position);
+          let nearby: Ball | undefined; let nearestDistance = 10;
+          for (const ball of rankedCameraBalls) {
+            const distance = Math.abs(alongRouteDistance(ball.position, ball.sampleIndex, course.samples) - bumperCameraDistance!);
+            if (distance < nearestDistance) { nearby = ball; nearestDistance = distance; }
+          }
+          writeBumperTrackShot(cameraShot, bumperZone, cameraSamples, bounds, bumperCameraDistance, target?.position, nearby?.position);
           const anchor = frameAtDistance(cameraSamples, bumperCameraDistance!)!;
           bumperCameraHeight += (Math.max(12, anchor.width / Math.max(0.25, camera.aspect)) - bumperCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
           cameraShot.position.x = anchor.position.x; cameraShot.position.y = anchor.position.y + bumperCameraHeight; cameraShot.position.z = anchor.position.z;

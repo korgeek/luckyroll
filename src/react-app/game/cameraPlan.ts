@@ -346,7 +346,7 @@ export const writeRouteRearFollowShot = (target: CameraShot, cameraDistance: num
   return target;
 };
 
-export const writeBumperTrackShot = (target: CameraShot, zone: FeatureBroadcastZone, samples: readonly TrackSample[], bounds: TrackBounds, cameraDistance = zone.entryDistance - 3, marble?: Vec3): CameraShot => {
+export const writeBumperTrackShot = (target: CameraShot, zone: FeatureBroadcastZone, samples: readonly TrackSample[], bounds: TrackBounds, cameraDistance = zone.entryDistance - 3, marble?: Vec3, nearbyMarble?: Vec3): CameraShot => {
   const anchor = frameAtDistance(samples, cameraDistance);
   const focus = frameAtDistance(samples, zone.entryDistance + (zone.exitDistance - zone.entryDistance) * 0.55);
   if (!anchor || !focus) return writeCameraShot(target, "overview", bounds);
@@ -365,6 +365,13 @@ export const writeBumperTrackShot = (target: CameraShot, zone: FeatureBroadcastZ
         target.position[key] += axis[key] * offset * 0.4;
       }
     }
+  }
+  const approach = Math.max(0, 1 - Math.abs(cameraDistance - (zone.entryDistance - 3)) / 6);
+  const blend = approach * approach * (3 - 2 * approach);
+  const local = frameAtDistance(samples, cameraDistance + 6) ?? anchor;
+  for (const key of ["x", "y", "z"] as const) {
+    const nearby = nearbyMarble?.[key] ?? local.position[key] + local.up[key] * 0.8;
+    target.lookAt[key] = nearby * (1 - blend) + target.lookAt[key] * blend;
   }
   writeClip(target, bounds);
   return target;

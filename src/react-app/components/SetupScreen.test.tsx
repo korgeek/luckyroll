@@ -11,11 +11,12 @@ describe("SetupScreen", () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);
 		const prize = screen.getByLabelText<HTMLInputElement>("Prize Pool");
-		expect(screen.getByRole("radio", { name: "Equal Split" })).toBeChecked();
+		expect(screen.queryByRole("radio", { name: "Equal Split" })).not.toBeInTheDocument();
+        expect(screen.getByRole("radio", { name: "Winner Takes All" })).toBeChecked();
 		await user.type(prize, "1000000.259");
 		expect(prize).toHaveValue("1,000,000.25");
 		await user.click(screen.getByRole("radio", { name: "Top 3 Split" }));
-		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" })); await user.click(screen.getByRole("button", { name: "START" }));
 		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 1000000.25, payoutMode: "top3" }), expect.any(Object));
 		await user.clear(prize); await user.type(prize, "1000000"); await user.tab();
 		expect(prize).toHaveValue("1,000,000.00");
@@ -46,6 +47,8 @@ describe("SetupScreen", () => {
 		expect(screen.getByRole("dialog", { name: "Choose a track" })).toBeInTheDocument();
 		expect(onStart).not.toHaveBeenCalled();
 		await userEvent.click(screen.getByRole("button", { name: "Select 30-Second Track" }));
+        expect(onStart).not.toHaveBeenCalled(); expect(screen.getByRole("dialog")).toBeInTheDocument();
+        await userEvent.click(screen.getByRole("button", { name: "START" }));
 		expect(onSelectTrack).toHaveBeenCalledWith("builtin-30");
 		expect(onStart).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ name: "30-Second Track" }));
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -54,7 +57,7 @@ describe("SetupScreen", () => {
 		const user = userEvent.setup(); const onStart = vi.fn(); const onSelectTrack = vi.fn();
 		render(<SetupScreen onStart={onStart} onSelectTrack={onSelectTrack} />);
 		const start = screen.getByRole("button", { name: "START RACE · 60-Second Track" });
-		await user.click(start); await user.click(screen.getByRole("button", { name: "Cancel" }));
+		await user.click(start); await user.click(screen.getByRole("button", { name: "BACK" }));
 		expect(start).toHaveFocus(); expect(onStart).not.toHaveBeenCalled();
 		await user.click(screen.getByRole("button", { name: "Change Track" }));
 		await user.click(screen.getByRole("button", { name: "Select 30-Second Track" }));
@@ -65,7 +68,7 @@ describe("SetupScreen", () => {
 		render(<SetupScreen onStart={onStart} />);
 		await user.clear(screen.getByLabelText("Player 1")); await user.type(screen.getByLabelText("Player 1"), "Jin");
 		await user.clear(screen.getByLabelText("Player 2")); await user.type(screen.getByLabelText("Player 2"), "Mia");
-		await user.type(screen.getByLabelText("Prize Pool"), "10000"); await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		await user.type(screen.getByLabelText("Prize Pool"), "10000"); await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" })); await user.click(screen.getByRole("button", { name: "START" }));
 		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000, participants: expect.arrayContaining([expect.objectContaining({ name: "Jin" }), expect.objectContaining({ name: "Mia" })]) }), expect.any(Object));
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("mode");
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("teamCount");
@@ -77,7 +80,7 @@ describe("SetupScreen", () => {
 		const prize = screen.getByLabelText("Prize Pool");
 		await user.type(prize, "10000");
 		expect(prize).toHaveValue("10,000");
-		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" })); await user.click(screen.getByRole("button", { name: "START" }));
 		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000 }), expect.any(Object));
 	});
 
@@ -114,7 +117,7 @@ describe("SetupScreen", () => {
 		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" }));
 		expect(screen.getByRole("radio", { name: "50" })).toBeChecked();
 		await user.click(screen.getByRole("radio", { name: "100" }));
-		await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		await user.click(screen.getByRole("button", { name: "Select 60-Second Track" })); await user.click(screen.getByRole("button", { name: "START" }));
 		expect(onStart.mock.calls[0][0]).toHaveProperty("marbleCount", 100);
 	});
 
@@ -153,7 +156,7 @@ describe("SetupScreen", () => {
 		expect(screen.getByRole("button", { name: "START RACE · Garden Run" })).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "Change Track" }));
 		expect(screen.getByRole("dialog", { name: "Choose a track" })).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		await user.click(screen.getByRole("button", { name: "Select 60-Second Track" })); await user.click(screen.getByRole("button", { name: "START" }));
 		expect(onSelectTrack).toHaveBeenCalledWith(undefined);
 	});
 });

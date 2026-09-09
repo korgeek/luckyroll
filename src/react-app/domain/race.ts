@@ -1,7 +1,8 @@
 import type { Marble, Participant, RankedMarble } from "./types";
 
 export type PayoutMode = "winner" | "top3" | "equal";
-export const PAYOUT_MODES: { id: PayoutMode; label: string }[] = [{ id: "winner", label: "Winner Takes All" }, { id: "top3", label: "Top 3 Split" }, { id: "equal", label: "Equal Split" }];
+export const PAYOUT_MODES: { id: PayoutMode; label: string }[] = [{ id: "winner", label: "Winner Takes All" }, { id: "top3", label: "Top 3 Split" }];
+export const TOP3_RULES = "Last 10 score points. Top 3 split 6:3:1.";
 export const formatMoney = (amount: number): string => amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function moneyCents(value: string): number {
@@ -36,7 +37,7 @@ export function prizeByOwner(rankings: RankedMarble[], pool: number, mode: Payou
 	const cents = moneyCents(String(pool));
 	if (mode === "top3") {
 		const winners = topPlayerScores(rankings).slice(0, 3);
-		const weights = [5, 3, 1].slice(0, winners.length); const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+		const weights = [6, 3, 1].slice(0, winners.length); const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
 		const shares = weights.map((weight) => Math.floor(Math.floor(cents / 100) * weight / totalWeight) * 100);
 		const remainder = cents - shares.reduce((sum, share) => sum + share, 0);
 		return Object.fromEntries(winners.map(({ ownerId }, index) => [ownerId, (shares[index] + (index === 0 ? remainder : 0)) / 100]));
