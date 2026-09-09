@@ -21,24 +21,24 @@ describe("race rules", () => {
 		expect(() => moneyCents("1.001")).toThrow();
 		expect(() => moneyCents("-1")).toThrow();
 	});
-	it("scores only the last ten marbles and pays the three highest point totals 6:3:1", () => {
+	it("scores only the last ten marbles and pays the three highest point totals 7:2:1", () => {
 		const rankings = ["a", "b", "b", "c", "c", "c", "a", "a", "a", "d", "d", "d"].map((ownerId, index) => ({ id: index + 1, ownerId, color: "#fff", symbol: "●", rank: index + 1, finishOrder: 12 - index }));
 		expect(topPlayerScores(rankings)).toEqual([
 			{ ownerId: "a", points: 115, bestRank: 1 }, { ownerId: "b", points: 80, bestRank: 2 }, { ownerId: "c", points: 35, bestRank: 4 }, { ownerId: "d", points: 5, bestRank: 10 },
 		]);
-		expect(prizeByOwner(rankings, 100.99, "top3")).toEqual({ a: 60.99, b: 30, c: 10 });
+		expect(prizeByOwner(rankings, 100.99, "top3")).toEqual({ a: 70.99, b: 20, c: 10 });
 		expect(prizeByOwner(rankings, 0.01, "top3")).toEqual({ a: 0.01, c: 0, b: 0 });
 	});
-	it("lets accumulated points beat the last finisher and normalizes two eligible players to 6:3", () => {
+	it("lets accumulated points beat the last finisher and normalizes two eligible players to 7:2", () => {
 		const rankings = ["a", "b", "b", "b", "b"].map((ownerId, index) => ({ id: index + 1, ownerId, color: "#fff", symbol: "●", rank: index + 1, finishOrder: 3 - index }));
 		expect(topPlayerScores(rankings).map(({ ownerId, points }) => [ownerId, points])).toEqual([["b", 110], ["a", 100]]);
-		expect(prizeByOwner(rankings, 100.99, "top3")).toEqual({ b: 67.99, a: 33 });
+		expect(prizeByOwner(rankings, 100.99, "top3")).toEqual({ b: 78.99, a: 22 });
 		expect(prizeByOwner(rankings, 100.99, "winner")).toEqual({ a: 100.99 });
 	});
 	it("breaks tied point totals by the best individual marble rank", () => {
 		const rankings = [{ ownerId: "b", rank: 2 }, { ownerId: "b", rank: 3 }, { ownerId: "b", rank: 4 }, { ownerId: "a", rank: 1 }].map((marble, index) => ({ ...marble, id: index + 1, color: "#fff", symbol: "●", finishOrder: 11 - marble.rank }));
 		expect(topPlayerScores(rankings).map(({ ownerId, points }) => [ownerId, points])).toEqual([["a", 100], ["b", 100]]);
-		expect(prizeByOwner(rankings, 80, "top3")).toEqual({ a: 54, b: 26 });
+		expect(prizeByOwner(rankings, 80, "top3")).toEqual({ a: 63, b: 17 });
 	});
 	it("splits 100 marbles with no more than one marble difference", () => {
 		const marbles = allocateMarbles(players);

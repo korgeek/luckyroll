@@ -14,12 +14,13 @@ describe("ResultsScreen", () => {
 		expect(container.querySelector(".prize-summary")).not.toBeInTheDocument();
 		expect(container.querySelector(".result-hero")).toHaveTextContent("#1 · POINTS LEADER");
 		expect(within(container.querySelector<HTMLElement>(".result-hero")!).getByRole("heading", { name: "lee" })).toBeInTheDocument();
-		expect(container.querySelector(".result-hero")).toHaveTextContent("110 pts · 60.99");
+		expect(container.querySelector(".result-hero")).toHaveTextContent("110 pts · 70.99");
 		const rows = within(screen.getByRole("list")).getAllByRole("listitem");
-		expect(rows).toHaveLength(2); expect(rows[0]).toHaveTextContent("#2jin · 100 pts30.00"); expect(rows[1]).toHaveTextContent("#3mia · 5 pts10.00");
+		expect(rows).toHaveLength(2); expect(rows[0]).toHaveTextContent("#2jin · 100 pts20.00"); expect(rows[1]).toHaveTextContent("#3mia · 5 pts10.00");
 		expect(screen.queryByText("other")).not.toBeInTheDocument();
 		expect(screen.getByText("TOTAL PRIZE").compareDocumentPosition(screen.getByRole("heading", { name: "TOP 3" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-		expect(screen.getByText(/Most points wins/)).toBeInTheDocument();
+		expect(screen.queryByText(/Most points wins/)).not.toBeInTheDocument();
+		expect(screen.queryByText("Top 3 Split")).not.toBeInTheDocument();
 	});
 	it("keeps the scored Top 3 visible when the pool is zero", () => {
 		const { container } = render(<ResultsScreen rankings={[{ id: 1, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 1 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={0} payoutMode="top3" celebrate={false} onReplay={vi.fn()} onBack={vi.fn()} />);
