@@ -233,6 +233,26 @@ describe("race scene lifecycle boundary", () => {
     scene.dispose(); director.mockRestore();
   });
 
+  it.each([360 / 800, 1024 / 768])("keeps the final marble and its lane visible at aspect %s", async aspect => {
+    seams.featureSamples = true; seams.bodyX = 35; seams.bodyVelocity = 0;
+    const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 800 * aspect }, clientHeight: { value: 800 } });
+    const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    await settle(); scene.start(Array.from({ length: 100 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now(); const camera = cameraPoses[0].camera;
+    for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
+    scene.restartRemaining(Array.from({ length: 20 }, (_, index) => marble(index + 1))); await settle();
+    for (let frame = 501; frame <= 1000; frame++) seams.frames.shift()?.(now + frame * 17);
+    const pose = latestPose(camera);
+    expect(pose.position.y).toBeGreaterThanOrEqual(11.9);
+    expect(seams.bodyX - pose.position.x).toBeGreaterThanOrEqual(13.9);
+    camera.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(pose.position, pose.lookAt, pose.up)); camera.updateMatrixWorld();
+    for (const lateral of [-5.4, 0, 5.4]) {
+      const point = new THREE.Vector3(35, 0.34, lateral).project(camera);
+      expect(Math.abs(point.x)).toBeLessThan(0.95); expect(Math.abs(point.y)).toBeLessThan(0.95); expect(Math.abs(point.z)).toBeLessThan(1);
+    }
+    scene.dispose();
+  });
+
   it("retreats toward the last marble facing forward when twenty percent remain", async () => {
     seams.featureSamples = true; seams.bodyX = 35; seams.bodyVelocity = 0;
     const scene = createRaceScene(prepareCanvas(), () => undefined, { kind: "custom", track: createValidTrackDesign() });
@@ -240,7 +260,7 @@ describe("race scene lifecycle boundary", () => {
     const now = performance.now();
     for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
     const camera = cameraPoses[0].camera; let previous = latestPose(camera).position.x;
-    const initial = previous; let previousVelocity = 0;
+    const initial = previous; const initialHeight = latestPose(camera).position.y; let previousVelocity = 0;
     seams.bodyX = 12; scene.restartRemaining(Array.from({ length: 20 }, (_, index) => marble(index + 1))); await settle();
     for (let frame = 501; frame <= 800; frame++) {
       seams.frames.shift()?.(now + frame * 17);
@@ -249,14 +269,15 @@ describe("race scene lifecycle boundary", () => {
       const velocity = (pose.position.x - previous) / dt;
       expect(Math.abs(velocity)).toBeLessThanOrEqual(30.001);
       expect(Math.abs(velocity - previousVelocity)).toBeLessThanOrEqual(8 * dt + 0.001);
-      expect(pose.position.x).toBeGreaterThan(5.75);
+      expect(pose.position.x).toBeGreaterThanOrEqual(-0.001);
+      if (frame === 501) { expect(pose.position.y).toBeGreaterThan(initialHeight); expect(pose.position.y - initialHeight).toBeLessThan(2); }
       expect(pose.position.z).toBeCloseTo(0, 5);
       expect(pose.lookAt.x - pose.position.x).toBeGreaterThan(5.9);
       previous = pose.position.x;
       previousVelocity = velocity;
     }
     expect(previous).toBeLessThan(initial - 10);
-    expect(previous).toBeCloseTo(6, 2);
+    expect(previous).toBeCloseTo(0, 2);
     scene.dispose();
   });
 
@@ -272,13 +293,13 @@ describe("race scene lifecycle boundary", () => {
     for (let frame = 501; frame <= 980; frame++) {
       seams.bodyX += 3 * 0.017;
       seams.frames.shift()?.(now + frame * 17);
-      const position = latestPose(camera).position.x; const destination = Math.max(0, seams.bodyX - 6);
+      const position = latestPose(camera).position.x; const destination = Math.max(0, seams.bodyX - 14);
       if (Math.abs(position - destination) < 0.5) following = true;
       if (following) expect(position).toBeGreaterThanOrEqual(previous - 0.001);
       previous = position;
     }
     expect(following).toBe(true);
-    expect(Math.abs(previous - (seams.bodyX - 6))).toBeLessThan(0.4);
+    expect(Math.abs(previous - (seams.bodyX - 14))).toBeLessThan(0.4);
     scene.dispose();
   });
 

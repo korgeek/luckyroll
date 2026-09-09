@@ -28,12 +28,14 @@ describe("canonical modular devices", () => {
         expect(2 * wave.radius).toBeGreaterThan(3 * wave.lateralRadius);
         const vertices = createWaveVertices(wave);
         const topByZ = new Map<number, number>();
-        for (let index = 0; index < vertices.length; index += 3) topByZ.set(vertices[index + 2], Math.max(topByZ.get(vertices[index + 2]) ?? 0, vertices[index + 1] + wave.height / 2));
-        expect(topByZ.get(wave.radius)).toBeCloseTo(0, 5);
-        expect(topByZ.get(-wave.radius)).toBeCloseTo(0, 5);
-        const [peakZ, peakHeight] = [...topByZ].sort((a, b) => b[1] - a[1])[0];
-        expect(peakZ).toBeLessThan(0); // Local -Z is forward: the crest follows the long entry ramp.
-        expect(peakHeight).toBeCloseTo(wave.height, 5);
+        const faceByZ = new Map<number, number>();
+        for (let index = 0; index < vertices.length; index += 3) {
+          topByZ.set(vertices[index + 2], Math.max(topByZ.get(vertices[index + 2]) ?? 0, vertices[index + 1] + wave.height / 2));
+          faceByZ.set(vertices[index + 2], Math.max(faceByZ.get(vertices[index + 2]) ?? -Infinity, vertices[index] * wave.inward));
+        }
+        expect([...topByZ.values()].every(height => Math.abs(height - wave.height) < 1e-5)).toBe(true);
+        const [peakZ] = [...faceByZ].sort((a, b) => b[1] - a[1])[0];
+        expect(peakZ).toBeLessThan(0); // Local -Z is forward: retain the asymmetric plan outline.
         const across = Array.from(vertices).filter((_, index) => index % 3 === 0).map(value => value * wave.inward);
         expect(Math.max(...across)).toBeCloseTo(1.9, 5);
         const wall = CHANNEL_PROFILE.filter(point => point.lateral >= 3.3);

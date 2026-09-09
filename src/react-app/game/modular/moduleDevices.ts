@@ -88,17 +88,23 @@ export const createWaveGeometry = (wave: Pick<WaveLayout, "radius" | "lateralRad
     const travel = 1 - stops[row];
     const amount = travel <= 0.7 ? travel / 0.7 : (1 - travel) / 0.3;
     const blend = amount * amount * (3 - 2 * amount);
+    // One plan coordinate at every height gives the exposed face a purely sideways contact normal.
+    const wallTop = wall[wall.length - 1];
+    const face = centerOffset - wallTop.lateral + (wave.lateralRadius + wallTop.lateral - CHANNEL_WIDTH * 0.275) * blend;
+    const cut = Math.max(CHANNEL_WIDTH * 0.275, centerOffset - face);
+    const cutUpper = wall.findIndex(point => point.lateral >= cut);
+    const cutLeft = wall[Math.max(0, cutUpper - 1)]; const cutRight = wall[cutUpper];
+    const bottom = cutLeft.height + (cutRight.height - cutLeft.height) * (cut - cutLeft.lateral) / (cutRight.lateral - cutLeft.lateral || 1);
     const z = wave.radius * (2 * stops[row] - 1); front.push([]); back.push([]);
     for (const point of wall) {
-      const height = point.height * blend;
+      const height = bottom + (wave.height - bottom) * point.height / wave.height;
       const upper = wall.findIndex(sample => sample.height >= height);
       const left = wall[Math.max(0, upper - 1)]; const right = wall[upper];
       const lateral = left.lateral + (right.lateral - left.lateral) * (height - left.height) / (right.height - left.height || 1);
       const boundary = centerOffset - lateral;
-      const face = boundary + (centerOffset - CHANNEL_WIDTH * 0.275 + wave.lateralRadius - boundary) * blend;
       const a = blend === 0 && front[row].length ? front[row][0] : vertex(wave.inward * face, height - wave.height / 2, z);
       front[row].push(a);
-      back[row].push(blend === 0 ? a : vertex(wave.inward * boundary, height - wave.height / 2, z));
+      back[row].push(blend === 0 || (point.height === 0 && bottom > 0) ? a : vertex(wave.inward * boundary, height - wave.height / 2, z));
     }
     if (row === 0) continue;
     for (let column = 1; column < wall.length; column++) {

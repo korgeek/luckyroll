@@ -542,14 +542,16 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
             rearCameraDistance = currentRouteDistance();
             rearCameraHeight = Math.max(5, camera.position.y - frameAtDistance(cameraSamples, rearCameraDistance)!.position.y);
           }
-          const destination = Math.max(cameraSamples[0].distance, alongRouteDistance(target.position, target.sampleIndex, course.samples) - 6);
+          const destination = Math.max(cameraSamples[0].distance, alongRouteDistance(target.position, target.sampleIndex, course.samples) - 14);
           const velocity = target.body.linvel();
           const targetSpeed = velocity.x * sample.tangent.x + velocity.y * sample.tangent.y + velocity.z * sample.tangent.z;
           routeMotion.distance = rearCameraDistance;
           rearCameraDistance = advanceCameraRoute(routeMotion, destination, cameraDelta, 30, targetSpeed);
-          rearCameraHeight += (6 - rearCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
-          writeRouteRearFollowShot(cameraShot, rearCameraDistance, cameraSamples, bounds, rearCameraHeight);
+          writeRouteCrowdFollowShot(cameraShot, rearCameraDistance + 14, cameraSamples, bounds, 12, "slow", camera.fov, camera.aspect);
           const anchor = frameAtDistance(cameraSamples, rearCameraDistance)!;
+          const height = Math.hypot(cameraShot.position.x - anchor.position.x, cameraShot.position.y - anchor.position.y, cameraShot.position.z - anchor.position.z)
+            + Math.min(6, Math.abs(destination - rearCameraDistance) * 0.2);
+          rearCameraHeight += (height - rearCameraHeight) * cameraLerpAlpha(0.03, Math.min(cameraDelta, 100));
           cameraShot.position.x = anchor.position.x; cameraShot.position.y = anchor.position.y + rearCameraHeight; cameraShot.position.z = anchor.position.z;
           localUp = { x: 0, y: 1, z: 0 };
         } else if (rankedCameraBalls.length || !gateOpen) {

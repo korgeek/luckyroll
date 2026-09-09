@@ -24,7 +24,7 @@ import { projectToTrack } from "../track/trackSampler";
 
 const dot = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number => a.x * b.x + a.y * b.y + a.z * b.z;
 
-it("collides with the asymmetric wave crest and lifts wall-side arrivals onto its entry ramp", async () => {
+it("deflects wall-side arrivals around the asymmetric wave without lifting them onto it", async () => {
   await initializeTrackPhysics();
   const world = createTrackPhysicsWorld(); const built = buildModularTrack(createValidTrackDesign());
   const resources = createModularPhysics(world, built); const devices = resolveModuleDevices(built.track, built.route, built.samples);
@@ -40,7 +40,8 @@ it("collides with the asymmetric wave crest and lifts wall-side arrivals onto it
     const origin = { x: wave.center.x - wave.side.x * wave.inward * 0.25 - wave.tangent.x * 6, y: wave.center.y - wave.side.y * wave.inward * 0.25 - wave.tangent.y * 6, z: wave.center.z - wave.side.z * wave.inward * 0.25 - wave.tangent.z * 6 };
     const contact = obstacle!.castRayAndGetNormal(new (getInitializedTrackPhysicsRapier().Ray)(origin, wave.tangent), 8, true);
     expect(contact).not.toBeNull();
-    expect(dot(contact!.normal, wave.up)).toBeGreaterThan(0.25);
+    expect(dot(contact!.normal, wave.up)).toBeCloseTo(0, 5);
+    expect(dot(contact!.normal, wave.side) * wave.inward).toBeGreaterThan(0.25);
     expect(dot(contact!.normal, wave.tangent)).toBeLessThan(-0.1);
   }
   const wave = devices.waves[0];
@@ -55,10 +56,11 @@ it("collides with the asymmetric wave crest and lifts wall-side arrivals onto it
   for (let step = 0; step < 90; step++) {
     resources.stepBeforeWorld(); world.step(); resources.stepAfterWorld([body]);
     const current = body.translation();
-    highest = Math.max(highest, dot({ x: current.x - wave.center.x, y: current.y - wave.center.y, z: current.z - wave.center.z }, wave.up) + wave.height / 2);
+    const relative = { x: current.x - wave.center.x, y: current.y - wave.center.y, z: current.z - wave.center.z };
+    if (dot(relative, wave.tangent) <= wave.radius) highest = Math.max(highest, dot(relative, wave.up) + wave.height / 2);
   }
   const end = body.translation();
-  expect(highest).toBeGreaterThan(wave.height / 2);
+  expect(highest).toBeLessThan(MARBLE_DIAMETER * 1.5);
   expect(dot({ x: end.x - wave.center.x, y: end.y - wave.center.y, z: end.z - wave.center.z }, wave.tangent)).toBeGreaterThan(wave.radius);
   resources.dispose(); world.free();
 });
