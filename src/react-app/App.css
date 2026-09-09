@@ -42,3 +42,4 @@
 .marble-count-options{grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 8px}
 
 .marble-count-options span{min-height:30px;padding:4px 8px}.track-picker-actions{display:flex;gap:8px}.track-picker .track-picker-actions button{margin:0;text-align:center}
+.player-rankings li{grid-template-columns:28px minmax(0,1fr) auto}.player-rankings strong{color:#ffdc70}

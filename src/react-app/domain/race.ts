@@ -2,7 +2,8 @@ import type { Marble, Participant, RankedMarble } from "./types";
 
 export type PayoutMode = "winner" | "top3" | "equal";
 export const PAYOUT_MODES: { id: PayoutMode; label: string }[] = [{ id: "winner", label: "Winner Takes All" }, { id: "top3", label: "Top 3 Split" }];
-export const TOP3_RULES = "Last 10 score points. Top 3 split 6:3:1.";
+export const TOP3_RULES = "Most points wins. Top 3 split 6:3:1.";
+export const RANK_POINTS = [100, 50, 30, 20, 10, 5, 5, 5, 5, 5] as const;
 export const formatMoney = (amount: number): string => amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function moneyCents(value: string): number {
@@ -28,7 +29,7 @@ export function topPlayerScores(rankings: readonly RankedMarble[]) {
 	for (const { ownerId, rank } of rankings) {
 		if (rank < 1 || rank > 10) continue;
 		const score = scores.get(ownerId) ?? { ownerId, points: 0, bestRank: rank };
-		score.points += 11 - rank; score.bestRank = Math.min(score.bestRank, rank); scores.set(ownerId, score);
+		score.points += RANK_POINTS[rank - 1]; score.bestRank = Math.min(score.bestRank, rank); scores.set(ownerId, score);
 	}
 	return [...scores.values()].sort((a, b) => b.points - a.points || a.bestRank - b.bestRank);
 }

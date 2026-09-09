@@ -5,18 +5,28 @@ import { ResultsScreen } from "./ResultsScreen";
 
 describe("ResultsScreen", () => {
 	afterEach(cleanup);
-	it("shows Top 3 scoring order and weighted prizes separately from the last-finisher hero", () => {
-		const rankings = ["jin", "lee", "lee", "mia"].map((ownerId, index) => ({ id: index + 1, ownerId, color: "#fff", symbol: "◆", rank: index + 1, finishOrder: 4 - index }));
-		const participants = ["jin", "lee", "mia"].map((id) => ({ id, name: id, color: "#fff", symbol: "◆" }));
+	it("uses the player Top 3 as the hero and ranking rows without a duplicate winnings list", () => {
+		const rankings = ["jin", "lee", "lee", "lee", "lee", "mia", "other"].map((ownerId, index) => ({ id: index + 1, ownerId, color: "#fff", symbol: "◆", rank: index + 1, finishOrder: 7 - index }));
+		const participants = ["jin", "lee", "mia", "other"].map((id) => ({ id, name: id, color: "#fff", symbol: "◆" }));
 		const { container } = render(<ResultsScreen rankings={rankings} participants={participants} prizePool={100.99} payoutMode="top3" celebrate onReplay={vi.fn()} onBack={vi.fn()} />);
-		expect(container.querySelector(".prize-summary")).toHaveTextContent("#1 lee · 17 pts60.99#2 jin · 10 pts30.00#3 mia · 7 pts10.00");
-		expect(container.querySelector(".result-hero")).toHaveTextContent("#1 · LAST FINISHER");
-		expect(within(container.querySelector<HTMLElement>(".result-hero")!).getByRole("heading", { name: "jin" })).toBeInTheDocument();
-		expect(screen.getByText(/Last 10 score points/)).toBeInTheDocument();
+		expect(screen.getByRole("heading", { name: "TOP 3" })).toBeInTheDocument();
+		expect(screen.queryByRole("heading", { name: "TOP 10" })).not.toBeInTheDocument();
+		expect(container.querySelector(".prize-summary")).not.toBeInTheDocument();
+		expect(container.querySelector(".result-hero")).toHaveTextContent("#1 · POINTS LEADER");
+		expect(within(container.querySelector<HTMLElement>(".result-hero")!).getByRole("heading", { name: "lee" })).toBeInTheDocument();
+		expect(container.querySelector(".result-hero")).toHaveTextContent("110 pts · 60.99");
+		const rows = within(screen.getByRole("list")).getAllByRole("listitem");
+		expect(rows).toHaveLength(2); expect(rows[0]).toHaveTextContent("#2jin · 100 pts30.00"); expect(rows[1]).toHaveTextContent("#3mia · 5 pts10.00");
+		expect(screen.queryByText("other")).not.toBeInTheDocument();
+		expect(screen.getByText("TOTAL PRIZE").compareDocumentPosition(screen.getByRole("heading", { name: "TOP 3" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(screen.getByText(/Most points wins/)).toBeInTheDocument();
 	});
 	it("keeps the scored Top 3 visible when the pool is zero", () => {
 		const { container } = render(<ResultsScreen rankings={[{ id: 1, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 1 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={0} payoutMode="top3" celebrate={false} onReplay={vi.fn()} onBack={vi.fn()} />);
-		expect(container.querySelector(".prize-summary")).toHaveTextContent("#1 Jin · 10 pts0.00");
+		expect(screen.getByRole("heading", { name: "TOP 3" })).toBeInTheDocument();
+		expect(container.querySelector(".result-hero")).toHaveTextContent("#1 · CURRENT POINTS LEADER");
+		expect(container.querySelector(".result-hero")).toHaveTextContent("100 pts · 0.00");
+		expect(screen.queryAllByRole("listitem")).toHaveLength(0);
 	});
 	it("highlights the last finisher and offers explicit next actions", async () => {
 		const user = userEvent.setup();

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { LiveStanding } from "../game/MarbleRaceScene";
 import appCss from "../App.css?raw";
 import { RaceHud } from "./RaceHud";
+import { RANK_POINTS } from "../domain/race";
 
 const participants = [
 	{ id: "a", name: "Ari", color: "#f00", symbol: "◆" },
@@ -16,6 +17,39 @@ const standings: LiveStanding[] = [
 afterEach(cleanup);
 
 describe("RaceHud", () => {
+	it("projects live player points from active marbles followed by reverse finishers, without duplicates", () => {
+		const finished = [standings[1].marble, { ...standings[1].marble, id: 4 }, standings[0].marble];
+		const active = { ...standings[1], marble: { ...standings[1].marble, id: 5 } };
+		const { rerender } = render(<RaceHud payoutMode="top3" elapsedMs={2000} fps={60} eliminatedCount={0} total={100} standings={[active, standings[0]]} finished={finished} participants={participants} />);
+		expect(screen.getByLabelText("Live provisional player points")).toHaveTextContent("LIVE · POINTS · TOP 3");
+		expect(screen.getByText("PROVISIONAL")).toBeInTheDocument();
+		const bea = screen.getByText("Bea").closest("li");
+		expect(bea).toHaveTextContent(`${RANK_POINTS[0] + RANK_POINTS[2] + RANK_POINTS[3]} PTS`);
+		expect(screen.getByText("Ari").closest("li")).toHaveTextContent(`${RANK_POINTS[1]} PTS`);
+		expect(screen.getAllByRole("listitem")).toHaveLength(2);
+		expect(screen.queryByText("WINNING")).not.toBeInTheDocument();
+		rerender(<RaceHud payoutMode="top3" elapsedMs={3000} fps={60} eliminatedCount={0} total={100} standings={[]} finished={[...finished, active.marble]} participants={participants} />);
+		expect(screen.getByText("Bea").closest("li")).toBe(bea);
+		expect(bea).toHaveTextContent(`${RANK_POINTS[0] + RANK_POINTS[2] + RANK_POINTS[3]} PTS`);
+	});
+
+	it("limits projected scoring to ten marbles and shows only the top three players", () => {
+		const players = [...participants, { ...participants[0], id: "c", name: "Cleo" }, { ...participants[1], id: "d", name: "Dara" }, { ...participants[0], id: "e", name: "Excluded" }];
+		const live = Array.from({ length: 11 }, (_, index) => ({ marble: { ...standings[0].marble, id: index + 1, ownerId: index === 10 ? "e" : index < 3 ? players[index].id : "d" }, gap: index }));
+		render(<RaceHud payoutMode="top3" elapsedMs={2000} fps={60} eliminatedCount={0} total={100} standings={live} finished={[]} participants={players} />);
+		expect(screen.getAllByRole("listitem")).toHaveLength(3);
+		expect(screen.queryByText("Excluded")).not.toBeInTheDocument();
+		expect(screen.getByText("Dara").closest("li")).toHaveTextContent(`${RANK_POINTS.slice(3).reduce((sum, points) => sum + points, 0)} PTS`);
+		expect(screen.getByRole("list")).toHaveStyle({ height: "66px" });
+	});
+
+	it.each(["winner", "equal"] as const)("preserves the marble standings in %s mode", (payoutMode) => {
+		render(<RaceHud payoutMode={payoutMode} elapsedMs={2000} fps={60} eliminatedCount={0} total={100} standings={standings} finished={[]} participants={participants} />);
+		expect(screen.getByText("TOP 10")).toBeInTheDocument();
+		expect(screen.getByText("Ari · #8")).toBeInTheDocument();
+		expect(screen.queryByText("PROVISIONAL")).not.toBeInTheDocument();
+	});
+
 	it("shows reverse standings and preserves keyed rows when places swap", () => {
 		const { rerender } = render(<RaceHud elapsedMs={1234} fps={59.7} eliminatedCount={1} total={100} standings={standings} finished={[]} participants={participants} />);
 		const marbleEight = screen.getByText("Ari · #8").closest("li");
