@@ -7,9 +7,25 @@ import appCss from "../App.css?raw";
 
 describe("SetupScreen", () => {
 	afterEach(cleanup);
+	it("accepts two decimal places, pads on blur, and starts with the selected payout", async () => {
+		const user = userEvent.setup(); const onStart = vi.fn();
+		render(<SetupScreen onStart={onStart} />);
+		const prize = screen.getByLabelText<HTMLInputElement>("Prize Pool");
+		expect(screen.getByRole("radio", { name: "Equal Split" })).toBeChecked();
+		await user.type(prize, "1000000.259");
+		expect(prize).toHaveValue("1,000,000.25");
+		await user.click(screen.getByRole("radio", { name: "Top 3 Split" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 1000000.25, payoutMode: "top3" }), expect.any(Object));
+		await user.clear(prize); await user.type(prize, "1000000"); await user.tab();
+		expect(prize).toHaveValue("1,000,000.00");
+		await user.clear(prize); await user.type(prize, "9999999999999");
+		expect(prize).toHaveValue("999,999,999,999");
+		await user.clear(prize); await user.type(prize, ".25");
+		expect(prize).toHaveValue("0.25");
+	});
   it("opens public credits and restores menu focus after closing", async () => {
     const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     const opener = screen.getByRole("button", { name: "Credits" });
     await user.click(opener);
     const dialog = screen.getByRole("dialog", { name: "Credits" });
@@ -22,22 +38,35 @@ describe("SetupScreen", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); expect(opener).toHaveFocus();
   });
 
-	it("opens the track choices on arrival and selects the short preset", async () => {
-		const onSelectTrack = vi.fn();
-		render(<SetupScreen onStart={vi.fn()} onSelectTrack={onSelectTrack} />);
-		expect(screen.getByRole("dialog", { name: "Choose a track" })).toBeInTheDocument();
-		await userEvent.click(screen.getByRole("button", { name: "Select 30초 트랙" }));
-		expect(onSelectTrack).toHaveBeenCalledWith("builtin-30");
+	it("opens the track choices only on Start and launches the selected short preset", async () => {
+		const onSelectTrack = vi.fn(); const onStart = vi.fn();
+		render(<SetupScreen onStart={onStart} onSelectTrack={onSelectTrack} />);
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		await userEvent.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" }));
+		expect(screen.getByRole("dialog", { name: "Choose a track" })).toBeInTheDocument();
+		expect(onStart).not.toHaveBeenCalled();
+		await userEvent.click(screen.getByRole("button", { name: "Select 30-Second Track" }));
+		expect(onSelectTrack).toHaveBeenCalledWith("builtin-30");
+		expect(onStart).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ name: "30-Second Track" }));
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+	});
+	it("cancels starting without launching and lets Change Track select without launching", async () => {
+		const user = userEvent.setup(); const onStart = vi.fn(); const onSelectTrack = vi.fn();
+		render(<SetupScreen onStart={onStart} onSelectTrack={onSelectTrack} />);
+		const start = screen.getByRole("button", { name: "START RACE · 60-Second Track" });
+		await user.click(start); await user.click(screen.getByRole("button", { name: "Cancel" }));
+		expect(start).toHaveFocus(); expect(onStart).not.toHaveBeenCalled();
+		await user.click(screen.getByRole("button", { name: "Change Track" }));
+		await user.click(screen.getByRole("button", { name: "Select 30-Second Track" }));
+		expect(onSelectTrack).toHaveBeenCalledWith("builtin-30"); expect(onStart).not.toHaveBeenCalled();
 	});
 	it("starts the race without legacy team mode fields", async () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		await user.clear(screen.getByLabelText("Player 1")); await user.type(screen.getByLabelText("Player 1"), "Jin");
 		await user.clear(screen.getByLabelText("Player 2")); await user.type(screen.getByLabelText("Player 2"), "Mia");
-		await user.type(screen.getByLabelText("Prize Pool"), "10000"); await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
-		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000, participants: expect.arrayContaining([expect.objectContaining({ name: "Jin" }), expect.objectContaining({ name: "Mia" })]) }));
+		await user.type(screen.getByLabelText("Prize Pool"), "10000"); await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000, participants: expect.arrayContaining([expect.objectContaining({ name: "Jin" }), expect.objectContaining({ name: "Mia" })]) }), expect.any(Object));
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("mode");
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("teamCount");
 	});
@@ -45,17 +74,15 @@ describe("SetupScreen", () => {
 	it("formats prize-pool digits without changing the submitted number", async () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		const prize = screen.getByLabelText("Prize Pool");
 		await user.type(prize, "10000");
 		expect(prize).toHaveValue("10,000");
-		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
-		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000 }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ prizePool: 10_000 }), expect.any(Object));
 	});
 
 	it("keeps prize-pool digit edits and caret movement stable around separators", async () => {
 		const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		const prize = screen.getByLabelText<HTMLInputElement>("Prize Pool");
 		await user.type(prize, "10000"); await user.clear(prize);
 		expect(prize).toHaveValue("");
@@ -73,7 +100,6 @@ describe("SetupScreen", () => {
 
 	it("restores separators after a comma-only native edit", async () => {
 		const user = userEvent.setup(); render(<SetupScreen onStart={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		const prize = screen.getByLabelText<HTMLInputElement>("Prize Pool");
 		await user.type(prize, "12345");
 		fireEvent.change(prize, { target: { value: "12345", selectionStart: 2 } });
@@ -83,23 +109,20 @@ describe("SetupScreen", () => {
 	it("uses a fixed 100-marble setup without count controls", async () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(screen.queryByLabelText("Marbles")).not.toBeInTheDocument();
 		expect(screen.getByText("100 marbles split as evenly as possible.")).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
 		expect(onStart.mock.calls[0][0]).not.toHaveProperty("marbleCount");
 	});
 
 	it("identifies the first screen as the main menu", () => {
 		render(<SetupScreen onStart={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(screen.getByRole("region", { name: "Main menu" })).toBeInTheDocument();
 	});
 
 	it("puts the animated start invitation before player inputs and honors reduced motion", () => {
 		render(<SetupScreen onStart={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-		const start = screen.getByRole("button", { name: "START RACE · 60초 트랙" });
+		const start = screen.getByRole("button", { name: "START RACE · 60-Second Track" });
 		const firstPlayer = screen.getByLabelText("Player 1");
 		expect(start).toHaveClass("setup-start");
 		expect(start.compareDocumentPosition(firstPlayer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -109,14 +132,12 @@ describe("SetupScreen", () => {
 
 	it("does not offer team split controls", () => {
 		render(<SetupScreen onStart={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(screen.queryByRole("button", { name: "Team Split" })).not.toBeInTheDocument();
 		expect(screen.queryByText(/teams/i)).not.toBeInTheDocument();
 	});
 
 	it("summarizes the selected track without rendering the track library", () => {
 		render(<SetupScreen onStart={vi.fn()} tracks={[{ ...createDefaultTrackDesign("Garden Run"), id: "garden", updatedAt: 1 }]} selectedTrackId="garden" onManageTracks={vi.fn()} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(within(screen.getByRole("region", { name: "Selected track" })).getByText("Garden Run")).toBeInTheDocument();
 		expect(screen.getByText("1 saved track")).toBeInTheDocument();
 		expect(screen.queryByRole("list", { name: "Saved tracks" })).not.toBeInTheDocument();
@@ -126,11 +147,10 @@ describe("SetupScreen", () => {
 		const user = userEvent.setup();
 		const onSelectTrack = vi.fn();
 		render(<SetupScreen onStart={vi.fn()} tracks={[{ ...createDefaultTrackDesign("Garden Run"), id: "garden", updatedAt: 1 }]} selectedTrackId="garden" onSelectTrack={onSelectTrack} />);
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(screen.getByRole("button", { name: "START RACE · Garden Run" })).toBeInTheDocument();
 		await user.click(screen.getByRole("button", { name: "Change Track" }));
 		expect(screen.getByRole("dialog", { name: "Choose a track" })).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
 		expect(onSelectTrack).toHaveBeenCalledWith(undefined);
 	});
 });

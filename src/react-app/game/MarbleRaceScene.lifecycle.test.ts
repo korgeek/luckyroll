@@ -6,7 +6,7 @@ const seams = vi.hoisted(() => ({
   pixelRatios: [] as number[], frames: [] as FrameRequestCallback[], courseCalls: [] as unknown[], order: [] as string[], emitted: [] as unknown[], projectedSamples: [] as unknown[][], marbleMeshes: [] as THREE.InstancedMesh[],
   courseSamples: undefined as TrackSample[] | undefined, worlds: [] as { id: number; freeCount: number; timestep: number; step: () => void; free: () => void }[], runs: [] as { id: number; disposeCount: number }[],
   worldSteps: 0, rendererDisposals: 0, failWorld: false, failRun: false, badBody: false, badBodyIndex: -1, bankedCameraSample: false, cameraCalls: [] as { type: string; args: unknown[] }[],
-	boosterEvent: false, featureSamples: false, bodyX: 0, rushVelocityWrites: [] as { x: number; y: number; z: number }[],
+	boosterEvent: false, featureSamples: false, starterSamples: false, bodyX: 0, rushVelocityWrites: [] as { x: number; y: number; z: number }[],
 }));
 
 vi.mock("three", async () => {
@@ -41,6 +41,7 @@ vi.mock("./raceCourse", async () => {
 		const samples = seams.featureSamples ? [sample(0), { ...sample(1), distance: 12, position: { x: 12, y: 0, z: 0 }, kind: "bumper", cellIndex: 7, localU: 0.1 }, { ...sample(2), distance: 28, position: { x: 28, y: 0, z: 0 }, kind: "bumper", cellIndex: 7, localU: 0.9 }, { ...sample(3), distance: 40, position: { x: 40, y: 0, z: 0 } }] : [sample(0), sample(1)]; seams.courseSamples = samples;
       const runCourse = {
         kind: selection.kind === "custom" ? "custom" as const : "builtin" as const, samples,
+        cameraSamples: seams.starterSamples ? [{ ...sample(0), distance: -12, position: { x: -12, y: 0, z: 0 }, channelDepth: 6 }, ...samples].map((frame, index) => ({ ...frame, index })) : undefined,
         geometry: { positions: new Float32Array(), normals: new Float32Array(), indices: new Uint32Array(), featurePositions: new Float32Array(), featureNormals: new Float32Array(), featureIndices: new Uint32Array(), samples, profileSegments: 0, triangleCount: 0 },
         renderGroup: new Group(), attach: () => undefined,
         createRun: (_world: unknown, count: number, _seed: number, remainingRestart: boolean) => {
@@ -120,12 +121,31 @@ const startScene = async (selection: Parameters<typeof createRaceScene>[2] = { k
 
 describe("race scene lifecycle boundary", () => {
   beforeEach(() => {
+    seams.starterSamples = false;
     seams.pixelRatios.length = 0; seams.frames.length = 0; seams.courseCalls.length = 0; seams.order.length = 0; seams.emitted.length = 0; seams.projectedSamples.length = 0; seams.marbleMeshes.length = 0; seams.cameraCalls.length = 0; seams.courseSamples = undefined; seams.worlds.length = 0; seams.runs.length = 0; seams.worldSteps = 0; seams.rendererDisposals = 0; seams.failWorld = false; seams.failRun = false; seams.badBody = false; seams.badBodyIndex = -1; seams.bankedCameraSample = false; seams.boosterEvent = false; seams.featureSamples = false; seams.bodyX = 0; seams.rushVelocityWrites.length = 0; cameraPoses.length = 0; cameraLookAt.mockClear(); addListener.mockClear(); removeListener.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { seams.frames.push(callback); return seams.frames.length; }); vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   });
 
-  it("starts and replays from inside the starting channel, before the first frame", async () => {
+  it("shows the modular pusher from in front, then follows the launch into the channel", async () => {
+    seams.starterSamples = true;
+    const scene = await startScene(); const camera = cameraPoses[0].camera;
+    const initial = latestPose(camera);
+    expect(initial.position.x).toBeGreaterThan(initial.lookAt.x);
+    expect(initial.position.z).toBeGreaterThan(4);
+    const now = performance.now();
+    for (let frame = 1; frame <= 30; frame++) seams.frames.shift()?.(now + frame * 17);
+    expect(latestPose(camera).position.x).toBeGreaterThan(latestPose(camera).lookAt.x);
+    for (let frame = 31; frame <= 260; frame++) seams.frames.shift()?.(now + frame * 17);
+    const following = latestPose(camera);
+    expect(following.lookAt.x).toBeGreaterThan(following.position.x);
+    expect(Math.abs(following.position.z)).toBeLessThan(0.1);
+    scene.start([marble(1)], 12); await settle();
+    expect(latestPose(camera).position.z).toBeGreaterThan(4);
+    scene.dispose();
+  });
+
+  it("starts and replays from inside the starting channel when no starter extension exists", async () => {
     const scene = await startScene(); const camera = cameraPoses[0].camera;
     const check = () => {
       const frame = seams.courseSamples![0]; const pose = latestPose(camera);
@@ -164,16 +184,22 @@ describe("race scene lifecycle boundary", () => {
     const now = performance.now();
     for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
     const camera = cameraPoses[0].camera; let previous = latestPose(camera).position.x;
+    const initial = previous; let previousVelocity = 0;
     seams.bodyX = 12; scene.restartRemaining(Array.from({ length: 20 }, (_, index) => marble(index + 1))); await settle();
     for (let frame = 501; frame <= 800; frame++) {
       seams.frames.shift()?.(now + frame * 17);
       const pose = latestPose(camera);
-      expect(pose.position.x).toBeLessThanOrEqual(previous + 0.001);
-      expect(previous - pose.position.x).toBeLessThanOrEqual(3.01);
+      const dt = frame === 501 ? 0.1 : 0.017;
+      const velocity = (pose.position.x - previous) / dt;
+      expect(Math.abs(velocity)).toBeLessThanOrEqual(30.001);
+      expect(Math.abs(velocity - previousVelocity)).toBeLessThanOrEqual(8 * dt + 0.001);
+      expect(pose.position.x).toBeGreaterThan(5.75);
       expect(pose.position.z).toBeCloseTo(0, 5);
       expect(pose.lookAt.x - pose.position.x).toBeGreaterThan(5.9);
       previous = pose.position.x;
+      previousVelocity = velocity;
     }
+    expect(previous).toBeLessThan(initial - 10);
     expect(previous).toBeCloseTo(6, 2);
     scene.dispose();
   });

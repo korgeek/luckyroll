@@ -84,6 +84,30 @@ export const frameAtDistance = (samples: readonly TrackSample[], distance: numbe
 export const cameraLerpAlpha = (perFrameAlpha: number, deltaMs: number): number =>
   1 - Math.pow(1 - Math.max(0, Math.min(1, perFrameAlpha)), Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0) / (1000 / 60));
 
+export const advanceCameraRoute = (motion: { distance: number; velocity: number }, destination: number, deltaMs: number): number => {
+  const dt = Math.max(0, Math.min(100, Number.isFinite(deltaMs) ? deltaMs : 0)) / 1000;
+  const error = destination - motion.distance;
+  const desired = Math.sign(error) * Math.min(30, Math.abs(error) * 1.8, Math.sqrt(16 * Math.abs(error)));
+  motion.velocity += Math.max(-8 * dt, Math.min(8 * dt, desired - motion.velocity));
+  motion.distance += motion.velocity * dt;
+  return motion.distance;
+};
+
+export const writeStartCameraShot = (target: CameraShot, frame: TrackSample, bounds: TrackBounds, fov = 60, aspect = 1, launchProgress = 0): CameraShot => {
+  const halfFov = Math.min(fov * Math.PI / 360, Math.atan(Math.tan(fov * Math.PI / 360) * Math.max(0.1, aspect)));
+  const distance = Math.hypot(frame.width / 2, 6) * 1.15 / Math.sin(halfFov);
+  const progress = Math.max(0, Math.min(1, launchProgress));
+  const forward = 0.58 - progress * 0.12;
+  const side = 0.46 + progress * 0.1;
+  const up = Math.sqrt(1 - forward * forward - side * side);
+  for (const key of ["x", "y", "z"] as const) {
+    target.lookAt[key] = frame.position[key] + frame.tangent[key] * (4 + progress) + frame.up[key] * 1.5;
+    target.position[key] = target.lookAt[key] + distance * (frame.tangent[key] * forward + frame.side[key] * side + frame.up[key] * up);
+  }
+  writeClip(target, bounds); target.near = 0.1;
+  return target;
+};
+
 const writeClip = (target: CameraShot, bounds: TrackBounds): void => {
   const safeBounds = Number.isFinite(bounds.radius) && bounds.radius > 0 ? bounds : fallbackBounds;
   target.near = Math.max(0.05, safeBounds.radius * 0.012);

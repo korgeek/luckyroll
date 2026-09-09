@@ -1,6 +1,14 @@
 import type { Marble, Participant, RankedMarble } from "./types";
 
-const PRIZE_SHARES = [0.5, 0.2, 0.1, 0.05, 0.05, 0.05, 0.05];
+export type PayoutMode = "winner" | "top3" | "equal";
+export const PAYOUT_MODES: { id: PayoutMode; label: string }[] = [{ id: "winner", label: "Winner Takes All" }, { id: "top3", label: "Top 3 Split" }, { id: "equal", label: "Equal Split" }];
+export const formatMoney = (amount: number): string => amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export function moneyCents(value: string): number {
+	if (!/^\d{1,12}(\.\d{0,2})?$/.test(value)) throw new Error("Enter an amount with up to 12 whole digits and 2 decimal digits.");
+	const [whole, fraction = ""] = value.split(".");
+	return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+}
 
 export function allocateMarbles(participants: Participant[], total = 100): Marble[] {
 	if (participants.length < 2 || participants.length > 10) throw new Error("Race needs 2 to 10 players.");
@@ -10,16 +18,17 @@ export function allocateMarbles(participants: Participant[], total = 100): Marbl
 	return participants.flatMap((participant, index) => Array.from({ length: base + (index < extras ? 1 : 0) }, () => ({ id: id++, ownerId: participant.id, color: participant.color, symbol: participant.symbol })));
 }
 
-export function reverseRank(finishOrder: readonly Marble[]): RankedMarble[] {
-	return [...finishOrder].reverse().slice(0, 10).map((marble, index) => ({ ...marble, rank: index + 1, finishOrder: finishOrder.length - index }));
+export function reverseRank(finishOrder: readonly Marble[], limit = 10): RankedMarble[] {
+	return [...finishOrder].reverse().slice(0, limit).map((marble, index) => ({ ...marble, rank: index + 1, finishOrder: finishOrder.length - index }));
 }
 
-export function prizeByOwner(rankings: RankedMarble[], pool: number): Record<string, number> {
-	return rankings.reduce<Record<string, number>>((prizes, marble) => {
-		prizes[marble.ownerId] ??= 0;
-		prizes[marble.ownerId] += pool * (PRIZE_SHARES[marble.rank - 1] ?? 0);
-		return prizes;
-	}, {});
+export function prizeByOwner(rankings: RankedMarble[], pool: number, mode: PayoutMode = "equal", participants: Participant[] = []): Record<string, number> {
+	const cents = moneyCents(String(pool));
+	const rankedOwners = [...new Set(rankings.map(({ ownerId }) => ownerId))];
+	if (!rankedOwners.length) return {};
+	const owners = mode === "equal" ? [...new Set([...rankedOwners, ...participants.map(({ id }) => id)])] : rankedOwners.slice(0, mode === "winner" ? 1 : 3);
+	const share = Math.floor(Math.floor(cents / 100) / owners.length) * 100;
+	return Object.fromEntries(owners.map((owner, index) => [owner, (share + (index === 0 ? cents - share * owners.length : 0)) / 100]));
 }
 
 export function remainingMarbles(all: Marble[], finished: Marble[]) {

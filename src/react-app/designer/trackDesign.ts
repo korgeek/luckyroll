@@ -42,23 +42,23 @@ export const createDefaultTrackDesign = (name = "New Track"): TrackDesign => Obj
   ]),
 });
 
-export const createShortTrackDesign = (name = "30초 트랙"): TrackDesign => Object.freeze({
+export const createShortTrackDesign = (name = "30-Second Track"): TrackDesign => Object.freeze({
   name: normalizedName(name),
   cells: frozenCells([
     { kind: "start", rotation: 0 }, { kind: "curve", rotation: 2 }, null, null, null,
-    null, { kind: "wave", rotation: 1 }, null, null, null,
-    null, { kind: "funnel", rotation: 1 }, null, null, null,
-    null, { kind: "straight", rotation: 1 }, null, null, null,
-    null, { kind: "booster", rotation: 1 }, null, null, null,
-    null, { kind: "booster", rotation: 1 }, null, null, null,
-    null, { kind: "bumper", rotation: 1 }, null, null, null,
-    null, { kind: "curve", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "finish", rotation: 0 },
+    { kind: "curve", rotation: 1 }, { kind: "curve", rotation: 3 }, null, null, null,
+    { kind: "wave", rotation: 1 }, null, null, null, null,
+    { kind: "funnel", rotation: 1 }, null, null, null, null,
+    { kind: "straight", rotation: 1 }, null, null, null, null,
+    { kind: "straight", rotation: 1 }, null, null, null, null,
+    { kind: "straight", rotation: 1 }, null, null, null, null,
+    { kind: "curve", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "booster", rotation: 0 }, { kind: "bumper", rotation: 0 }, { kind: "finish", rotation: 0 },
   ]),
 });
 
 export const BUILTIN_TRACKS = Object.freeze([
   { id: undefined, track: Object.freeze({
-    name: "60초 트랙",
+    name: "60-Second Track",
     cells: frozenCells(createDefaultTrackDesign().cells.map((cell, index) => {
       if (index === 3 || index === 13) return { kind: "curve", rotation: 2 };
       if (index === 8 || index === 18) return { kind: "curve", rotation: 3 };

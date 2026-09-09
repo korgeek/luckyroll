@@ -9,6 +9,8 @@ it.each(BUILTIN_TRACKS.flatMap((preset) => [
 ]))("finishes $track.name with $marbleCount marbles (seed $seed) near its advertised duration", async ({ id, track, seed, marbleCount }) => {
   const built = buildModularTrack(track);
   if (id === "builtin-30") {
+    expect(built.route.route.slice(-5).map(({ cellIndex }) => track.cells[cellIndex]?.kind))
+      .toEqual(["curve", "booster", "booster", "bumper", "finish"]);
     const devices = built.route.route.map(({ cellIndex }) => track.cells[cellIndex]?.kind)
       .filter((kind) => kind && !["start", "finish", "straight", "curve"].includes(kind));
     expect(devices).toEqual(["wave", "funnel", "booster", "booster", "bumper"]);

@@ -7,6 +7,8 @@ import { buildValidatedTrack } from "./track/trackBuild";
 import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
   cameraLerpAlpha,
+  advanceCameraRoute,
+  writeStartCameraShot,
   constrainChannelCameraShot,
   frameAtDistance,
   createRouteCrowdDirector,
@@ -26,6 +28,33 @@ import {
 } from "./cameraPlan";
 
 const canonicalTrackBounds = getTrackBounds(buildValidatedTrack().samples);
+
+describe("camera transitions", () => {
+  it("preserves travel speed with modest acceleration when a distant bumper takes focus", () => {
+    const motion = { distance: 20, velocity: 12 };
+    advanceCameraRoute(motion, 200, 1000 / 60);
+    expect(motion.velocity).toBeGreaterThanOrEqual(12);
+    expect(motion.velocity).toBeLessThanOrEqual(12.2);
+    expect(motion.distance - 20).toBeLessThan(0.21);
+    for (let i = 0; i < 1800; i++) advanceCameraRoute(motion, 200, 1000 / 60);
+    expect(motion.distance).toBeCloseTo(200, 2);
+    expect(Math.abs(motion.velocity)).toBeLessThan(0.01);
+  });
+  it.each([360 / 800, 1024 / 768])("frames the starter and pusher from the front oblique at aspect %s", aspect => {
+    const built = buildModularTrack(createValidTrackDesign());
+    const devices = resolveModuleDevices(built.track, built.route, built.samples);
+    const frame = { ...built.samples[0], position: devices.start.frame.position, width: devices.start.width };
+    const shot = writeStartCameraShot(mutableShot(), frame, getTrackBounds(built.samples), 60, aspect);
+    expect(dot(subtract(shot.position, shot.lookAt), frame.tangent)).toBeGreaterThan(0);
+    expect(Math.abs(dot(subtract(shot.position, shot.lookAt), frame.side))).toBeGreaterThan(4);
+    const camera = new THREE.PerspectiveCamera(60, aspect, shot.near, shot.far);
+    camera.position.copy(shot.position); camera.up.copy(frame.up); camera.lookAt(shot.lookAt.x, shot.lookAt.y, shot.lookAt.z); camera.updateMatrixWorld();
+    for (const along of [-1, 10]) for (const lateral of [-frame.width / 2, frame.width / 2]) {
+      const point = new THREE.Vector3().copy(frame.position).addScaledVector(new THREE.Vector3().copy(frame.tangent), along).addScaledVector(new THREE.Vector3().copy(frame.side), lateral).project(camera);
+      expect(Math.abs(point.x)).toBeLessThan(1); expect(Math.abs(point.y)).toBeLessThan(1); expect(Math.abs(point.z)).toBeLessThan(1);
+    }
+  });
+});
 const isFiniteVec3 = (value: Vec3) => Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z);
 const subtract = (left: Vec3, right: Vec3): Vec3 => ({ x: left.x - right.x, y: left.y - right.y, z: left.z - right.z });
 const dot = (left: Vec3, right: Vec3): number => left.x * right.x + left.y * right.y + left.z * right.z;

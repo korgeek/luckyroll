@@ -48,8 +48,8 @@ describe("ResultsScreen", () => {
 		const total = screen.getByText("TOTAL PRIZE"); const winnings = screen.getByRole("heading", { name: "PLAYER WINNINGS" }); const topTen = screen.getByRole("heading", { name: "TOP 10" });
 		expect(total.compareDocumentPosition(winnings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(winnings.compareDocumentPosition(topTen) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-		expect(screen.getByText("1,000").closest(".prize-total")).toBeInTheDocument();
-		expect(container.querySelector(".prize-summary")).toHaveTextContent("Jin500Lee200");
+		expect(screen.getByText("1,000.00").closest(".prize-total")).toBeInTheDocument();
+		expect(container.querySelector(".prize-summary")).toHaveTextContent("Jin500.00Lee500.00");
 	});
 
 	it("labels prize information as current for partial results", () => {

@@ -1,9 +1,9 @@
 import type { CSSProperties } from "react";
-import { prizeByOwner } from "../domain/race";
+import { formatMoney, PAYOUT_MODES, prizeByOwner, type PayoutMode } from "../domain/race";
 import type { Participant, RankedMarble } from "../domain/types";
 
-export function ResultsScreen({ rankings, participants, prizePool, celebrate, onReplay, onBack }: { rankings: RankedMarble[]; participants: Participant[]; prizePool: number; celebrate: boolean; onReplay: () => void; onBack: () => void }) {
-	const prizes = prizePool > 0 ? prizeByOwner(rankings, prizePool) : {};
+export function ResultsScreen({ rankings, participants, prizePool, payoutMode = "equal", celebrate, onReplay, onBack }: { rankings: RankedMarble[]; participants: Participant[]; prizePool: number; payoutMode?: PayoutMode; celebrate: boolean; onReplay: () => void; onBack: () => void }) {
+	const prizes = prizePool > 0 ? prizeByOwner(rankings, prizePool, payoutMode, participants) : {};
 	const winner = rankings[0];
 	const winnerName = participants.find((person) => person.id === winner?.ownerId)?.name;
 	return <section className="results-card">
@@ -22,10 +22,10 @@ export function ResultsScreen({ rankings, participants, prizePool, celebrate, on
 			} as CSSProperties} />;
 		})}</div>}
 		<p className="eyebrow">WHO WAS LAST?</p>
-		{prizePool > 0 && <section className="prize-board"><p className="prize-total"><span>{celebrate ? "TOTAL PRIZE" : "CURRENT PRIZE"}</span><strong>{prizePool.toLocaleString()}</strong></p><section className="prize-winnings"><h2>{celebrate ? "PLAYER WINNINGS" : "CURRENT PRIZE SPLIT"}</h2><div className="prize-summary">{Object.entries(prizes).filter(([, amount]) => amount > 0).map(([owner, amount]) => <p key={owner}>{participants.find((person) => person.id === owner)?.name}<strong>{amount.toLocaleString()}</strong></p>)}</div></section></section>}
+		{prizePool > 0 && <section className="prize-board"><p className="prize-total"><span>{celebrate ? "TOTAL PRIZE" : "CURRENT PRIZE"}</span><strong>{formatMoney(prizePool)}</strong></p><p className="payout-note">{PAYOUT_MODES.find(({ id }) => id === payoutMode)?.label}</p><section className="prize-winnings"><h2>{celebrate ? "PLAYER WINNINGS" : "CURRENT PRIZE SPLIT"}</h2><div className="prize-summary">{Object.entries(prizes).filter(([, amount]) => amount > 0).map(([owner, amount]) => <p key={owner}>{participants.find((person) => person.id === owner)?.name}<strong>{formatMoney(amount)}</strong></p>)}</div></section></section>}
 		<h1>TOP 10</h1>
 		{winner && <article className="result-hero"><span>{celebrate ? "#1 · LAST FINISHER" : "LATEST FINISHER · PARTIAL RESULTS"}</span><div className="winner-name"><i className="winner-marble" role="img" aria-label={`${winnerName}'s ${winner.symbol} marble`} style={{ background: winner.color }}>{winner.symbol}</i><h2>{winnerName}</h2></div><p>Marble #{winner.id}</p></article>}
-		<ol className="ranking-list">{rankings.slice(1).map((marble) => <li key={marble.id}><b>#{marble.rank}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>
+		<ol className="ranking-list">{rankings.slice(1, 10).map((marble) => <li key={marble.id}><b>#{marble.rank}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>
 		<div className="result-actions"><button className="primary-button" onClick={onReplay}>Replay same settings</button><button className="secondary-button" onClick={onBack}>Back to Menu</button></div>
 		<p className="audio-credit">Music: <a href="https://opengameart.org/content/level-finish-fanfares" target="_blank" rel="noreferrer">Level finish fanfares</a> · Johan Brodd, 2014 · <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noreferrer">CC BY-SA 3.0</a></p>
 	</section>;
