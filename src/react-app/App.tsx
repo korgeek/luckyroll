@@ -117,7 +117,7 @@ function App() {
 	const start = (values: SetupValues, track: TrackDesign | undefined = trackById(selectedTrackId), returnView: "setup" | "library" | "editor" = "setup") => {
 		void retroSounds.preload().catch(() => undefined);
 		retroSounds.resetMusic(); retroSounds.music(muted ? null : "normal");
-		const marbles = allocateMarbles(values.participants, 100);
+		const marbles = allocateMarbles(values.participants, values.marbleCount ?? 50);
 		setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setRaceReturnView(returnView); countdownActiveRef.current = true; setCountdown("PREPARING RACE…");
 		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? (BUILTIN_TRACKS.find(({ id }) => id === selectedTrackId) ?? BUILTIN_TRACKS[0]).track } });
 		setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setView("race");

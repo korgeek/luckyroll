@@ -8,6 +8,7 @@ import type { TrackSample, Vec3 } from "./track/trackTypes";
 import {
   cameraLerpAlpha,
   advanceCameraRoute,
+  routeCameraSpeedLimit,
   writeStartCameraShot,
   constrainChannelCameraShot,
   frameAtDistance,
@@ -30,6 +31,15 @@ import {
 const canonicalTrackBounds = getTrackBounds(buildValidatedTrack().samples);
 
 describe("camera transitions", () => {
+  it("eases camera speed before a corner and recovers only after its exit", () => {
+    const template = buildValidatedTrack().samples[0];
+    const samples = [0, 20, 30, 40, 60].map((distance, index) => ({ ...template, distance, index, tangent: { x: Math.cos(Math.min(1, Math.max(0, (distance - 20) / 20)) * Math.PI / 2), y: 0, z: Math.sin(Math.min(1, Math.max(0, (distance - 20) / 20)) * Math.PI / 2) } }));
+    expect(routeCameraSpeedLimit(samples, 0)).toBe(22);
+    expect(routeCameraSpeedLimit(samples, 15)).toBeLessThan(22);
+    expect(routeCameraSpeedLimit(samples, 30)).toBeLessThan(16);
+    expect(routeCameraSpeedLimit(samples, 45)).toBeLessThan(22);
+    expect(routeCameraSpeedLimit(samples, 60)).toBe(22);
+  });
   it("preserves travel speed with modest acceleration when a distant bumper takes focus", () => {
     const motion = { distance: 20, velocity: 12 };
     advanceCameraRoute(motion, 200, 1000 / 60);

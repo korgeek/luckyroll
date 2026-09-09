@@ -4,7 +4,7 @@ import type { Participant } from "../domain/types";
 import { moneyCents, PAYOUT_MODES, type PayoutMode } from "../domain/race";
 import { BUILTIN_TRACKS, type LocalTrack, type TrackDesign } from "../designer/trackDesign";
 
-export type SetupValues = { participants: Participant[]; prizePool: number; payoutMode?: PayoutMode };
+export type SetupValues = { participants: Participant[]; prizePool: number; payoutMode?: PayoutMode; marbleCount?: 50 | 100 };
 
 const COLORS = ["#ff4f8f", "#58e7ff", "#ffcf58", "#a883ff", "#6dffae", "#ff8b55", "#ff75d5", "#75aaff", "#e8ff5a", "#ff6278"];
 const SYMBOLS = ["◆", "●", "▲", "✦", "■", "✚", "♥", "✿", "☀", "✹"];
@@ -23,6 +23,7 @@ export function SetupScreen({ active = true, onStart, tracks = [], selectedTrack
 	const [names, setNames] = useState(["Player 1", "Player 2"]);
 	const [prizePool, setPrizePool] = useState("");
 	const [payoutMode, setPayoutMode] = useState<PayoutMode>("equal");
+	const [marbleCount, setMarbleCount] = useState<50 | 100>(50);
 	const [prizeRevision, setPrizeRevision] = useState(0);
 	const [creditsOpen, setCreditsOpen] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState<"select" | "start" | false>(false);
@@ -60,7 +61,7 @@ export function SetupScreen({ active = true, onStart, tracks = [], selectedTrack
 		event.preventDefault(); prizeCaret.current = input.value.slice(0, Math.max(0, remove)).replace(/[^\d.]/g, "").length;
 		setPrizePool((input.value.slice(0, remove) + input.value.slice(remove + 1)).replace(/[^\d.]/g, "").replace(/^\./, "0."));
 	};
-	const submit = (track: TrackDesign) => onStart({ prizePool: moneyCents(prizePool || "0") / 100, payoutMode, participants: names.map((name, index) => ({ id: `player-${index + 1}`, name: name.trim() || `Player ${index + 1}`, color: COLORS[index], symbol: SYMBOLS[index] })) }, track);
+	const submit = (track: TrackDesign) => onStart({ prizePool: moneyCents(prizePool || "0") / 100, payoutMode, marbleCount, participants: names.map((name, index) => ({ id: `player-${index + 1}`, name: name.trim() || `Player ${index + 1}`, color: COLORS[index], symbol: SYMBOLS[index] })) }, track);
 	const chooseTrack = (id?: string) => { const track = tracks.find((candidate) => candidate.id === id) ?? BUILTIN_TRACKS.find((candidate) => candidate.id === id)?.track; onSelectTrack(id); setPickerOpen(false); if (pickerOpen === "start" && track) submit(track); };
 
 	return <section className="setup-card" aria-label="Main menu">
@@ -71,10 +72,10 @@ export function SetupScreen({ active = true, onStart, tracks = [], selectedTrack
 		{names.length < 10 && <button className="add-button" onClick={() => setNames((current) => [...current, `Player ${current.length + 1}`])}>+ Add player</button>}
 		<label className="field-label prize-field">Prize Pool <span>optional</span><input ref={prizeInput} aria-label="Prize Pool" inputMode="decimal" placeholder="0.00" value={formatPrizePool(prizePool)} onChange={updatePrizePool} onKeyDown={prizeKeyDown} onBlur={() => { if (prizePool) { const [whole, fraction = ""] = prizePool.split("."); setPrizePool(`${Number(whole)}.${fraction.padEnd(2, "0")}`); } }} /></label>
 		<fieldset className="payout-options"><legend>Payout</legend>{PAYOUT_MODES.map(({ id, label }) => <label key={id}><input type="radio" name="payout-mode" value={id} checked={payoutMode === id} onChange={() => setPayoutMode(id)} /><span>{label}</span></label>)}</fieldset>
-		<p className="payout-note">{payoutMode === "winner" ? "The last marble wins the entire prize for its player!" : payoutMode === "top3" ? "The top 3 players split equally. With 2 players, both share." : "Every player gets an equal share."} {payoutMode !== "winner" && "Remainders and decimal amounts go to the winner!"}</p>
-		<p className="allocation-note">100 marbles split as evenly as possible.</p>
+		<p className="payout-note">{payoutMode === "winner" ? "The last marble wins the entire prize for its player!" : payoutMode === "top3" ? "Last 10 marbles score 10 to 1 points. Player totals decide the Top 3: split 5:3:1, or 5:3 for two players. A sole scoring player takes all. Ties favor the best marble rank." : "Every player gets an equal share."} {payoutMode !== "winner" && "Whole-number shares; all remainders and decimals go to first place!"}</p>
+		<p className="allocation-note">{marbleCount} marbles split as evenly as possible.</p>
 		<section className="track-summary" aria-label="Selected track"><div><span>TRACK</span><strong>{selectedTrackName}</strong><small>{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</small></div><div className="track-summary-actions"><button ref={pickerButton} className="secondary-button" onClick={() => setPickerOpen("select")}>Change Track</button><button className="text-button" onClick={onManageTracks}>Manage Tracks</button></div></section>
-		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><p>Choose a course. Times are estimates and vary with each race.</p>{BUILTIN_TRACKS.map(({ id, track }) => <button key={id ?? "builtin-60"} aria-label={`Select ${track.name}`} aria-pressed={id === selectedTrackId} onClick={() => chooseTrack(id)}>{track.name} {id === selectedTrackId && <span>Selected</span>}</button>)}{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === selectedTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === selectedTrackId && <span>Selected</span>}</button>)}<button className="text-button" onClick={() => setPickerOpen(false)}>Cancel</button></section></dialog>}
+		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><p>Choose a course. Times are estimates and vary with each race.</p><fieldset className="payout-options marble-count-options"><legend>Marbles</legend>{([50, 100] as const).map((count) => <label key={count}><input type="radio" name="marble-count" checked={marbleCount === count} onChange={() => setMarbleCount(count)} /><span>{count}</span></label>)}</fieldset>{BUILTIN_TRACKS.map(({ id, track }) => <button key={id ?? "builtin-60"} aria-label={`Select ${track.name}`} aria-pressed={id === selectedTrackId} onClick={() => chooseTrack(id)}>{track.name} {id === selectedTrackId && <span>Selected</span>}</button>)}{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === selectedTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === selectedTrackId && <span>Selected</span>}</button>)}<button className="text-button" onClick={() => setPickerOpen(false)}>Cancel</button></section></dialog>}
 <footer className="setup-footer"><button className="text-button" onClick={() => setCreditsOpen(true)}>Credits</button></footer>
 		{creditsOpen && <CreditsDialog onClose={() => setCreditsOpen(false)} />}
 	</section>;

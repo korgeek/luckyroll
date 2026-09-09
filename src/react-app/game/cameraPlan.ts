@@ -84,10 +84,17 @@ export const frameAtDistance = (samples: readonly TrackSample[], distance: numbe
 export const cameraLerpAlpha = (perFrameAlpha: number, deltaMs: number): number =>
   1 - Math.pow(1 - Math.max(0, Math.min(1, perFrameAlpha)), Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0) / (1000 / 60));
 
-export const advanceCameraRoute = (motion: { distance: number; velocity: number }, destination: number, deltaMs: number): number => {
+export const routeCameraSpeedLimit = (samples: readonly TrackSample[], distance: number): number => {
+  const before = frameAtDistance(samples, distance - 12);
+  const ahead = frameAtDistance(samples, distance + 12);
+  const turn = before && ahead ? Math.max(0, 1 - dot(before.tangent, ahead.tangent)) : 0;
+  return 22 - Math.min(1, turn * 1.5) * 10;
+};
+
+export const advanceCameraRoute = (motion: { distance: number; velocity: number }, destination: number, deltaMs: number, speedLimit = 30): number => {
   const dt = Math.max(0, Math.min(100, Number.isFinite(deltaMs) ? deltaMs : 0)) / 1000;
   const error = destination - motion.distance;
-  const desired = Math.sign(error) * Math.min(30, Math.abs(error) * 1.8, Math.sqrt(16 * Math.abs(error)));
+  const desired = Math.sign(error) * Math.min(speedLimit, Math.abs(error) * 1.8, Math.sqrt(16 * Math.abs(error)));
   motion.velocity += Math.max(-8 * dt, Math.min(8 * dt, desired - motion.velocity));
   motion.distance += motion.velocity * dt;
   return motion.distance;
@@ -232,12 +239,12 @@ export const writeRouteCrowdFollowShot = (target: CameraShot, routeDistance: num
   const frame = frameAtDistance(samples, routeDistance) ?? samples[0];
   if (!frame) return writeCameraShot(target, "overview", safeBounds);
   const up = finiteVector(frame.up) ? frame.up : { x: 0, y: 1, z: 0 };
-  const followDistance = close ? 4 : pace === "fast" ? 6 : 10;
-  const lead = close ? 3 : pace === "fast" ? 6 : 5;
+  const followDistance = close ? 10 : 14;
+  const lead = pace === "fast" ? 8 : 6;
   const fov = Math.min(179, Math.max(1, Number.isFinite(verticalFovDegrees) ? verticalFovDegrees : 60)) * Math.PI / 180;
   const horizontal = 2 * Math.atan(Math.tan(fov / 2) * Math.max(0.1, Number.isFinite(aspect) ? aspect : 1));
-  const fitDistance = frame.width * (close ? 0.46 : 0.62) / Math.sin(horizontal / 2);
-  const clearance = Math.max(minimumClearance, frame.channelDepth, Math.sqrt(Math.max(0, fitDistance * fitDistance - (followDistance + lead) ** 2)));
+  const fitDistance = frame.width * (close ? 0.65 : 0.75) / Math.sin(horizontal / 2);
+  const clearance = Math.max(12, minimumClearance, frame.channelDepth + 4, Math.sqrt(Math.max(0, fitDistance * fitDistance - (followDistance + lead) ** 2)));
   const anchor = frameAtDistance(samples, routeDistance - followDistance) ?? frame;
   target.position.x = anchor.position.x + anchor.up.x * clearance;
   target.position.y = anchor.position.y + anchor.up.y * clearance;

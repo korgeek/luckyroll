@@ -3,7 +3,7 @@ import { retroSounds, soundProximity } from "./retroSounds";
 import * as THREE from "three";
 import type { Marble } from "../domain/types";
 import { applyDrag, applyPan, applyZoom, initialCameraControls, relaxControls } from "./cameraControls";
-import { advanceCameraRoute, writeStartCameraShot, alongRouteDistance, frameAtDistance, constrainChannelCameraShot, cameraLerpAlpha, createRouteCrowdDirector, createActionCameraDirector, deriveFeatureBroadcastZones, deriveRouteRuns, getBirdViewUp, getTrackBounds, writeBumperTrackShot, writeRouteRearFollowShot, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeRouteCrowdFollowShot, type CameraShot, type CameraShotName, type CameraAction, type ActionCameraSelection } from "./cameraPlan";
+import { advanceCameraRoute, routeCameraSpeedLimit, writeStartCameraShot, alongRouteDistance, frameAtDistance, constrainChannelCameraShot, cameraLerpAlpha, createRouteCrowdDirector, createActionCameraDirector, deriveFeatureBroadcastZones, deriveRouteRuns, getBirdViewUp, getTrackBounds, writeBumperTrackShot, writeRouteRearFollowShot, writeBirdViewFit, writeCameraShot, writeControlledTrackFollowShot, writeRouteCrowdFollowShot, type CameraShot, type CameraShotName, type CameraAction, type ActionCameraSelection } from "./cameraPlan";
 import { createColorBatches } from "./marbleBatches";
 import { selectQualityProfile } from "./quality";
 import { RACE_TIMEOUT_MS } from "./raceTiming";
@@ -372,6 +372,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
   const startCameraShot: CameraShot = { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 }, near: 0.1, far: 500 };
   let showLaunch = cameraSamples[0]?.distance < course.samples[0]?.distance;
   const routeMotion = { distance: cameraSamples[0]?.distance ?? 0, velocity: 0 };
+  let routeCameraActive = false;
   const resetCameraToStart = () => {
     const frame = cameraSamples[0];
     if (!frame) return;
@@ -475,16 +476,22 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     balls.forEach((ball) => { const rotation = ball.body.rotation(); dummy.position.set(ball.position.x, ball.position.y, ball.position.z); dummy.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w); dummy.scale.setScalar(1); dummy.updateMatrix(); ball.mesh.setMatrixAt(ball.renderIndex, dummy.matrix); });
     renderMeshes.forEach((renderMesh) => { renderMesh.instanceMatrix.needsUpdate = true; });
     controls = initialCameraControls; showLaunch = !remainingRestart && cameraSamples[0]?.distance < course.samples[0]?.distance; routeMotion.velocity = 0;
-    if (!remainingRestart) resetCameraToStart();
+    if (!remainingRestart) { routeCameraActive = false; resetCameraToStart(); }
     emit({ type: "prepared" });
   };
 
   let bumperCameraDistance: number | undefined;
+  let bumperCameraHeight = 12;
   let rearCameraDistance: number | undefined;
   let rearCameraHeight = 6;
   let crowdCameraDistance: number | undefined;
   let crowdCameraHeight = 12;
   const updateCamera = (cameraDelta: number) => {
+    const currentRouteDistance = () => {
+      if (routeCameraActive) return routeMotion.distance;
+      const nearest = cameraSamples.reduce((a, b) => camera.position.distanceToSquared(a.position) < camera.position.distanceToSquared(b.position) ? a : b);
+      return alongRouteDistance(camera.position, nearest.index, cameraSamples);
+    };
     let localUp = course.samples[0]?.up ?? { x: 0, y: 1, z: 0 };
     let cameraClearance = 5;
     let bumperFeature = false;
@@ -505,8 +512,8 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       const bumperZone = actionShot.mode === "feature" ? featureZones.find(zone => zone.key === actionShot.zoneKey && zone.kind === "bumper") : undefined;
       if (bumperZone) {
         if (bumperCameraDistance === undefined) {
-          const nearest = cameraSamples.reduce((a, b) => camera.position.distanceToSquared(a.position) < camera.position.distanceToSquared(b.position) ? a : b);
-          bumperCameraDistance = alongRouteDistance(camera.position, nearest.index, cameraSamples);
+          bumperCameraDistance = currentRouteDistance();
+          bumperCameraHeight = camera.position.y - frameAtDistance(cameraSamples, bumperCameraDistance)!.position.y;
         }
         routeMotion.distance = bumperCameraDistance;
         bumperCameraDistance = advanceCameraRoute(routeMotion, bumperZone.entryDistance - 3, cameraDelta);
@@ -520,39 +527,43 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         if (bumperZone) {
           bumperFeature = true; activeShot = "profile";
           writeBumperTrackShot(cameraShot, bumperZone, cameraSamples, bounds, bumperCameraDistance, target?.position);
+          const anchor = frameAtDistance(cameraSamples, bumperCameraDistance!)!;
+          bumperCameraHeight += (Math.max(12, anchor.width / Math.max(0.25, camera.aspect)) - bumperCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
+          cameraShot.position.x = anchor.position.x; cameraShot.position.y = anchor.position.y + bumperCameraHeight; cameraShot.position.z = anchor.position.z;
+          localUp = { x: 0, y: 1, z: 0 };
         } else if (target) {
           routeRetreat = true; activeShot = sample.zone === "finish" ? "finish" : "trailer";
           if (rearCameraDistance === undefined) {
-            const nearest = cameraSamples.reduce((a, b) => camera.position.distanceToSquared(a.position) < camera.position.distanceToSquared(b.position) ? a : b);
-            rearCameraDistance = alongRouteDistance(camera.position, nearest.index, cameraSamples);
-            rearCameraHeight = Math.max(5, camera.position.clone().sub(nearest.position).dot(nearest.up));
+            rearCameraDistance = currentRouteDistance();
+            rearCameraHeight = Math.max(5, camera.position.y - frameAtDistance(cameraSamples, rearCameraDistance)!.position.y);
           }
           const destination = Math.max(cameraSamples[0].distance, alongRouteDistance(target.position, target.sampleIndex, course.samples) - 6);
           routeMotion.distance = rearCameraDistance;
           rearCameraDistance = advanceCameraRoute(routeMotion, destination, cameraDelta);
           rearCameraHeight += (6 - rearCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
           writeRouteRearFollowShot(cameraShot, rearCameraDistance, cameraSamples, bounds, rearCameraHeight);
-          localUp = frameAtDistance(cameraSamples, rearCameraDistance)!.up;
+          const anchor = frameAtDistance(cameraSamples, rearCameraDistance)!;
+          cameraShot.position.x = anchor.position.x; cameraShot.position.y = anchor.position.y + rearCameraHeight; cameraShot.position.z = anchor.position.z;
+          localUp = { x: 0, y: 1, z: 0 };
         } else if (rankedCameraBalls.length || !gateOpen) {
           activeShot = "profile";
           routeCrowdShot = true;
           const close = actionShot.mode === "feature" && actionShot.framing === "close";
           const pace = actionShot.mode === "boost" ? "fast" : "slow";
-          const behind = close ? 4 : pace === "fast" ? 6 : 10;
+          const behind = close ? 10 : 14;
           if (crowdCameraDistance === undefined) {
-            const nearest = cameraSamples.reduce((a, b) => camera.position.distanceToSquared(a.position) < camera.position.distanceToSquared(b.position) ? a : b);
-            crowdCameraDistance = alongRouteDistance(camera.position, nearest.index, cameraSamples);
-            crowdCameraHeight = Math.max(5, camera.position.clone().sub(nearest.position).dot(nearest.up));
+            crowdCameraDistance = currentRouteDistance();
+            crowdCameraHeight = Math.max(5, camera.position.y - frameAtDistance(cameraSamples, crowdCameraDistance)!.position.y);
           }
           const destination = Math.max(cameraSamples[0].distance, crowdDistance - behind);
           routeMotion.distance = crowdCameraDistance;
-          crowdCameraDistance = advanceCameraRoute(routeMotion, destination, cameraDelta);
+          crowdCameraDistance = advanceCameraRoute(routeMotion, destination, cameraDelta, routeCameraSpeedLimit(cameraSamples, crowdCameraDistance));
           writeRouteCrowdFollowShot(cameraShot, crowdCameraDistance + behind, cameraSamples, bounds, cameraClearance, pace, camera.fov, camera.aspect, close);
           const anchor = frameAtDistance(cameraSamples, crowdCameraDistance)!;
-          const height = Math.min(4.8, anchor.channelDepth * 0.8);
+          const height = Math.hypot(cameraShot.position.x - anchor.position.x, cameraShot.position.y - anchor.position.y, cameraShot.position.z - anchor.position.z);
           crowdCameraHeight += (height - crowdCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
-          for (const key of ["x", "y", "z"] as const) cameraShot.position[key] = anchor.position[key] + anchor.up[key] * crowdCameraHeight;
-          localUp = anchor.up;
+          cameraShot.position.x = anchor.position.x; cameraShot.position.y = anchor.position.y + crowdCameraHeight; cameraShot.position.z = anchor.position.z;
+          localUp = { x: 0, y: 1, z: 0 };
         }
         const channelDistance = routeRetreat ? rearCameraDistance! : routeCrowdShot ? crowdCameraDistance! : bumperFeature ? bumperCameraDistance! : target ? alongRouteDistance(target.position, target.sampleIndex, course.samples) - 6 : followDistance;
         channelFrame = frameAtDistance(cameraSamples, channelDistance);
@@ -561,6 +572,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
         writeCameraShot(cameraShot, activeShot, bounds);
       }
     }
+    routeCameraActive = routeCrowdShot || routeRetreat || bumperFeature;
     if (!routeCrowdShot) crowdCameraDistance = undefined;
     if (!routeRetreat) rearCameraDistance = undefined;
     if (!bumperFeature) bumperCameraDistance = undefined;
@@ -569,7 +581,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
       Object.assign(controlledCameraShot.lookAt, cameraShot.lookAt);
       controlledCameraShot.near = cameraShot.near; controlledCameraShot.far = cameraShot.far;
     } else writeControlledTrackFollowShot(controlledCameraShot, cameraShot, localUp, controls, cameraClearance);
-    if (channelFrame) { constrainChannelCameraShot(controlledCameraShot, channelFrame); localUp = channelFrame.up; }
+    if (channelFrame && !routeCrowdShot && !bumperFeature && !routeRetreat) { constrainChannelCameraShot(controlledCameraShot, channelFrame); localUp = channelFrame.up; }
     if (showLaunch && !birdView && !reducedMotion && !debug.isPaused()) {
       const elapsed = raceClock.elapsedMs(last, pausedDuration, pauseStarted, manualPaused);
       const progress = Math.max(0, Math.min(1, (elapsed - 650) / 2400));
@@ -590,7 +602,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     const upAlpha = cameraLerpAlpha(0.05, cameraDelta); const positionAlpha = cameraLerpAlpha(0.03, cameraDelta);
     if (birdView || (cameraUpTarget.x === 0 && cameraUpTarget.y === 1 && cameraUpTarget.z === 0)) camera.up.lerp(cameraUpTarget, upAlpha); else camera.up.lerp(cameraUpTarget, upAlpha).normalize();
     if (channelFrame) {
-      camera.position.copy(cameraTarget); cameraLook.lerp(cameraFocus, upAlpha); camera.up.copy(cameraUpTarget);
+      camera.position.copy(cameraTarget); cameraLook.lerp(cameraFocus, upAlpha);
     } else {
       camera.position.lerp(cameraTarget, positionAlpha); cameraLook.lerp(cameraFocus, upAlpha);
     }

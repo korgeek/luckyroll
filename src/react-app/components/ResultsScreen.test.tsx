@@ -1,10 +1,23 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResultsScreen } from "./ResultsScreen";
 
 describe("ResultsScreen", () => {
 	afterEach(cleanup);
+	it("shows Top 3 scoring order and weighted prizes separately from the last-finisher hero", () => {
+		const rankings = ["jin", "lee", "lee", "mia"].map((ownerId, index) => ({ id: index + 1, ownerId, color: "#fff", symbol: "◆", rank: index + 1, finishOrder: 4 - index }));
+		const participants = ["jin", "lee", "mia"].map((id) => ({ id, name: id, color: "#fff", symbol: "◆" }));
+		const { container } = render(<ResultsScreen rankings={rankings} participants={participants} prizePool={100.99} payoutMode="top3" celebrate onReplay={vi.fn()} onBack={vi.fn()} />);
+		expect(container.querySelector(".prize-summary")).toHaveTextContent("#1 lee · 17 pts56.99#2 jin · 10 pts33.00#3 mia · 7 pts11.00");
+		expect(container.querySelector(".result-hero")).toHaveTextContent("#1 · LAST FINISHER");
+		expect(within(container.querySelector<HTMLElement>(".result-hero")!).getByRole("heading", { name: "jin" })).toBeInTheDocument();
+		expect(screen.getByText(/10 points for the last finisher/)).toBeInTheDocument();
+	});
+	it("keeps the scored Top 3 visible when the pool is zero", () => {
+		const { container } = render(<ResultsScreen rankings={[{ id: 1, ownerId: "jin", color: "#fff", symbol: "◆", rank: 1, finishOrder: 1 }]} participants={[{ id: "jin", name: "Jin", color: "#fff", symbol: "◆" }]} prizePool={0} payoutMode="top3" celebrate={false} onReplay={vi.fn()} onBack={vi.fn()} />);
+		expect(container.querySelector(".prize-summary")).toHaveTextContent("#1 Jin · 10 pts0.00");
+	});
 	it("highlights the last finisher and offers explicit next actions", async () => {
 		const user = userEvent.setup();
 		const onReplay = vi.fn(); const onBack = vi.fn();

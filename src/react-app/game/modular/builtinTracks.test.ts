@@ -5,7 +5,7 @@ import { runModularValidationRace } from "./modularTrackPhysics";
 
 it.each(BUILTIN_TRACKS.flatMap((preset) => [
   { ...preset, seed: 23, marbleCount: 100 },
-  { ...preset, seed: 71, marbleCount: 100 },
+  { ...preset, seed: 71, marbleCount: 50 },
 ]))("finishes $track.name with $marbleCount marbles (seed $seed) near its advertised duration", async ({ id, track, seed, marbleCount }) => {
   const built = buildModularTrack(track);
   if (id === "builtin-30") {

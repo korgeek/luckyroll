@@ -106,13 +106,16 @@ describe("SetupScreen", () => {
 		expect(prize).toHaveValue("12,345"); expect(prize.selectionStart).toBe(2);
 	});
 
-	it("uses a fixed 100-marble setup without count controls", async () => {
+	it("offers 50 or 100 marbles only in the course picker and defaults to 50", async () => {
 		const user = userEvent.setup(); const onStart = vi.fn();
 		render(<SetupScreen onStart={onStart} />);
 		expect(screen.queryByLabelText("Marbles")).not.toBeInTheDocument();
-		expect(screen.getByText("100 marbles split as evenly as possible.")).toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" })); await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
-		expect(onStart.mock.calls[0][0]).not.toHaveProperty("marbleCount");
+		expect(screen.getByText("50 marbles split as evenly as possible.")).toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: "START RACE · 60-Second Track" }));
+		expect(screen.getByRole("radio", { name: "50" })).toBeChecked();
+		await user.click(screen.getByRole("radio", { name: "100" }));
+		await user.click(screen.getByRole("button", { name: "Select 60-Second Track" }));
+		expect(onStart.mock.calls[0][0]).toHaveProperty("marbleCount", 100);
 	});
 
 	it("identifies the first screen as the main menu", () => {

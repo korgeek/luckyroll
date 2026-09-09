@@ -1,9 +1,11 @@
 import type { CSSProperties } from "react";
-import { formatMoney, PAYOUT_MODES, prizeByOwner, type PayoutMode } from "../domain/race";
+import { formatMoney, PAYOUT_MODES, prizeByOwner, topPlayerScores, type PayoutMode } from "../domain/race";
 import type { Participant, RankedMarble } from "../domain/types";
 
 export function ResultsScreen({ rankings, participants, prizePool, payoutMode = "equal", celebrate, onReplay, onBack }: { rankings: RankedMarble[]; participants: Participant[]; prizePool: number; payoutMode?: PayoutMode; celebrate: boolean; onReplay: () => void; onBack: () => void }) {
-	const prizes = prizePool > 0 ? prizeByOwner(rankings, prizePool, payoutMode, participants) : {};
+	const prizes = prizeByOwner(rankings, prizePool, payoutMode, participants);
+	const scores = payoutMode === "top3" ? topPlayerScores(rankings).slice(0, 3) : [];
+	const prizeRows: [string, number][] = payoutMode === "top3" ? scores.map(({ ownerId }) => [ownerId, prizes[ownerId] ?? 0]) : Object.entries(prizes).filter(([, amount]) => amount > 0);
 	const winner = rankings[0];
 	const winnerName = participants.find((person) => person.id === winner?.ownerId)?.name;
 	return <section className="results-card">
@@ -22,7 +24,7 @@ export function ResultsScreen({ rankings, participants, prizePool, payoutMode = 
 			} as CSSProperties} />;
 		})}</div>}
 		<p className="eyebrow">WHO WAS LAST?</p>
-		{prizePool > 0 && <section className="prize-board"><p className="prize-total"><span>{celebrate ? "TOTAL PRIZE" : "CURRENT PRIZE"}</span><strong>{formatMoney(prizePool)}</strong></p><p className="payout-note">{PAYOUT_MODES.find(({ id }) => id === payoutMode)?.label}</p><section className="prize-winnings"><h2>{celebrate ? "PLAYER WINNINGS" : "CURRENT PRIZE SPLIT"}</h2><div className="prize-summary">{Object.entries(prizes).filter(([, amount]) => amount > 0).map(([owner, amount]) => <p key={owner}>{participants.find((person) => person.id === owner)?.name}<strong>{formatMoney(amount)}</strong></p>)}</div></section></section>}
+		{(prizePool > 0 || payoutMode === "top3") && <section className="prize-board"><p className="prize-total"><span>{celebrate ? "TOTAL PRIZE" : "CURRENT PRIZE"}</span><strong>{formatMoney(prizePool)}</strong></p><p className="payout-note">{PAYOUT_MODES.find(({ id }) => id === payoutMode)?.label}</p>{payoutMode === "top3" && <p className="payout-note">Last 10 marbles: 10 points for the last finisher down to 1 point for #10. Player totals decide the Top 3; ties favor the best marble rank. Prizes split 5:3:1 (5:3 for two players); remainders go to the points leader.</p>}<section className="prize-winnings"><h2>{celebrate ? "PLAYER WINNINGS" : "CURRENT PRIZE SPLIT"}</h2><div className="prize-summary">{prizeRows.map(([owner, amount], index) => <p key={owner}><span>{payoutMode === "top3" && `#${index + 1} `}{participants.find((person) => person.id === owner)?.name}{payoutMode === "top3" && ` · ${scores[index].points} pts`}</span><strong>{formatMoney(amount)}</strong></p>)}</div></section></section>}
 		<h1>TOP 10</h1>
 		{winner && <article className="result-hero"><span>{celebrate ? "#1 · LAST FINISHER" : "LATEST FINISHER · PARTIAL RESULTS"}</span><div className="winner-name"><i className="winner-marble" role="img" aria-label={`${winnerName}'s ${winner.symbol} marble`} style={{ background: winner.color }}>{winner.symbol}</i><h2>{winnerName}</h2></div><p>Marble #{winner.id}</p></article>}
 		<ol className="ranking-list">{rankings.slice(1, 10).map((marble) => <li key={marble.id}><b>#{marble.rank}</b><span style={{ color: marble.color }}>{marble.symbol} #{marble.id}</span><strong>{participants.find((person) => person.id === marble.ownerId)?.name}</strong></li>)}</ol>

@@ -177,6 +177,46 @@ describe("race scene lifecycle boundary", () => {
     scene.dispose();
   });
 
+  it.each([360 / 800, 1024 / 768])("keeps both lane edges and the pack visible in the running camera at aspect %s", async aspect => {
+    seams.featureSamples = true; seams.bodyX = 35;
+    const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 800 * aspect }, clientHeight: { value: 800 } });
+    const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    await settle(); scene.start(Array.from({ length: 20 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now();
+    for (let frame = 1; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
+    const pose = latestPose(cameraPoses[0].camera); const camera = pose.camera;
+    expect(pose.position.y).toBeGreaterThan(10);
+    camera.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(pose.position, pose.lookAt, pose.up)); camera.updateMatrixWorld();
+    for (const lateral of [-5.4, 0, 5.4]) {
+      const point = new THREE.Vector3(35, 0.34, lateral).project(camera);
+      expect(Math.abs(point.x)).toBeLessThan(0.95); expect(Math.abs(point.y)).toBeLessThan(0.95); expect(Math.abs(point.z)).toBeLessThan(1);
+    }
+    scene.dispose();
+  });
+
+  it("preserves route position and height when elevated shots switch on a slope", async () => {
+    let feature = false;
+    const director = vi.spyOn(cameraPlan, "createActionCameraDirector").mockReturnValue({ update: () => feature ? { mode: "feature", zoneKey: "bumper:7", framing: "wide" } : { mode: "crowd", framing: "wide" }, reset: () => undefined });
+    seams.featureSamples = true; seams.bodyX = 35;
+    const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 360 }, clientHeight: { value: 800 } });
+    const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign() });
+    const scale = Math.hypot(1, 0.15);
+    seams.courseSamples!.forEach(sample => { Object.assign(sample.position, { y: -sample.position.x * 0.15 }); Object.assign(sample, { tangent: { x: 1 / scale, y: -0.15 / scale, z: 0 }, up: { x: 0.15 / scale, y: 1 / scale, z: 0 } }); });
+    await settle(); scene.start(Array.from({ length: 20 }, (_, index) => marble(index + 1)), 11); await settle();
+    const now = performance.now(); const camera = cameraPoses[0].camera;
+    for (let frame = 1; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
+    let before = latestPose(camera).position; feature = true;
+    seams.frames.shift()?.(now + 701 * 17);
+    expect(Math.abs(latestPose(camera).position.x - before.x)).toBeLessThan(0.4);
+    expect(Math.abs(latestPose(camera).position.y - before.y)).toBeLessThan(0.5);
+    for (let frame = 702; frame <= 1000; frame++) seams.frames.shift()?.(now + frame * 17);
+    before = latestPose(camera).position; feature = false;
+    seams.frames.shift()?.(now + 1001 * 17);
+    expect(Math.abs(latestPose(camera).position.x - before.x)).toBeLessThan(0.4);
+    expect(Math.abs(latestPose(camera).position.y - before.y)).toBeLessThan(0.5);
+    scene.dispose(); director.mockRestore();
+  });
+
   it("retreats toward the last marble facing forward when twenty percent remain", async () => {
     seams.featureSamples = true; seams.bodyX = 35;
     const scene = createRaceScene(prepareCanvas(), () => undefined, { kind: "custom", track: createValidTrackDesign() });
@@ -216,11 +256,14 @@ describe("race scene lifecycle boundary", () => {
     seams.courseSamples!.splice(0, seams.courseSamples!.length, ...samples);
     const now = performance.now(); const camera = cameraPoses[0].camera;
     for (let frame = 1; frame <= 600; frame++) seams.frames.shift()?.(now + frame * 17);
+    let previousFloor = new THREE.Vector3(latestPose(camera).position.x, 0, latestPose(camera).position.z);
     distance = 55;
     for (let frame = 601; frame <= 780; frame++) {
       seams.frames.shift()?.(now + frame * 17);
       const position = latestPose(camera).position;
       const floor = new THREE.Vector3(position.x, 0, position.z);
+      expect(floor.distanceTo(previousFloor)).toBeLessThanOrEqual(22 * 0.017 + 0.001);
+      previousFloor = floor;
       const error = Math.min(...samples.slice(1).map((sample, index) => new THREE.Line3(new THREE.Vector3().copy(samples[index].position), new THREE.Vector3().copy(sample.position)).closestPointToPoint(floor, true, new THREE.Vector3()).distanceTo(floor)));
       expect(error).toBeLessThan(0.01);
     }
@@ -304,11 +347,10 @@ describe("race scene lifecycle boundary", () => {
     expect(camera.up.y).toBeCloseTo(1, 3);
     expect(camera.up.z).toBe(0);
     const frame = seams.courseSamples![0]; const settled = latestPose(camera);
-    expect(settled.position.y).toBeLessThan(frame.channelDepth);
+    expect(settled.position.y).toBeGreaterThan(frame.channelDepth + 4);
     expect(settled.position.x).toBeCloseTo(frame.position.x, 2);
-    const direction = settled.lookAt.clone().sub(settled.position);
-    const pitch = Math.atan2(-direction.y, Math.hypot(direction.x, direction.z)) * 180 / Math.PI;
-    expect(pitch).toBeGreaterThanOrEqual(35 - 0.01); expect(pitch).toBeLessThanOrEqual(50 + 0.01);
+    expect(settled.lookAt.x).toBeGreaterThan(settled.position.x);
+    expect(settled.lookAt.y).toBeLessThan(settled.position.y);
     scene.dispose();
   });
 
@@ -444,7 +486,7 @@ describe("race scene lifecycle boundary", () => {
 		scene.dispose();
 	});
 
-  it("approaches the bumper along the preceding channel and gently follows a marble inside the track", async () => {
+  it("approaches the bumper above the preceding channel and gently follows a marble", async () => {
     seams.featureSamples = true; seams.bodyX = 12;
     const canvas = prepareCanvas(); Object.defineProperties(canvas, { clientWidth: { value: 360 }, clientHeight: { value: 800 } });
     const scene = createRaceScene(canvas, () => undefined, { kind: "custom", track: createValidTrackDesign() });
@@ -452,17 +494,19 @@ describe("race scene lifecycle boundary", () => {
     const now = performance.now();
     for (let frame = 1; frame <= 500; frame++) seams.frames.shift()?.(now + frame * 17);
     const camera = cameraPoses[0].camera;
-    expect(latestPose(camera).lookAt.x).toBeCloseTo(13, 2);
+    expect(latestPose(camera).lookAt.x).toBeGreaterThan(19);
+    expect(latestPose(camera).lookAt.x).toBeLessThan(23);
     expect(latestPose(camera).position.x).toBeCloseTo(7, 1);
-    expect(latestPose(camera).position.y).toBeCloseTo(3.2, 1);
+    expect(latestPose(camera).position.y).toBeGreaterThan(12);
     const before = latestPose(camera).position.x;
     seams.bodyX = 24;
     seams.frames.shift()?.(now + 501 * 17);
     expect(Math.abs(latestPose(camera).position.x - before)).toBeLessThan(0.1);
     for (let frame = 502; frame <= 700; frame++) seams.frames.shift()?.(now + frame * 17);
-    expect(latestPose(camera).lookAt.x).toBeCloseTo(13, 2);
+    expect(latestPose(camera).lookAt.x).toBeGreaterThan(19);
+    expect(latestPose(camera).lookAt.x).toBeLessThan(23);
     expect(latestPose(camera).position.x).toBeCloseTo(7, 1);
-    expect(latestPose(camera).position.y).toBeCloseTo(3.2, 1);
+    expect(latestPose(camera).position.y).toBeGreaterThan(12);
     seams.bodyX = 35;
     for (let frame = 701; frame <= 900; frame++) seams.frames.shift()?.(now + frame * 17);
     expect(latestPose(camera).lookAt.x).toBeGreaterThan(30);
