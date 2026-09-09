@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { LocalTrack } from "../designer/trackDesign";
+import { BUILTIN_TRACKS, type LocalTrack } from "../designer/trackDesign";
 
 export type TrackLibraryPanelProps = Readonly<{
 	tracks: readonly LocalTrack[];
@@ -33,10 +33,7 @@ export function TrackLibraryPanel({ tracks, selectedTrackId, onBack, onNew, onEd
 		<header className="track-library-header"><button className="secondary-button" onClick={onBack}>Back to Menu</button><div><p className="eyebrow">TRACK MANAGEMENT</p><h1>Your tracks</h1></div></header>
 		<p className="track-count">{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</p>
 		<div className="track-library-tools"><button className="primary-button" onClick={onNew}>New Track</button><button ref={importButton} className="secondary-button" onClick={() => setImportOpen(true)}>Import Track</button></div>
-		<section className="builtin-track" aria-label="Default track">
-			<h2>Default Track</h2>
-			<button className={!selectedTrackId ? "selected" : ""} aria-label={`${!selectedTrackId ? "Selected" : "Select"} Default Track`} aria-pressed={!selectedTrackId} onClick={() => onSelect(undefined)}>{!selectedTrackId ? "Selected" : "Select"}</button>
-		</section>
+		{BUILTIN_TRACKS.map(({ id, track }) => <section key={id ?? "builtin-60"} className="builtin-track" aria-label={track.name}><h2>{track.name}</h2><button className={id === selectedTrackId ? "selected" : ""} aria-label={`${id === selectedTrackId ? "Selected" : "Select"} ${track.name}`} aria-pressed={id === selectedTrackId} onClick={() => onSelect(id)}>{id === selectedTrackId ? "Selected" : "Select"}</button></section>)}
 		{sortedTracks.length === 0 ? <p className="empty-tracks">No saved tracks yet. Create one or import a track code.</p> : <ul className="track-list" aria-label="Saved tracks">{sortedTracks.map((track) => {
 			const label = `${track.name || "Unnamed track"}, track ${track.id}`;
 			const selected = track.id === selectedTrackId;

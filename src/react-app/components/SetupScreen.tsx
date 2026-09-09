@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { CreditsDialog } from "./CreditsDialog";
 import type { Participant } from "../domain/types";
-import type { LocalTrack } from "../designer/trackDesign";
+import { BUILTIN_TRACKS, type LocalTrack } from "../designer/trackDesign";
 
 export type SetupValues = { participants: Participant[]; prizePool: number };
 
@@ -10,6 +10,7 @@ const SYMBOLS = ["◆", "●", "▲", "✦", "■", "✚", "♥", "✿", "☀", 
 const formatPrizePool = (digits: string): string => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 export type SetupScreenProps = Readonly<{
+	active?: boolean;
 	onStart: (values: SetupValues) => void;
 	tracks?: readonly LocalTrack[];
 	selectedTrackId?: string;
@@ -17,22 +18,22 @@ export type SetupScreenProps = Readonly<{
 	onSelectTrack?: (id?: string) => void;
 }>;
 
-export function SetupScreen({ onStart, tracks = [], selectedTrackId, onManageTracks = () => undefined, onSelectTrack = () => undefined }: SetupScreenProps) {
+export function SetupScreen({ active = true, onStart, tracks = [], selectedTrackId, onManageTracks = () => undefined, onSelectTrack = () => undefined }: SetupScreenProps) {
 	const [names, setNames] = useState(["Player 1", "Player 2"]);
 	const [prizePool, setPrizePool] = useState("");
 	const [prizeRevision, setPrizeRevision] = useState(0);
 	const [creditsOpen, setCreditsOpen] = useState(false);
-	const [pickerOpen, setPickerOpen] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(true);
 	const dialog = useRef<HTMLDialogElement>(null); const prizeInput = useRef<HTMLInputElement>(null); const prizeCaret = useRef<number | undefined>(undefined);
 	const pickerButton = useRef<HTMLButtonElement>(null);
-	const selectedTrack = tracks.find((track) => track.id === selectedTrackId);
-	const selectedTrackName = selectedTrack?.name || "Default Track";
+	const selectedTrack = tracks.find((track) => track.id === selectedTrackId) ?? BUILTIN_TRACKS.find(({ id }) => id === selectedTrackId)?.track;
+	const selectedTrackName = selectedTrack?.name || "60초 트랙";
 	useEffect(() => {
-		if (!pickerOpen || !dialog.current) return;
+		if (!active || !pickerOpen || !dialog.current) return;
 		const current = dialog.current; const opener = pickerButton.current;
 		current.showModal();
 		return () => { if (current.open) current.close(); opener?.focus(); };
-	}, [pickerOpen]);
+	}, [active, pickerOpen]);
 	const update = (index: number, value: string) => setNames((current) => current.map((name, nameIndex) => nameIndex === index ? value : name));
 	useLayoutEffect(() => {
 		const input = prizeInput.current; const digitCaret = prizeCaret.current;
@@ -66,8 +67,8 @@ export function SetupScreen({ onStart, tracks = [], selectedTrackId, onManageTra
 		<label className="field-label">Prize Pool <span>optional</span><input ref={prizeInput} aria-label="Prize Pool" inputMode="numeric" placeholder="0" value={formatPrizePool(prizePool)} onChange={updatePrizePool} onKeyDown={prizeKeyDown} /></label>
 		<p className="allocation-note">100 marbles split as evenly as possible.</p>
 		<section className="track-summary" aria-label="Selected track"><div><span>TRACK</span><strong>{selectedTrackName}</strong><small>{tracks.length} saved {tracks.length === 1 ? "track" : "tracks"}</small></div><div className="track-summary-actions"><button ref={pickerButton} className="secondary-button" onClick={() => setPickerOpen(true)}>Change Track</button><button className="text-button" onClick={onManageTracks}>Manage Tracks</button></div></section>
-		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><button aria-label="Select Default Track" aria-pressed={!selectedTrackId} onClick={() => chooseTrack(undefined)}>Default Track {!selectedTrackId && <span>Selected</span>}</button>{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === selectedTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === selectedTrackId && <span>Selected</span>}</button>)}<button className="text-button" onClick={() => setPickerOpen(false)}>Cancel</button></section></dialog>}
-		<footer className="setup-footer"><button className="text-button" onClick={() => setCreditsOpen(true)}>Credits</button></footer>
+		{pickerOpen && <dialog ref={dialog} className="dialog-backdrop" aria-label="Choose a track" onCancel={(event) => { event.preventDefault(); setPickerOpen(false); }} onClick={(event) => event.target === event.currentTarget && setPickerOpen(false)}><section className="share-dialog track-picker"><h2>Choose a track</h2><p>예상 플레이 시간이며 구슬 수와 레이스에 따라 달라집니다.</p>{BUILTIN_TRACKS.map(({ id, track }) => <button key={id ?? "builtin-60"} aria-label={`Select ${track.name}`} aria-pressed={id === selectedTrackId} onClick={() => chooseTrack(id)}>{track.name} {id === selectedTrackId && <span>Selected</span>}</button>)}{tracks.map((track) => <button key={track.id} aria-label={`Select ${track.name || "Unnamed track"}, track ${track.id}`} aria-pressed={track.id === selectedTrackId} onClick={() => chooseTrack(track.id)}>{track.name || "Unnamed track"} {track.id === selectedTrackId && <span>Selected</span>}</button>)}<button className="text-button" onClick={() => setPickerOpen(false)}>Cancel</button></section></dialog>}
+<footer className="setup-footer"><button className="text-button" onClick={() => setCreditsOpen(true)}>Credits</button></footer>
 		{creditsOpen && <CreditsDialog onClose={() => setCreditsOpen(false)} />}
 	</section>;
 }

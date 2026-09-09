@@ -42,6 +42,33 @@ export const createDefaultTrackDesign = (name = "New Track"): TrackDesign => Obj
   ]),
 });
 
+export const createShortTrackDesign = (name = "30초 트랙"): TrackDesign => Object.freeze({
+  name: normalizedName(name),
+  cells: frozenCells([
+    { kind: "start", rotation: 0 }, { kind: "curve", rotation: 2 }, null, null, null,
+    null, { kind: "wave", rotation: 1 }, null, null, null,
+    null, { kind: "funnel", rotation: 1 }, null, null, null,
+    null, { kind: "straight", rotation: 1 }, null, null, null,
+    null, { kind: "booster", rotation: 1 }, null, null, null,
+    null, { kind: "booster", rotation: 1 }, null, null, null,
+    null, { kind: "bumper", rotation: 1 }, null, null, null,
+    null, { kind: "curve", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "straight", rotation: 0 }, { kind: "finish", rotation: 0 },
+  ]),
+});
+
+export const BUILTIN_TRACKS = Object.freeze([
+  { id: undefined, track: Object.freeze({
+    name: "60초 트랙",
+    cells: frozenCells(createDefaultTrackDesign().cells.map((cell, index) => {
+      if (index === 3 || index === 13) return { kind: "curve", rotation: 2 };
+      if (index === 8 || index === 18) return { kind: "curve", rotation: 3 };
+      if (index === 20 || index === 25) return { kind: "straight", rotation: 1 };
+      return [4, 9, 14, 19].includes(index) || (index > 20 && index < 30) ? null : cell;
+    })),
+  }) },
+  { id: "builtin-30", track: createShortTrackDesign() },
+]);
+
 const ROTATED_PORTS: Readonly<Record<ModuleKind | "start" | "finish", readonly (readonly Direction[])[]>> = {
   start: [["east"]], finish: [["west"]],
   straight: [["west", "east"], ["north", "south"]],

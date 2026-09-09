@@ -8,7 +8,7 @@ import { TrackEditor } from "./components/TrackEditor";
 import { TrackLibraryPanel } from "./components/TrackLibraryPanel";
 import { createEditorState, type EditorState } from "./designer/editorState";
 import { decodeSharedTrack } from "./designer/trackCodec";
-import { createDefaultTrackDesign, type LocalTrack, type RaceCourseSelection, type TrackDesign, type TrackLibrary } from "./designer/trackDesign";
+import { BUILTIN_TRACKS, createDefaultTrackDesign, type LocalTrack, type RaceCourseSelection, type TrackDesign, type TrackLibrary } from "./designer/trackDesign";
 import { deleteTrack, loadTrackLibrary, persistTrackLibrary, resetTrackLibrary, upsertTrack } from "./designer/trackLibrary";
 import { allocateMarbles, reverseRank } from "./domain/race";
 import type { Marble, Participant } from "./domain/types";
@@ -75,7 +75,7 @@ function App() {
 		if (loaded.ok) {
 			setLibrary(loaded.library);
 			const savedTrackId = window.localStorage.getItem(SELECTED_TRACK_KEY) ?? undefined;
-			if (savedTrackId && loaded.library.tracks.some((track) => track.id === savedTrackId)) setSelectedTrackId(savedTrackId);
+			if (savedTrackId && (loaded.library.tracks.some((track) => track.id === savedTrackId) || BUILTIN_TRACKS.some(({ id }) => id === savedTrackId))) setSelectedTrackId(savedTrackId);
 			else window.localStorage.removeItem(SELECTED_TRACK_KEY);
 		}
 		else { setLibraryError(true); setMessage(`Saved tracks could not be loaded: ${loaded.message}`); }
@@ -119,7 +119,7 @@ function App() {
 		retroSounds.resetMusic(); retroSounds.music(muted ? null : "normal");
 		const marbles = allocateMarbles(values.participants, 100);
 		setMessage(""); setPaused(false); setBirdView(false); setSceneReady(false); setCelebrate(false); setRaceReturnView(returnView); countdownActiveRef.current = true; setCountdown("PREPARING RACE…");
-		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? createDefaultTrackDesign("Default Track") } });
+		setSession({ ...values, marbles, seed: Date.now(), course: { kind: "custom", track: track ?? (BUILTIN_TRACKS.find(({ id }) => id === selectedTrackId) ?? BUILTIN_TRACKS[0]).track } });
 		setFinished([]); setRemaining(undefined); setBoostFlash(false); setRush(false); setHud({ elapsedMs: 0, fps: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 5_000 }); setView("race");
 	};
 
@@ -266,7 +266,7 @@ function App() {
 	if (!runtimeReady) return <main className="app-shell" onClick={playUiClick}><section className="setup-card" role="status"><p className="eyebrow">LUCKY ROLL</p><h1>Loading race engine…</h1>{message && <p>{message}</p>}</section>{backNavigation}{leaveNotice}</main>;
 	return <main className="app-shell" onClick={playUiClick}>
 		{message && <div className="app-message" role="status">{message}{libraryError && <button onClick={() => { try { const next = resetTrackLibrary(window.localStorage); setLibrary(next); setLibraryError(false); setMessage("Saved track storage reset."); } catch (error) { setMessage(error instanceof Error ? error.message : "Saved track storage could not be reset."); } }}>Reset saved tracks</button>}</div>}
-		<div hidden={view !== "setup"}><SetupScreen onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onSelectTrack={selectTrack} onManageTracks={() => setView("library")} /></div>
+		<div hidden={view !== "setup"}><SetupScreen active={view === "setup"} onStart={start} tracks={library.tracks} selectedTrackId={selectedTrackId} onSelectTrack={selectTrack} onManageTracks={() => setView("library")} /></div>
 		{view === "library" && <TrackLibraryPanel tracks={library.tracks} selectedTrackId={selectedTrackId} onBack={() => setView("setup")} onNew={() => { setEditor(createEditorState(createDefaultTrackDesign())); setView("editor"); }} onEdit={editTrack} onSelect={selectTrack} onPlay={(id) => { const track = trackById(id); if (track) { selectTrack(id); start(QUICK_PLAY, track, "library"); } }} onShare={(id) => openShare(trackById(id))} onDelete={removeTrack} onImport={importTrack} />}
 		{view === "editor" && <TrackEditor state={editor} onChange={setEditor} onBack={() => setView("library")} onSave={saveEditor} onShare={() => openShare(editor.draft)} onPlay={() => start(QUICK_PLAY, editor.draft, "editor")} />}
 		{view === "race" && session && <section className="race-stage"><canvas ref={canvasRef} /><RaceHud elapsedMs={hud.elapsedMs} fps={hud.fps} eliminatedCount={hud.eliminatedCount} total={session.marbles.length} standings={hud.standings} finished={finished} participants={session.participants} />{rush && <div className="rush-hud" role="status"><strong>RUSH!</strong><i aria-hidden="true" /></div>}{countdown && <div className={countdown === "PREPARING RACE…" ? "race-countdown preparing" : "race-countdown"} role="status" aria-live="assertive"><strong>{countdown}</strong></div>}<div className="race-actions"><button disabled={!sceneReady} onClick={() => { const next = !birdView; setBirdView(next); sceneRef.current?.setBirdView(next); }}>{birdView ? "Auto Camera" : "Bird View"}</button><button disabled={!sceneReady} onClick={() => { const next = !paused; setPaused(next); sceneRef.current?.setPaused(next); if (next) retroSounds.stop(); }}>{paused ? "Resume" : "Pause"}</button><button onClick={() => { const next = !muted; setMuted(next); retroSounds.setMuted(next); }}>{muted ? "Sound on" : "Mute"}</button><button onClick={again}>{raceBackLabel}</button></div><div className="boost-dock"><button className={rush ? "boost-button rush-locked" : hud.boostRemainingMs === 0 ? "boost-button ready" : "boost-button"} disabled={rush || !sceneReady || paused || Boolean(backChoice) || Boolean(remaining) || hud.boostRemainingMs > 0} onClick={boost} aria-label={rush ? "Boost unavailable during RUSH" : hud.boostRemainingMs === 0 ? "Boost ready" : `Boost charging, ${(hud.boostRemainingMs / 1000).toFixed(1)} seconds remaining`} style={{ "--boost-fill": boostFill } as CSSProperties}><i /><span>{rush ? "LOCKED" : "BOOST"}</span><small>{rush ? "RUSH" : hud.boostRemainingMs === 0 ? "READY" : `${(hud.boostRemainingMs / 1000).toFixed(1)}s`}</small></button></div>{boostFlash && <strong className="boost-flash" role="status">BOOST!</strong>}{remaining && <TimeoutDialog remaining={remaining} onRemaining={restartRemaining} onRestart={restartAll} onResults={showResults} />}</section>}

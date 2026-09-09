@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultTrackDesign } from "./designer/trackDesign";
+import { BUILTIN_TRACKS, createDefaultTrackDesign } from "./designer/trackDesign";
 import { encodeSharedTrack } from "./designer/trackCodec";
 import { TRACK_LIBRARY_KEY } from "./designer/trackLibrary";
 
@@ -50,11 +50,24 @@ describe("default race course and camera controls", () => {
 		scene.initialize.mockResolvedValue(undefined);
   });
   afterEach(cleanup);
+	it("starts and remembers the short preset chosen on arrival", async () => {
+		const user = userEvent.setup();
+		const mounted = render(<App />);
+		await user.click(await screen.findByRole("button", { name: "Select 30초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 30초 트랙" }));
+		await waitFor(() => expect(scene.create).toHaveBeenCalled());
+		expect(scene.create.mock.calls[0][2]).toEqual(expect.objectContaining({ kind: "custom", track: expect.objectContaining({ name: "30초 트랙" }) }));
+		mounted.unmount();
+		render(<App />);
+		expect(await screen.findByRole("button", { name: "Select 30초 트랙" })).toHaveAttribute("aria-pressed", "true");
+	});
 
 	it("plays one UI click for pointer and keyboard buttons, not text inputs", async () => {
 		const user = userEvent.setup(); render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByLabelText("Player 1"));
+		fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+    vi.mocked(retroSounds.click).mockClear();
+    await user.click(screen.getByLabelText("Player 1"));
 		expect(retroSounds.click).not.toHaveBeenCalled();
 		const shuffle = screen.getByRole("button", { name: "Shuffle" });
 		await user.click(shuffle);
@@ -62,16 +75,23 @@ describe("default race course and camera controls", () => {
 		shuffle.focus(); await user.keyboard("{Enter}");
 		expect(retroSounds.click).toHaveBeenCalledTimes(2);
 	});
+	it("opens a shared track without a blocking startup picker", async () => {
+		window.location.hash = "track=" + encodeSharedTrack(createDefaultTrackDesign("Shared"));
+		render(<App />);
+		await screen.findByRole("main", { name: "Track editor" });
+		expect(screen.queryByRole("dialog", { name: "Choose a track" })).not.toBeInTheDocument();
+	});
 
-	it("starts on the editor-built Default Track and toggles a fixed bird view", async () => {
+	it("starts on the editor-built 60초 트랙 and toggles a fixed bird view", async () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 
-    await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		await finishCountdown();
-    expect(scene.create.mock.calls[0][2]).toEqual({ kind: "custom", track: createDefaultTrackDesign("Default Track") });
+    expect(scene.create.mock.calls[0][2]).toEqual({ kind: "custom", track: BUILTIN_TRACKS[0].track });
 
     const birdView = await screen.findByRole("button", { name: "Bird View" });
     await waitFor(() => expect(birdView).toBeEnabled());
@@ -87,7 +107,8 @@ describe("default race course and camera controls", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("region", { name: "Main menu" });
-    await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+    await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalled());
     const marble = (id: number) => ({ id, ownerId: "player-1", color: "#fff", symbol: "◆" });
     const emit = scene.create.mock.calls[0]?.[1] as (event: { type: "finish"; marble: ReturnType<typeof marble> } | { type: "tick"; elapsedMs: number; fps: number; finishedCount: number; eliminatedCount: number; remaining: ReturnType<typeof marble>[]; standings: Array<{ marble: ReturnType<typeof marble>; gap: number }>; boostRemainingMs: number } | { type: "timeout"; remaining: ReturnType<typeof marble>[] }) => void;
@@ -113,9 +134,10 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		const preload = vi.mocked(retroSounds.preload);
 		const preloadCallsBeforeStart = preload.mock.calls.length;
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
 		expect(scene.create).not.toHaveBeenCalled();
 		expect(preload).toHaveBeenCalledTimes(preloadCallsBeforeStart + 1);
@@ -149,7 +171,8 @@ describe("default race course and camera controls", () => {
 	it("locks the manual BOOST control for RUSH", async () => {
 		const user = userEvent.setup(); render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled()); await finishCountdown();
 		const emit = scene.create.mock.calls[0][1] as (event: { type: "tick"; elapsedMs: number; fps: number; finishedCount: number; eliminatedCount: number; standings: []; boostRemainingMs: number } | { type: "rush" }) => void;
 		act(() => { emit({ type: "tick", elapsedMs: 5_000, fps: 60, finishedCount: 0, eliminatedCount: 0, standings: [], boostRemainingMs: 0 }); emit({ type: "rush" }); });
@@ -164,7 +187,8 @@ describe("default race course and camera controls", () => {
 	it("uses 100 marbles for menu return and replay while clearing RUSH", async () => {
 		const user = userEvent.setup(); render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.start).toHaveBeenCalled());
 		expect(scene.start.mock.calls[0][0]).toHaveLength(100);
 		act(() => latestSceneEmitter()({ type: "rush" }));
@@ -172,7 +196,7 @@ describe("default race course and camera controls", () => {
 		await user.click(screen.getByRole("button", { name: "Back to Menu" }));
 		expect(screen.queryByText("RUSH!")).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("Marbles")).not.toBeInTheDocument();
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.start).toHaveBeenCalledTimes(2));
 		expect(scene.start.mock.calls[1][0]).toHaveLength(100);
 		const emit = latestSceneEmitter();
@@ -188,7 +212,8 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		expect(screen.getByRole("status")).toHaveTextContent("PREPARING RACE…");
 		expect(scene.setPaused).toHaveBeenLastCalledWith(true);
@@ -221,7 +246,8 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		const { unmount } = render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		vi.useFakeTimers(); act(() => latestSceneEmitter()({ type: "prepared" }));
 		const pauseCalls = scene.setPaused.mock.calls.length;
@@ -234,7 +260,8 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		const oldEmitter = latestSceneEmitter();
 		await user.click(screen.getByRole("button", { name: "Back to Menu" }));
@@ -247,7 +274,8 @@ describe("default race course and camera controls", () => {
 		scene.create.mockImplementationOnce(() => { throw new Error("build failed"); });
 		const user = userEvent.setup(); render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		expect(await screen.findByText("build failed")).toBeInTheDocument();
 		expect(screen.queryByText("PREPARING RACE…")).not.toBeInTheDocument();
 		expect(screen.getByRole("region", { name: "Main menu" })).toBeInTheDocument();
@@ -259,9 +287,10 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<StrictMode><App /></StrictMode>);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		expect(pushState).toHaveBeenCalledTimes(1);
 
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		await finishCountdown();
 		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: true } } })));
@@ -286,7 +315,8 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		await user.click(screen.getByRole("button", { name: "Pause" }));
 		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: false } } })));
@@ -313,11 +343,12 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: true } } })));
 		await user.click(screen.getByRole("button", { name: "QUIT" }));
 		expect(go).toHaveBeenCalledWith(-2);
 		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: true } } })));
-		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(screen.queryByRole("dialog", { name: "QUIT GAME?" })).not.toBeInTheDocument();
 		act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: { luckyRollNavigation: { position: "base", hadPrevious: true } } })));
 		expect(screen.getByRole("dialog", { name: "QUIT GAME?" })).toBeInTheDocument();
 		go.mockRestore();
@@ -327,6 +358,7 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		await user.clear(screen.getByLabelText("Player 1"));
 		await user.type(screen.getByLabelText("Player 1"), "Jin");
 		await user.click(screen.getByRole("button", { name: "Manage Tracks" }));
@@ -355,6 +387,7 @@ describe("default race course and camera controls", () => {
 		window.localStorage.setItem(TRACK_LIBRARY_KEY, JSON.stringify({ version: 1, tracks: [track] }));
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		await user.click(screen.getByRole("button", { name: "Manage Tracks" }));
 		await user.click(screen.getByRole("button", { name: "Share Saved Course, track saved" }));
 		expect(screen.getByLabelText("Track code")).toHaveValue(encodeSharedTrack(track));
@@ -382,6 +415,7 @@ describe("default race course and camera controls", () => {
 		cleanup();
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		await user.click(screen.getByRole("button", { name: "Manage Tracks" }));
 		expect(screen.getByRole("button", { name: `Edit Imported Course v2, track ${importedId}` })).toBeInTheDocument();
 		uuid.mockRestore();
@@ -393,6 +427,7 @@ describe("default race course and camera controls", () => {
 		window.localStorage.setItem(TRACK_LIBRARY_KEY, JSON.stringify({ version: 1, tracks: [track] }));
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		await user.click(screen.getByRole("button", { name: "Manage Tracks" }));
 		await user.click(screen.getByRole("button", { name: "Play Saved Course, track saved" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
@@ -409,6 +444,7 @@ describe("default race course and camera controls", () => {
 		});
 		render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		await user.click(screen.getByRole("button", { name: "Manage Tracks" }));
 		await user.click(screen.getByRole("button", { name: "New Track" }));
 		await user.click(screen.getByRole("button", { name: "Save" }));
@@ -422,7 +458,8 @@ describe("default race course and camera controls", () => {
 		const user = userEvent.setup();
 		const { container } = render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
-		await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
+		await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
 		await waitFor(() => expect(scene.create).toHaveBeenCalled());
 		const emit = scene.create.mock.calls[0][1] as (event: { type: "finish"; marble: { id: number; ownerId: string; color: string; symbol: string } }) => void;
 		vi.useFakeTimers();
@@ -441,7 +478,7 @@ describe("default race course and camera controls", () => {
   it("cancels the delayed result transition when returning to the menu", async () => {
     const user = userEvent.setup(); render(<App />);
     await screen.findByRole("region", { name: "Main menu" });
-    await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalled());
     vi.useFakeTimers();
     act(() => { for (let id = 1; id <= 100; id++) latestSceneEmitter()({ type: "finish", marble: { id, ownerId: "player-1", color: "#fff", symbol: "◆" } }); });
@@ -454,7 +491,7 @@ describe("default race course and camera controls", () => {
   it.each([false, true])("plays results BGM only when the race is not muted (%s)", async (muted) => {
     const user = userEvent.setup(); render(<App />);
     await screen.findByRole("region", { name: "Main menu" });
-    await user.click(screen.getByRole("button", { name: "START RACE · Default Track" }));
+    await user.click(screen.getByRole("button", { name: "START RACE · 60초 트랙" }));
     await waitFor(() => expect(scene.create).toHaveBeenCalled());
     if (muted) await user.click(screen.getByRole("button", { name: "Mute" }));
     vi.useFakeTimers();
@@ -482,6 +519,7 @@ describe("default race course and camera controls", () => {
 		window.localStorage.setItem(TRACK_LIBRARY_KEY, JSON.stringify({ version: 1, tracks: [track] }));
 		const { container } = render(<App />);
 		await screen.findByRole("region", { name: "Main menu" });
+    fireEvent.click(screen.getByRole("button", { name: "Select 60초 트랙" }));
 		await user.clear(screen.getByLabelText("Player 1")); await user.type(screen.getByLabelText("Player 1"), "Jin");
 		await user.click(screen.getByRole("button", { name: "Change Track" }));
 		await user.click(screen.getByRole("button", { name: "Select Saved Course, track saved" }));
