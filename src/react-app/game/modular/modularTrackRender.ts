@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import type { IndexedGeometry } from "../track/obstacleGeometry";
 import type { Vec3 } from "../track/trackTypes";
-import { MODULE_SIZE, type ModulePathSample } from "./modularTypes";
 import type { BuiltModularTrack } from "./modularTrackBuild";
 import {
   resolveModuleDevices,
@@ -35,6 +34,30 @@ const toGeometry = (resource: IndexedGeometry): THREE.BufferGeometry => {
   return geometry;
 };
 const toVector = (value: Vec3): THREE.Vector3 => new THREE.Vector3(value.x, value.y, value.z);
+const createChannelShell = (resource: IndexedGeometry, group: THREE.Group, channel: THREE.Material): void => {
+  const positions = resource.positions.map((value, index) => value - resource.normals[index] * 0.26);
+  const normals = resource.normals.map(value => -value);
+  const indices = resource.indices.slice();
+  const boundary = new Map<string, [number, number]>();
+  for (let index = 0; index < indices.length; index += 3) {
+    const [a, b, c] = [indices[index], indices[index + 1], indices[index + 2]];
+    indices[index + 1] = c; indices[index + 2] = b;
+    for (const [from, to] of [[a, b], [b, c], [c, a]]) {
+      const key = `${Math.min(from, to)}:${Math.max(from, to)}`;
+      if (boundary.has(key)) boundary.delete(key); else boundary.set(key, [from, to]);
+    }
+  }
+  const shell = new THREE.Mesh(toGeometry({ positions, normals, indices }), channel);
+  shell.name = "modular-channel-shell"; shell.userData.collider = false; group.add(shell);
+  const rimPositions: number[] = [];
+  for (const [a, b] of boundary.values()) {
+    for (const [buffer, vertex] of [[resource.positions, b], [resource.positions, a], [positions, a], [resource.positions, b], [positions, a], [positions, b]] as const) {
+      rimPositions.push(buffer[vertex * 3], buffer[vertex * 3 + 1], buffer[vertex * 3 + 2]);
+    }
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(rimPositions, 3)); geometry.computeVertexNormals(); geometry.computeBoundingSphere();
+  const rim = new THREE.Mesh(geometry, material("#7c8590")); rim.name = "modular-channel-rims"; rim.userData.collider = false; group.add(rim);
+};
 const orient = (object: THREE.Object3D, axis: Vec3): void => { object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), toVector(axis).normalize()); };
 const frameQuaternion = (frame: { tangent: Vec3; side: Vec3; up: Vec3 }): THREE.Quaternion => {
   const basis = new THREE.Matrix4().makeBasis(toVector(frame.side), toVector(frame.up), toVector(frame.tangent).negate());
@@ -117,34 +140,6 @@ const createCurveSafetyChevrons = (built: BuiltModularTrack, group: THREE.Group)
   group.add(chevrons);
 };
 
-// Close the empty space behind each inner rail without changing the racing surface.
-const createCurveInfill = (built: BuiltModularTrack, group: THREE.Group, capMaterial: THREE.Material): void => {
-  const positions: number[] = [];
-  const { profileSegments, positions: surface } = built.geometry;
-  const samples: readonly ModulePathSample[] = built.geometry.samples;
-  for (const step of built.route.route) {
-    if (built.track.cells[step.cellIndex]?.kind !== "curve") continue;
-    const rows = samples.flatMap((sample, row) => sample.cellIndex === step.cellIndex || sample.ports?.some(port => port.cellIndex === step.cellIndex) ? [row] : []);
-    const middle = samples[rows[Math.floor(rows.length / 2)]];
-    const inner = toVector(middle.centerlineCurvature).dot(toVector(middle.side)) < 0 ? 0 : profileSegments;
-    const rim = rows.map(row => new THREE.Vector3().fromArray(surface, (row * (profileSegments + 1) + inner) * 3));
-    const entry = samples[rows[0]].position;
-    const exit = samples[rows[rows.length - 1]].position;
-    const corner = new THREE.Vector3(
-      entry.x + exit.x - ((step.cellIndex % 5 + 0.5) * MODULE_SIZE),
-      (rim[0].y + rim[rim.length - 1].y) / 2,
-      entry.z + exit.z - ((Math.floor(step.cellIndex / 5) + 0.5) * MODULE_SIZE),
-    );
-    for (let index = 1; index < rim.length; index++) {
-      const a = rim[index - 1]; const b = rim[index];
-      const normal = b.clone().sub(a).cross(corner.clone().sub(a));
-      positions.push(...a.toArray(), ...(normal.y >= 0 ? b : corner).toArray(), ...(normal.y >= 0 ? corner : b).toArray());
-    }
-  }
-  const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, capMaterial); mesh.name = "curve-inner-infill"; mesh.userData.collider = false; group.add(mesh);
-};
-
 const createStart = (devices: ModuleDevices, group: THREE.Group, dark: THREE.Material, refs: ModularDeviceRefs): void => {
   const gate = new THREE.Mesh(new THREE.BoxGeometry(devices.start.gate.width, devices.start.gate.height, devices.start.gate.depth), dark); gate.name = "modular-release-gate"; gate.position.copy(toVector(devices.start.gate.center)); gate.quaternion.copy(frameQuaternion(devices.start.gate)); group.add(gate);
   const vertices = createPusherVertices(devices.start.pusher);
@@ -189,11 +184,11 @@ export const createModularTrackRender = (built: BuiltModularTrack, _options: Mod
   const group = new THREE.Group(); group.name = "modular-track";
   const dark = material("#090b12"); const channel = new THREE.MeshStandardMaterial({ color: "#3f4650", roughness: 0.34, metalness: 0.62 }); const device = material("#e73da7", "#5f0a40");
   const surface = new THREE.Mesh(toGeometry(built.geometry), channel); surface.name = "modular-channel"; surface.userData.surfaceColor = "#3f4650"; group.add(surface);
+  createChannelShell(built.geometry, group, channel);
   const refs: ModularDeviceRefs = { gate: new THREE.Object3D(), pusher: new THREE.Object3D(), pinwheels: [] };
   const devices = resolveModuleDevices(built.track, built.route, built.samples);
   createStart(devices, group, dark, refs); createBumpers(devices, group, device); createPinwheels(devices, group, device, refs);
   if (devices.boosters.length > 0) createBoosters(devices, group, material("#ffe25a", "#6d5900"));
-  createCurveInfill(built, group, channel);
   createCurveSafetyChevrons(built, group);
   createFinishDecoration(built, group);
   group.userData[REFS] = refs;

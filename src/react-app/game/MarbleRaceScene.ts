@@ -538,8 +538,10 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
             rearCameraHeight = Math.max(5, camera.position.y - frameAtDistance(cameraSamples, rearCameraDistance)!.position.y);
           }
           const destination = Math.max(cameraSamples[0].distance, alongRouteDistance(target.position, target.sampleIndex, course.samples) - 6);
+          const velocity = target.body.linvel();
+          const targetSpeed = velocity.x * sample.tangent.x + velocity.y * sample.tangent.y + velocity.z * sample.tangent.z;
           routeMotion.distance = rearCameraDistance;
-          rearCameraDistance = advanceCameraRoute(routeMotion, destination, cameraDelta);
+          rearCameraDistance = advanceCameraRoute(routeMotion, destination, cameraDelta, 30, targetSpeed);
           rearCameraHeight += (6 - rearCameraHeight) * cameraLerpAlpha(0.03, cameraDelta);
           writeRouteRearFollowShot(cameraShot, rearCameraDistance, cameraSamples, bounds, rearCameraHeight);
           const anchor = frameAtDistance(cameraSamples, rearCameraDistance)!;
@@ -584,7 +586,7 @@ export function createRaceScene(canvas: HTMLCanvasElement, emit: (event: SceneEv
     if (channelFrame && !routeCrowdShot && !bumperFeature && !routeRetreat) { constrainChannelCameraShot(controlledCameraShot, channelFrame); localUp = channelFrame.up; }
     if (showLaunch && !birdView && !reducedMotion && !debug.isPaused()) {
       const elapsed = raceClock.elapsedMs(last, pausedDuration, pauseStarted, manualPaused);
-      const progress = Math.max(0, Math.min(1, (elapsed - 650) / 2400));
+      const progress = Math.max(0, Math.min(1, elapsed / 2400));
       const blend = progress * progress * (3 - 2 * progress);
       writeStartCameraShot(startCameraShot, cameraSamples[0], bounds, camera.fov, camera.aspect, elapsed / 650);
       for (const key of ["x", "y", "z"] as const) {

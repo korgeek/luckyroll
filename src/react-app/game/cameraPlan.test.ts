@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { createValidTrackDesign } from "../designer/trackDesign.testSupport";
+import { BUILTIN_TRACKS } from "../designer/trackDesign";
+import { createModularTrackRender } from "./modular/modularTrackRender";
 import { resolveModuleDevices } from "./modular/moduleDevices";
 import { buildModularTrack } from "./modular/modularTrackBuild";
 import { buildValidatedTrack } from "./track/trackBuild";
@@ -31,6 +33,23 @@ import {
 const canonicalTrackBounds = getTrackBounds(buildValidatedTrack().samples);
 
 describe("camera transitions", () => {
+  it.each(BUILTIN_TRACKS.flatMap(preset => [360 / 800, 1024 / 768].map(aspect => ({ ...preset, aspect }))))("keeps the starter visible through the finished channel shell on $track.name at $aspect", ({ track, aspect }) => {
+    const built = buildModularTrack(track); const rendered = createModularTrackRender(built);
+    const start = rendered.devices.start;
+    const frame = { ...built.samples[0], position: start.frame.position, width: start.width };
+    rendered.group.updateMatrixWorld(true);
+    const walls = [rendered.group.getObjectByName("modular-channel")!, rendered.group.getObjectByName("modular-channel-shell")!];
+    for (const progress of [0, 1]) {
+      const shot = writeStartCameraShot(mutableShot(), frame, getTrackBounds(built.samples), 60, aspect, progress);
+      const origin = new THREE.Vector3().copy(shot.position);
+      for (const point of [start.pusher.center, new THREE.Vector3().copy(start.frame.position).addScaledVector(new THREE.Vector3().copy(start.frame.tangent), 4).addScaledVector(new THREE.Vector3().copy(start.frame.up), 0.34)]) {
+        const direction = new THREE.Vector3().copy(point).sub(origin); const distance = direction.length();
+        const ray = new THREE.Raycaster(origin, direction.normalize(), 0, distance - 0.1);
+        expect(ray.intersectObjects(walls, false), `starter occluded at progress ${progress}`).toHaveLength(0);
+      }
+    }
+    rendered.dispose();
+  });
   it("eases camera speed before a corner and recovers only after its exit", () => {
     const template = buildValidatedTrack().samples[0];
     const samples = [0, 20, 30, 40, 60].map((distance, index) => ({ ...template, distance, index, tangent: { x: Math.cos(Math.min(1, Math.max(0, (distance - 20) / 20)) * Math.PI / 2), y: 0, z: Math.sin(Math.min(1, Math.max(0, (distance - 20) / 20)) * Math.PI / 2) } }));
@@ -49,6 +68,20 @@ describe("camera transitions", () => {
     for (let i = 0; i < 1800; i++) advanceCameraRoute(motion, 200, 1000 / 60);
     expect(motion.distance).toBeCloseTo(200, 2);
     expect(Math.abs(motion.velocity)).toBeLessThan(0.01);
+  });
+  it("meets a moving last marble during retreat and follows without continuing backwards", () => {
+    const motion = { distance: 30, velocity: -10 };
+    let destination = 0; let following = false;
+    for (let frame = 0; frame < 600; frame++) {
+      destination += 8 / 60;
+      const previous = motion.distance;
+      advanceCameraRoute(motion, destination, 1000 / 60, 30, 8);
+      if (Math.abs(motion.distance - destination) < 0.5) following = true;
+      if (following) expect(motion.distance).toBeGreaterThanOrEqual(previous);
+    }
+    expect(following).toBe(true);
+    expect(Math.abs(motion.distance - destination)).toBeLessThan(0.25);
+    expect(motion.velocity).toBeCloseTo(8, 1);
   });
   it.each([360 / 800, 1024 / 768])("frames the starter and pusher from the front oblique at aspect %s", aspect => {
     const built = buildModularTrack(createValidTrackDesign());

@@ -3,9 +3,68 @@ import { describe, expect, it, vi } from "vitest";
 import { type TrackCell } from "../../designer/trackDesign";
 import { createValidTrackDesign, createWorstCaseTrackDesign } from "../../designer/trackDesign.testSupport";
 import { buildModularTrack } from "./modularTrackBuild";
+import type { ModulePathSample } from "./modularTypes";
 import { createModularTrackRender, disposeModularTrackRender, setModularDevicePose } from "./modularTrackRender";
 
 describe("modular track rendering", () => {
+  it("gives every module a closed, thick exterior visible from its floor and both sides without moving the interior", () => {
+    const seen = new Set<string>();
+    const track = createValidTrackDesign();
+    const built = buildModularTrack(track); const original = built.geometry.positions.slice();
+    const rendered = createModularTrackRender(built); rendered.group.updateMatrixWorld(true);
+    const surface = rendered.group.getObjectByName("modular-channel") as THREE.Mesh;
+    const shell = rendered.group.getObjectByName("modular-channel-shell") as THREE.Mesh;
+    const rims = rendered.group.getObjectByName("modular-channel-rims") as THREE.Mesh;
+    expect(shell.userData.collider).toBe(false); expect(rims.userData.collider).toBe(false);
+    expect((shell.material as THREE.Material).side).toBe(THREE.FrontSide);
+    const outer = shell.geometry.getAttribute("position");
+    let maxThicknessError = 0; let maxNormalDot = -Infinity;
+    for (let vertex = 0; vertex < outer.count; vertex++) {
+      const delta = new THREE.Vector3().fromBufferAttribute(outer, vertex).sub(new THREE.Vector3().fromArray(original, vertex * 3));
+      maxThicknessError = Math.max(maxThicknessError, Math.abs(delta.length() - 0.26));
+      maxNormalDot = Math.max(maxNormalDot, delta.dot(new THREE.Vector3().fromArray(built.geometry.normals, vertex * 3)));
+    }
+    expect(maxThicknessError).toBeLessThan(0.00005); expect(maxNormalDot).toBeLessThan(-0.2599);
+    const perimeterEdges = 2 * (built.geometry.samples.length - 1 + built.geometry.profileSegments);
+    expect(rims.geometry.getAttribute("position").count).toBe(perimeterEdges * 6);
+    for (const mesh of [shell, rims]) {
+      const positions = mesh.geometry.getAttribute("position"); const indices = mesh.geometry.getIndex();
+      let minimumArea = Infinity;
+      for (let offset = 0; offset < (indices?.count ?? positions.count); offset += 3) {
+        const [a, b, c] = [0, 1, 2].map(delta => new THREE.Vector3().fromBufferAttribute(positions, indices ? indices.getX(offset + delta) : offset + delta));
+        minimumArea = Math.min(minimumArea, b.sub(a).cross(c.sub(a)).lengthSq());
+      }
+      expect(minimumArea).toBeGreaterThan(1e-12);
+    }
+    const representativeRows = new Map<string, number>();
+    const samples: readonly ModulePathSample[] = built.geometry.samples;
+    samples.forEach((sample, row) => {
+      const kind = track.cells[sample.cellIndex]?.kind;
+      if (!kind || seen.has(kind) || row === samples.length - 1) return;
+      const previous = representativeRows.get(kind);
+      if (previous === undefined || Math.abs(sample.localU - 0.5) < Math.abs(samples[previous].localU - 0.5)) representativeRows.set(kind, row);
+    });
+    for (const [kind, row] of representativeRows) {
+      seen.add(kind);
+      for (const column of [1, Math.floor(built.geometry.profileSegments / 2), built.geometry.profileSegments - 2]) {
+        const triangle = (row * built.geometry.profileSegments + column) * 6;
+        for (const mesh of [surface, shell]) {
+          const positions = mesh.geometry.getAttribute("position"); const indices = mesh.geometry.getIndex()!;
+          const [a, b, c] = [0, 1, 2].map(delta => new THREE.Vector3().fromBufferAttribute(positions, indices.getX(triangle + delta)));
+          const normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+          const center = a.add(b).add(c).divideScalar(3);
+          const ray = new THREE.Raycaster(center.clone().addScaledVector(normal, 0.05), normal.clone().negate(), 0, 0.1);
+          mesh.geometry.setDrawRange(triangle, 3);
+          expect(ray.intersectObject(mesh)[0]?.distance).toBeCloseTo(0.05, 4);
+          mesh.geometry.setDrawRange(0, Infinity);
+        }
+      }
+    }
+    expect(built.geometry.positions.every((value, index) => value === original[index])).toBe(true);
+    const shellDispose = vi.spyOn(shell.geometry, "dispose"); const rimDispose = vi.spyOn(rims.geometry, "dispose");
+    rendered.dispose(); rendered.dispose(); expect(shellDispose).toHaveBeenCalledOnce(); expect(rimDispose).toHaveBeenCalledOnce();
+    expect([...seen].sort()).toEqual(["booster", "bumper", "curve", "finish", "funnel", "pinwheel", "start", "straight", "wave"]);
+  });
   it("renders the centered bumper as a distinct round cylinder", () => {
     const rendered = createModularTrackRender(buildModularTrack(createWorstCaseTrackDesign()));
     const mesh = rendered.group.getObjectByName("round-bumpers") as THREE.InstancedMesh;
@@ -41,7 +100,8 @@ describe("modular track rendering", () => {
     expect(surface.material).toBeInstanceOf(THREE.MeshStandardMaterial);
     const channelMaterial = surface.material as THREE.MeshStandardMaterial;
     expect(channelMaterial.color.getHexString()).toBe("3f4650"); expect(channelMaterial.roughness).toBe(0.34); expect(channelMaterial.metalness).toBe(0.62);
-    expect(rendered.group.getObjectByName("modular-channel-shell")).toBeUndefined();
+    expect(rendered.group.getObjectByName("modular-channel-shell")).toBeInstanceOf(THREE.Mesh);
+    expect(rendered.group.getObjectByName("curve-inner-infill")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-bowl")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-ramp-bridge")).toBeUndefined();
     expect(rendered.group.getObjectByName("modular-start-agitator")).toBeUndefined();
@@ -79,31 +139,6 @@ describe("modular track rendering", () => {
     expect(chevrons.children).toHaveLength(curveCells.size * 3);
     expect(chevrons.children.every((child) => child instanceof THREE.Mesh && child.geometry.type === "ShapeGeometry")).toBe(true);
     disposeModularTrackRender(rendered);
-  });
-
-  it("covers the empty inner corners without covering the racing floor", () => {
-    const built = buildModularTrack(createWorstCaseTrackDesign());
-    const rendered = createModularTrackRender(built);
-    const cap = rendered.group.getObjectByName("curve-inner-infill") as THREE.Mesh;
-    expect(cap.userData.collider).toBe(false);
-    const vertices = cap.geometry.getAttribute("position");
-    expect(vertices.count).toBeGreaterThan(0);
-    for (let index = 0; index < vertices.count; index += 3) {
-      const a = new THREE.Vector3().fromBufferAttribute(vertices, index);
-      const b = new THREE.Vector3().fromBufferAttribute(vertices, index + 1);
-      const c = new THREE.Vector3().fromBufferAttribute(vertices, index + 2);
-      expect(b.clone().sub(a).cross(c.clone().sub(a)).y).toBeGreaterThan(0);
-    }
-    for (const step of built.route.route.filter(step => built.track.cells[step.cellIndex]?.kind === "curve")) {
-      const frame = built.samples.find(sample => sample.cellIndex === step.cellIndex && sample.localU >= 0.5)!;
-      const inward = new THREE.Vector3(frame.centerlineCurvature.x, 0, frame.centerlineCurvature.z).normalize();
-      const floor = new THREE.Vector3(frame.position.x, frame.position.y, frame.position.z);
-      const ray = new THREE.Raycaster(floor.clone().add(new THREE.Vector3(0, 30, 0)), new THREE.Vector3(0, -1, 0));
-      expect(ray.intersectObject(cap)).toHaveLength(0);
-      ray.ray.origin.addScaledVector(inward, 6);
-      expect(ray.intersectObject(cap).length).toBeGreaterThan(0);
-    }
-    rendered.dispose();
   });
 
   it("keeps corner arrow tips facing forward and every vertex above the curved floor", () => {

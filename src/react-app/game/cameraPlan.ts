@@ -91,12 +91,16 @@ export const routeCameraSpeedLimit = (samples: readonly TrackSample[], distance:
   return 22 - Math.min(1, turn * 1.5) * 10;
 };
 
-export const advanceCameraRoute = (motion: { distance: number; velocity: number }, destination: number, deltaMs: number, speedLimit = 30): number => {
+export const advanceCameraRoute = (motion: { distance: number; velocity: number }, destination: number, deltaMs: number, speedLimit = 30, destinationVelocity?: number): number => {
   const dt = Math.max(0, Math.min(100, Number.isFinite(deltaMs) ? deltaMs : 0)) / 1000;
   const error = destination - motion.distance;
-  const desired = Math.sign(error) * Math.min(speedLimit, Math.abs(error) * 1.8, Math.sqrt(16 * Math.abs(error)));
+  const following = destinationVelocity !== undefined && destinationVelocity >= 0;
+  if (following && error >= 0 && motion.velocity < 0) motion.velocity = 0;
+  const brakingSpeed = following ? Math.sqrt(16 * Math.abs(error) + 64 * dt * dt) - 8 * dt : Math.sqrt(16 * Math.abs(error));
+  const desired = Math.max(-speedLimit, Math.min(speedLimit, (destinationVelocity ?? 0) + Math.sign(error) * Math.min(speedLimit, Math.abs(error) * 1.8, brakingSpeed)));
   motion.velocity += Math.max(-8 * dt, Math.min(8 * dt, desired - motion.velocity));
   motion.distance += motion.velocity * dt;
+  if (following && error < 0 && motion.distance < destination) { motion.distance = destination; motion.velocity = Math.max(0, motion.velocity); }
   return motion.distance;
 };
 
@@ -104,8 +108,8 @@ export const writeStartCameraShot = (target: CameraShot, frame: TrackSample, bou
   const halfFov = Math.min(fov * Math.PI / 360, Math.atan(Math.tan(fov * Math.PI / 360) * Math.max(0.1, aspect)));
   const distance = Math.hypot(frame.width / 2, 6) * 1.15 / Math.sin(halfFov);
   const progress = Math.max(0, Math.min(1, launchProgress));
-  const forward = 0.58 - progress * 0.12;
-  const side = 0.46 + progress * 0.1;
+  const forward = 0.46 - progress * 0.08;
+  const side = -(0.25 + progress * 0.03);
   const up = Math.sqrt(1 - forward * forward - side * side);
   for (const key of ["x", "y", "z"] as const) {
     target.lookAt[key] = frame.position[key] + frame.tangent[key] * (4 + progress) + frame.up[key] * 1.5;
